@@ -1510,46 +1510,7 @@ export default function App() {
               </div>
             </section>
           </>
-        ) : (
-          <section className="mx-auto max-w-7xl px-4 py-6">
-            <div className={`rounded-3xl border p-5 shadow-sm ${t.card}`}>
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <div className="text-2xl font-black">{lang.dashboard}</div>
-                  <div className={`mt-1 text-sm ${t.subtext}`}>{nickname} · {lang.onlyNeeded}</div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 md:flex">
-                  <button onClick={() => setActivePage("trade")} className={`rounded-2xl px-4 py-3 text-sm font-black ${activePage === "trade" ? t.main : t.input}`}>{lang.menuTrade}</button>
-                  <button onClick={() => setSellOpen(true)} className={`rounded-2xl px-4 py-3 text-sm font-black ${t.main}`}>{lang.sellRegister}</button>
-                  <button onClick={() => setActivePage("mytrades")} className={`rounded-2xl px-4 py-3 text-sm font-black ${activePage === "mytrades" ? t.main : t.input}`}>{lang.myTrades}</button>
-                  <button onClick={() => setActivePage("myinfo")} className={`rounded-2xl px-4 py-3 text-sm font-black ${activePage === "myinfo" ? t.main : t.input}`}>{lang.myInfo}</button>
-                </div>
-              </div>
-              <div className={`mt-4 grid gap-3 rounded-2xl p-4 text-sm ${t.cardSoft} md:grid-cols-4`}>
-                <div>
-                  <div className={t.muted}>{lang.currentLogin}</div>
-                  <b>{currentAdminProfile.nickname}</b>
-                </div>
-                <div>
-                  <div className={t.muted}>{lang.role}</div>
-                  <b>{currentRole}</b>
-                </div>
-                <div>
-                  <div className={t.muted}>{lang.manageRoot}</div>
-                  <b>{currentAdminProfile.managedRoot}</b>
-                </div>
-                <div>
-                  <div className={t.muted}>{lang.ratePermission}</div>
-                  <b>{currentAdminProfile.receivedRate}%</b>
-                </div>
-                <div className="md:col-span-4">
-                  <div className={t.muted}>{lang.accountStatus}</div>
-                  <b>{accountType}</b> · {mergeStatus}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
+        ) : null}
 
         {activePage === "trade" && (
           <TradeList
@@ -1574,6 +1535,10 @@ export default function App() {
             onSelectFriend={selectFriend}
             onOpenTrade={openFriendTrade}
             onOpenChat={openFriendChat}
+            onGoTrade={() => setActivePage("trade")}
+            onGoMyInfo={() => setActivePage("myinfo")}
+            onGoMyTrades={() => setActivePage("mytrades")}
+            onGoSell={() => setSellOpen(true)}
           />
         )}
         {activePage === "messenger" && (
@@ -1599,6 +1564,10 @@ export default function App() {
             onOpenTrade={openFriendTrade}
             notify={notify}
             onSendAttachment={sendFriendAttachment}
+            onGoTrade={() => setActivePage("trade")}
+            onGoMyInfo={() => setActivePage("myinfo")}
+            onGoMyTrades={() => setActivePage("mytrades")}
+            onGoSell={() => setSellOpen(true)}
           />
         )}
         {activePage === "p2p" && <P2PInfo theme={t} />}
@@ -2281,6 +2250,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [childInlineRates, setChildInlineRates] = useState({});
   const [monitorPath, setMonitorPath] = useState([]);
   const [userRateOverrides, setUserRateOverrides] = useState({});
+  const [memberUserPage, setMemberUserPage] = useState(1);
+  const [memberChildPage, setMemberChildPage] = useState(1);
   const memberTreeSectionRef = useRef(null);
   const rateValidationSectionRef = useRef(null);
   const adminActionLogSectionRef = useRef(null);
@@ -2301,6 +2272,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const selectedChildren = monitorCurrentUser
     ? fakeUsers.filter((u) => u.parent === monitorCurrentUser.id).slice(0, monitorCurrentUser.children || 0)
     : [];
+  const MEMBER_USERS_PER_PAGE = 8;
+  const MEMBER_CHILDREN_PER_PAGE = 6;
+  const memberUserTotalPages = Math.max(1, Math.ceil(visibleUsers.length / MEMBER_USERS_PER_PAGE));
+  const memberChildTotalPages = Math.max(1, Math.ceil(selectedChildren.length / MEMBER_CHILDREN_PER_PAGE));
+  const pagedVisibleUsers = visibleUsers.slice((memberUserPage - 1) * MEMBER_USERS_PER_PAGE, memberUserPage * MEMBER_USERS_PER_PAGE);
+  const pagedSelectedChildren = selectedChildren.slice((memberChildPage - 1) * MEMBER_CHILDREN_PER_PAGE, memberChildPage * MEMBER_CHILDREN_PER_PAGE);
   const monitorDirectChildrenCount = monitorChildren.length;
   const monitorDescendantCount = monitorCurrentUser ? countDescendants(monitorCurrentUser.id) : 0;
 
@@ -2403,6 +2380,22 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   function moveToHierarchyRoot() {
     moveToHierarchyDepth(0);
   }
+
+  useEffect(() => {
+    setMemberUserPage(1);
+  }, [adminUserSearch]);
+
+  useEffect(() => {
+    setMemberChildPage(1);
+  }, [monitorCurrentUser?.id]);
+
+  useEffect(() => {
+    if (memberUserPage > memberUserTotalPages) setMemberUserPage(memberUserTotalPages);
+  }, [memberUserPage, memberUserTotalPages]);
+
+  useEffect(() => {
+    if (memberChildPage > memberChildTotalPages) setMemberChildPage(memberChildTotalPages);
+  }, [memberChildPage, memberChildTotalPages]);
 
   function countDescendants(userId) {
     const children = fakeUsers.filter((u) => u.parent === userId);
@@ -3128,6 +3121,83 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     { key: "dispute", title: "분쟁/정산", desc: "다중승인, OTP 최종승인, 보관계좌 정책", color: "bg-amber-500" },
     { key: "ops", title: "감사/복구", desc: "감사리포트, 해시검증, 스냅샷/롤백/비상모드", color: "bg-emerald-600" },
   ];
+  const adminTabTitleMap = {
+    dashboard: "대시보드",
+    member: "회원관리",
+    memberOps: "회원운영",
+    security: "보안",
+    kyc: "KYC",
+    dispute: "분쟁/정산",
+    ops: "감사/복구",
+  };
+  const currentAdminStage = adminTabTitleMap[adminViewTab] || "대시보드";
+  const currentAdminFocus =
+    adminViewTab === "member"
+      ? `${monitorCurrentUser?.nickname || "-"} (${monitorCurrentUser?.id || "-"})`
+      : adminViewTab === "memberOps"
+        ? `${selectedOpsUser?.nickname || "-"} (${selectedOpsUser?.id || "-"})`
+        : adminViewTab === "security"
+          ? `${selectedSecurityUser?.nickname || "-"} (${selectedSecurityUser?.id || "-"})`
+          : adminViewTab === "kyc"
+            ? `KYC 상태: ${buyerKyc?.companyApprovalStatus || "-"}`
+            : adminViewTab === "ops"
+              ? `리스크 점수: ${opsRiskSummary?.score ?? 0}`
+              : "카테고리를 선택하세요";
+  const quickActionLabel =
+    adminViewTab === "member"
+      ? "하부 열기"
+      : adminViewTab === "memberOps"
+        ? "권한 변경"
+        : adminViewTab === "security"
+          ? "거래정지"
+          : adminViewTab === "kyc"
+            ? "KYC 승인"
+            : adminViewTab === "dispute"
+              ? "분쟁 새로고침"
+              : adminViewTab === "ops"
+                ? "리스크 점검"
+                : "카테고리 열기";
+  const quickActionDisabled =
+    (adminViewTab === "member" && !monitorCurrentUser) ||
+    (adminViewTab === "memberOps" && !selectedOpsUser) ||
+    (adminViewTab === "security" && !selectedSecurityUser);
+
+  function runAdminQuickAction() {
+    if (adminViewTab === "member") {
+      if (!monitorCurrentUser) return;
+      notify(`${monitorCurrentUser.nickname} 하부 ${selectedChildren.length}명 열기`);
+      return;
+    }
+    if (adminViewTab === "memberOps") {
+      if (!selectedOpsUser) return;
+      notify(`${selectedOpsUser.nickname} 권한 변경 화면`);
+      return;
+    }
+    if (adminViewTab === "security") {
+      if (!selectedSecurityUser) return;
+      notify(`${selectedSecurityUser.nickname} 거래 일시정지`);
+      return;
+    }
+    if (adminViewTab === "kyc") {
+      notify("KYC 승인 워크플로우로 이동");
+      return;
+    }
+    if (adminViewTab === "dispute") {
+      apiClient.request("/api/admin/disputes", { auth: true })
+        .then((data) => {
+          setDisputeCases(Array.isArray(data.disputes) ? data.disputes : []);
+          notify("분쟁 목록을 새로고침했습니다.");
+        })
+        .catch((error) => notify(error.message || "분쟁 목록 새로고침에 실패했습니다."));
+      return;
+    }
+    if (adminViewTab === "ops") {
+      loadOpsRiskSummary();
+      notify("운영 리스크를 점검합니다.");
+      return;
+    }
+    notify("카테고리를 선택하세요.");
+  }
 
   const actorNameMap = useMemo(
     () =>
@@ -3154,15 +3224,30 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
 
   return (
     <section className="mx-auto max-w-[1400px] px-4 py-6">
-      <div className={`rounded-3xl border p-4 shadow-sm md:p-6 ${theme.card}`}>
+      <div className={`rounded-3xl border p-3 shadow-sm md:p-4 ${theme.card}`}>
         <div className="mb-5">
-          <div className="text-2xl font-black">{lang.adminTitle}</div>
-          <div className={`mt-1 text-sm ${theme.subtext}`}>
+          <div className="text-xl font-black">{lang.adminTitle}</div>
+          <div className={`mt-1 text-xs ${theme.subtext}`}>
             상위 회원이 본인 하부를 누르면 가입일, 이메일, 지갑, 거래정보, 하부 리스트를 확인할 수 있습니다.
+          </div>
+          <div className={`mt-3 flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 text-xs ${theme.cardSoft}`}>
+            <span className={`rounded-full px-2 py-1 font-black text-white ${theme.main.includes("emerald") ? "bg-emerald-600" : "bg-slate-700"}`}>
+              현재 단계: {currentAdminStage}
+            </span>
+            <span className={`rounded-full border px-2 py-1 font-black ${theme.input}`}>
+              현재 정보: {currentAdminFocus}
+            </span>
+            <button
+              onClick={runAdminQuickAction}
+              disabled={quickActionDisabled}
+              className={`rounded-full border px-3 py-1 font-black ${quickActionDisabled ? "bg-slate-500 text-white" : theme.main}`}
+            >
+              바로가기: {quickActionLabel}
+            </button>
           </div>
         </div>
 
-        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-5 rounded-3xl border p-5 ${theme.cardSoft}`}>
+        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-lg font-black">관리자 메인 카테고리</div>
@@ -3186,7 +3271,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`sticky top-2 z-20 mb-5 rounded-3xl border p-3 backdrop-blur ${theme.cardSoft}`}>
+        <div className={`sticky top-2 z-20 mb-4 rounded-3xl border p-2.5 backdrop-blur ${theme.cardSoft}`}>
           <div className="grid gap-2 md:grid-cols-7">
             <button onClick={() => setAdminViewTab("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dashboard") ? theme.main : theme.input}`}>대시보드</button>
             <button onClick={() => setAdminViewTab("member")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("member") ? theme.main : theme.input}`}>회원관리</button>
@@ -3198,7 +3283,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className="space-y-5 lg:max-h-[calc(100vh-260px)] lg:overflow-y-auto lg:pr-2">
+        <div className="space-y-4">
 
         <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">
@@ -3547,7 +3632,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`${isAdminTab("member") ? "" : "hidden "}mb-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.card}`}>
           <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-xl font-black">{lang.adminStorage}</div>
@@ -3595,8 +3680,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div ref={memberTreeSectionRef} className={`${isAdminTab("member") ? "" : "hidden "}grid gap-4 md:grid-cols-[340px_minmax(0,1fr)]`}>
-          <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+        <div ref={memberTreeSectionRef} className={`${isAdminTab("member") ? "" : "hidden "}grid gap-3 md:grid-cols-[300px_minmax(0,1fr)]`}>
+          <div className={`rounded-3xl p-3 ${theme.cardSoft}`}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-lg font-black">{lang.childList}</div>
@@ -3608,16 +3693,16 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <input
               value={adminUserSearch}
               onChange={(e) => setAdminUserSearch(e.target.value)}
-              className={`mb-3 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
+              className={`mb-2 w-full rounded-2xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
               placeholder="닉네임, ID, 이메일, 지갑 검색"
             />
 
-            <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
-              {visibleUsers.map((user) => (
+            <div className="space-y-1.5">
+              {pagedVisibleUsers.map((user) => (
                 <button
                   key={user.id}
                   onClick={() => selectUser(user)}
-                  className={`w-full rounded-2xl border p-3 text-left transition ${selectedAdminUser?.id === user.id ? theme.main : theme.input}`}
+                  className={`w-full rounded-2xl border p-2.5 text-left transition ${selectedAdminUser?.id === user.id ? theme.main : theme.input}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-black">{user.nickname}</div>
@@ -3628,10 +3713,27 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 </button>
               ))}
             </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                onClick={() => setMemberUserPage((prev) => Math.max(1, prev - 1))}
+                disabled={memberUserPage <= 1}
+                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberUserPage <= 1 ? "bg-slate-500 text-white" : theme.input}`}
+              >
+                이전
+              </button>
+              <div className={`text-[11px] ${theme.muted}`}>{memberUserPage} / {memberUserTotalPages}</div>
+              <button
+                onClick={() => setMemberUserPage((prev) => Math.min(memberUserTotalPages, prev + 1))}
+                disabled={memberUserPage >= memberUserTotalPages}
+                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberUserPage >= memberUserTotalPages ? "bg-slate-500 text-white" : theme.input}`}
+              >
+                다음
+              </button>
+            </div>
           </div>
 
-          <div className="grid gap-4">
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+          <div className="grid gap-3">
+            <div className={`rounded-3xl p-3 ${theme.cardSoft}`}>
               <div className="text-lg font-black">{lang.selectedUser}</div>
 
               {monitorCurrentUser ? (
@@ -3674,7 +3776,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     </div>
                   </div>
 
-                  <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                  <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
                     <DetailBox label="닉네임" value={monitorCurrentUser.nickname} theme={theme} />
                     <DetailBox label="회원 ID" value={monitorCurrentUser.id} theme={theme} />
                     <DetailBox label="이메일" value={monitorCurrentUser.email} theme={theme} />
@@ -3685,7 +3787,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     <DetailBox label="누적 거래액" value={`$${number(monitorCurrentUser.volume)}`} theme={theme} />
                   </div>
 
-                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                  <div className="mt-3 grid gap-2 md:grid-cols-2">
                     <button
                       onClick={() => selectedChildren.length ? notify(`${monitorCurrentUser.nickname} 하부 ${selectedChildren.length}명 조회`) : notify("등록된 하부가 없습니다.")}
                       className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
@@ -3701,7 +3803,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                   </div>
 
                   {selectedChildren.length > 0 && (
-                    <div className="mt-4 rounded-3xl bg-black/10 p-4">
+                    <div className="mt-3 rounded-3xl bg-black/10 p-3">
                       <div className="mb-3 flex items-center justify-between">
                         <div className="font-black">{monitorCurrentUser.nickname}의 직접 하부</div>
                         <div className={`text-xs ${theme.muted}`}>행에서 배분율 바로 수정 + 선택 항목만 부분 일괄 적용</div>
@@ -3731,8 +3833,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                           </button>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        {selectedChildren.map((child) => (
+                      <div className="space-y-1.5">
+                        {pagedSelectedChildren.map((child) => (
                           <div
                             key={child.id}
                             className={`w-full rounded-2xl border px-3 py-2 text-left text-xs ${theme.input}`}
@@ -3776,6 +3878,23 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                             </div>
                           </div>
                         ))}
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <button
+                          onClick={() => setMemberChildPage((prev) => Math.max(1, prev - 1))}
+                          disabled={memberChildPage <= 1}
+                          className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberChildPage <= 1 ? "bg-slate-500 text-white" : theme.input}`}
+                        >
+                          이전
+                        </button>
+                        <div className={`text-[11px] ${theme.muted}`}>{memberChildPage} / {memberChildTotalPages}</div>
+                        <button
+                          onClick={() => setMemberChildPage((prev) => Math.min(memberChildTotalPages, prev + 1))}
+                          disabled={memberChildPage >= memberChildTotalPages}
+                          className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberChildPage >= memberChildTotalPages ? "bg-slate-500 text-white" : theme.input}`}
+                        >
+                          다음
+                        </button>
                       </div>
                     </div>
                   )}
@@ -4747,15 +4866,31 @@ function FriendListItem({ friend, selected, lastMessage, onClick, onOpenTrade, o
   );
 }
 
-function FriendsPage({ theme, friends, selectedFriendId, selectedFriend, friendLastMessages, roomPreview, onSelectFriend, onOpenTrade, onOpenChat }) {
+function FriendsPage({ theme, friends, selectedFriendId, selectedFriend, friendLastMessages, roomPreview, onSelectFriend, onOpenTrade, onOpenChat, onGoTrade, onGoMyInfo, onGoMyTrades, onGoSell }) {
   const selectedPreview = (roomPreview || []).slice(-2);
+  const [friendPage, setFriendPage] = useState(1);
+  const FRIENDS_PER_PAGE = 6;
+  const friendTotalPages = Math.max(1, Math.ceil((friends || []).length / FRIENDS_PER_PAGE));
+  const pagedFriends = (friends || []).slice((friendPage - 1) * FRIENDS_PER_PAGE, friendPage * FRIENDS_PER_PAGE);
+  useEffect(() => {
+    if (friendPage > friendTotalPages) setFriendPage(friendTotalPages);
+  }, [friendPage, friendTotalPages]);
+
   return (
     <section className="mx-auto max-w-7xl px-4 py-8">
       <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
-        <div className="mb-4 text-2xl font-black">친구</div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-2xl font-black">친구</div>
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <button onClick={onGoTrade} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>거래</button>
+            <button onClick={onGoSell} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>판매등록</button>
+            <button onClick={onGoMyTrades} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>내 거래</button>
+            <button onClick={onGoMyInfo} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>내정보</button>
+          </div>
+        </div>
         <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
           <div className="space-y-2">
-            {friends.map((friend) => {
+            {pagedFriends.map((friend) => {
               return (
                 <FriendListItem
                   key={friend.id}
@@ -4769,6 +4904,23 @@ function FriendsPage({ theme, friends, selectedFriendId, selectedFriend, friendL
                 />
               );
             })}
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                onClick={() => setFriendPage((prev) => Math.max(1, prev - 1))}
+                disabled={friendPage <= 1}
+                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${friendPage <= 1 ? "bg-slate-500 text-white" : theme.input}`}
+              >
+                이전
+              </button>
+              <div className={`text-[11px] ${theme.muted}`}>{friendPage} / {friendTotalPages}</div>
+              <button
+                onClick={() => setFriendPage((prev) => Math.min(friendTotalPages, prev + 1))}
+                disabled={friendPage >= friendTotalPages}
+                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${friendPage >= friendTotalPages ? "bg-slate-500 text-white" : theme.input}`}
+              >
+                다음
+              </button>
+            </div>
           </div>
           <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
             <div className="text-lg font-black">친구등록 화면 미리보기</div>
@@ -4820,6 +4972,10 @@ function FriendMessenger({
   onOpenTrade,
   notify,
   onSendAttachment,
+  onGoTrade,
+  onGoMyInfo,
+  onGoMyTrades,
+  onGoSell,
 }) {
   const endRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -4831,6 +4987,8 @@ function FriendMessenger({
   const [pendingVoiceUrl, setPendingVoiceUrl] = useState("");
   const [voiceFileSizeLimitMb] = useState(5);
   const [uploadingInfo, setUploadingInfo] = useState({ name: "", progress: 0, active: false });
+  const [friendPage, setFriendPage] = useState(1);
+  const FRIENDS_PER_PAGE = 4;
   const filteredFriends = useMemo(
     () =>
       friends
@@ -4838,6 +4996,16 @@ function FriendMessenger({
         .sort((a, b) => Number(pinnedFriendIds.includes(b.id)) - Number(pinnedFriendIds.includes(a.id))),
     [friends, friendSearch, pinnedFriendIds]
   );
+  const friendTotalPages = Math.max(1, Math.ceil(filteredFriends.length / FRIENDS_PER_PAGE));
+  const pagedFriends = filteredFriends.slice((friendPage - 1) * FRIENDS_PER_PAGE, friendPage * FRIENDS_PER_PAGE);
+
+  useEffect(() => {
+    setFriendPage(1);
+  }, [friendSearch]);
+
+  useEffect(() => {
+    if (friendPage > friendTotalPages) setFriendPage(friendTotalPages);
+  }, [friendPage, friendTotalPages]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -4959,45 +5127,71 @@ function FriendMessenger({
   }
 
   return (
-    <section className="mx-auto max-w-7xl px-4 py-8">
-      <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
-        <div className="mb-4 text-2xl font-black">메신저</div>
-        <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-          <div className="h-[640px] overflow-y-auto pr-1">
+    <section className="mx-auto h-[calc(100vh-96px)] max-w-7xl px-4 py-4">
+      <div className={`h-full overflow-hidden rounded-3xl border p-4 shadow-sm ${theme.card}`}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-2xl font-black">메신저</div>
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <button onClick={onGoTrade} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>거래</button>
+            <button onClick={onGoSell} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>판매등록</button>
+            <button onClick={onGoMyTrades} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>내 거래</button>
+            <button onClick={onGoMyInfo} className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}>내정보</button>
+          </div>
+        </div>
+        <div className="grid h-full gap-3 lg:grid-cols-[300px_1fr]">
+          <div className="pr-1">
             <input
               value={friendSearch}
               onChange={(event) => setFriendSearch(event.target.value)}
               placeholder="친구 검색 (이름/ID)"
               className={`w-full rounded-2xl border px-4 py-2 text-sm font-bold outline-none ${theme.input}`}
             />
-            <div className="mt-2 space-y-2">
-            {filteredFriends.map((friend) => {
+            <div className="mt-2 space-y-1.5">
+            {pagedFriends.map((friend) => {
               return (
-                <div key={friend.id}>
-                  <FriendListItem
-                    friend={friend}
-                    selected={selectedFriendId === friend.id}
-                    lastMessage={friendLastMessages[friend.id]}
-                    onClick={() => onSelectFriend(friend.id)}
-                    onOpenTrade={() => onOpenTrade(friend.id)}
-                    onOpenChat={() => onSelectFriend(friend.id)}
-                    theme={theme}
-                  />
+                <div key={friend.id} className={`rounded-xl border px-2.5 py-2 ${selectedFriendId === friend.id ? theme.main : theme.input}`}>
+                  <button onClick={() => onSelectFriend(friend.id)} className="w-full text-left">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-xs font-black">{friend.nickname}</div>
+                      <span className={`h-2 w-2 rounded-full ${friend.online ? "bg-emerald-400" : "bg-slate-500"}`} />
+                    </div>
+                    <div className="mt-1 truncate text-[10px] opacity-75">{friendLastMessages[friend.id] || "대화 없음"}</div>
+                  </button>
                   <div className="mt-1 flex gap-1">
-                    <button onClick={() => togglePinned(friend.id)} className={`rounded-lg px-2 py-1 text-[10px] font-black ${pinnedFriendIds.includes(friend.id) ? "bg-amber-500 text-white" : theme.input}`}>
-                      {pinnedFriendIds.includes(friend.id) ? "고정됨" : "고정"}
+                    <button onClick={() => togglePinned(friend.id)} className={`rounded-md px-2 py-0.5 text-[10px] font-black ${pinnedFriendIds.includes(friend.id) ? "bg-amber-500 text-white" : theme.input}`}>
+                      고정
                     </button>
-                    <button onClick={() => toggleMuted(friend.id)} className={`rounded-lg px-2 py-1 text-[10px] font-black ${mutedFriendIds.includes(friend.id) ? "bg-slate-600 text-white" : theme.input}`}>
-                      {mutedFriendIds.includes(friend.id) ? "음소거중" : "음소거"}
+                    <button onClick={() => toggleMuted(friend.id)} className={`rounded-md px-2 py-0.5 text-[10px] font-black ${mutedFriendIds.includes(friend.id) ? "bg-slate-600 text-white" : theme.input}`}>
+                      음소거
+                    </button>
+                    <button onClick={() => onOpenTrade(friend.id)} className="rounded-md bg-blue-600 px-2 py-0.5 text-[10px] font-black text-white">
+                      거래
                     </button>
                   </div>
                 </div>
               );
             })}
             </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <button
+                onClick={() => setFriendPage((prev) => Math.max(1, prev - 1))}
+                disabled={friendPage <= 1}
+                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${friendPage <= 1 ? "bg-slate-500 text-white" : theme.input}`}
+              >
+                이전
+              </button>
+              <div className={`text-[11px] ${theme.muted}`}>{friendPage} / {friendTotalPages}</div>
+              <button
+                onClick={() => setFriendPage((prev) => Math.min(friendTotalPages, prev + 1))}
+                disabled={friendPage >= friendTotalPages}
+                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${friendPage >= friendTotalPages ? "bg-slate-500 text-white" : theme.input}`}
+              >
+                다음
+              </button>
+            </div>
           </div>
 
-          <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+          <div className={`rounded-3xl p-3 ${theme.cardSoft} flex h-full flex-col overflow-hidden`}>
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <div className="text-lg font-black">{selectedFriend?.nickname || "친구를 선택하세요."}</div>
@@ -5011,7 +5205,7 @@ function FriendMessenger({
               </button>
             </div>
 
-            <div className="h-[640px] space-y-1.5 overflow-y-auto rounded-2xl bg-black/10 p-3">
+            <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto rounded-2xl bg-black/10 p-3">
               {messages.length ? (
                 messages.map((message) => (
                   <div key={message.id} className={`max-w-[86%] rounded-2xl px-3 py-1.5 text-xs leading-5 ${message.sender === "me" ? "ml-auto bg-emerald-600 text-white" : "bg-slate-700 text-white"}`}>
