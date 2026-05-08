@@ -49,6 +49,56 @@ db.exec(`
 `);
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS user_wallets (
+    user_id INTEGER PRIMARY KEY,
+    wallet_provider TEXT NOT NULL DEFAULT '',
+    wallet_address TEXT NOT NULL DEFAULT '',
+    connected_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_financial_accounts (
+    user_id INTEGER PRIMARY KEY,
+    available_balance REAL NOT NULL DEFAULT 0,
+    referral_earnings_total REAL NOT NULL DEFAULT 0,
+    pending_withdrawal REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS company_wallet (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    wallet_label TEXT NOT NULL DEFAULT 'TG-COMPANY-HQ-WALLET',
+    wallet_address TEXT NOT NULL DEFAULT '0xTGCOMPANY0001',
+    available_balance REAL NOT NULL DEFAULT 1000000,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS withdrawal_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    amount REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    destination_wallet_provider TEXT NOT NULL DEFAULT '',
+    destination_wallet_address TEXT NOT NULL DEFAULT '',
+    request_note TEXT NOT NULL DEFAULT '',
+    requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processed_at TEXT,
+    processed_by_user_id INTEGER,
+    company_wallet_tx_id TEXT NOT NULL DEFAULT '',
+    reject_reason TEXT NOT NULL DEFAULT '',
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS kyc_profiles (
     user_id INTEGER PRIMARY KEY,
     real_name TEXT DEFAULT '',
@@ -255,10 +305,16 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_events_occurred_at ON admin_webh
 db.exec("CREATE INDEX IF NOT EXISTS idx_dispute_approvals_dispute_approved ON dispute_approvals(dispute_id, approved_at DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_audit_report_hashes_created ON audit_report_hashes(created_at DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_ops_snapshots_created ON ops_snapshots(created_at DESC)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_user_requested ON withdrawal_requests(user_id, requested_at DESC)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_status_requested ON withdrawal_requests(status, requested_at DESC)");
 
 const OPS_SNAPSHOT_TABLES = [
   "users",
   "refresh_tokens",
+  "user_wallets",
+  "user_financial_accounts",
+  "company_wallet",
+  "withdrawal_requests",
   "kyc_profiles",
   "escrow_policy",
   "escrow_policy_approvers",
@@ -354,6 +410,13 @@ const securityRow = db.prepare("SELECT id FROM escrow_security WHERE id = 1").ge
 if (!securityRow) {
   const defaultPinHash = bcrypt.hashSync("123456", 10);
   db.prepare("INSERT INTO escrow_security (id, main_final_approval_pin_hash) VALUES (1, ?)").run(defaultPinHash);
+}
+const companyWalletRow = db.prepare("SELECT id FROM company_wallet WHERE id = 1").get();
+if (!companyWalletRow) {
+  db.prepare(`
+    INSERT INTO company_wallet (id, wallet_label, wallet_address, available_balance, updated_at)
+    VALUES (1, 'TG-COMPANY-HQ-WALLET', '0xTGCOMPANY0001', 1000000, CURRENT_TIMESTAMP)
+  `).run();
 }
 const defaultFeatures = [
   "trade",
@@ -563,6 +626,30 @@ function getKycProfile(userId) {
   };
 }
 
+function getOrCreateFinancialAccount(userId) {
+  let row = db.prepare("SELECT * FROM user_financial_accounts WHERE user_id = ?").get(userId);
+  if (!row) {
+    db.prepare(`
+      INSERT INTO user_financial_accounts (user_id, available_balance, referral_earnings_total, pending_withdrawal, updated_at)
+      VALUES (?, 0, 0, 0, CURRENT_TIMESTAMP)
+    `).run(userId);
+    row = db.prepare("SELECT * FROM user_financial_accounts WHERE user_id = ?").get(userId);
+  }
+  return row;
+}
+
+function getUserWallet(userId) {
+  let row = db.prepare("SELECT * FROM user_wallets WHERE user_id = ?").get(userId);
+  if (!row) {
+    db.prepare(`
+      INSERT INTO user_wallets (user_id, wallet_provider, wallet_address, connected_at, updated_at)
+      VALUES (?, '', '', NULL, CURRENT_TIMESTAMP)
+    `).run(userId);
+    row = db.prepare("SELECT * FROM user_wallets WHERE user_id = ?").get(userId);
+  }
+  return row;
+}
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
@@ -589,6 +676,8 @@ app.post("/api/auth/signup", (req, res) => {
 
   const passwordHash = bcrypt.hashSync(password, 10);
   const user = userRepo.create({ email, passwordHash, nickname, role: "일반회원" });
+  getOrCreateFinancialAccount(user.id);
+  getUserWallet(user.id);
   const tokens = issueTokens(user);
   res.status(201).json({ ...tokens, user });
 });
@@ -651,6 +740,104 @@ app.post("/api/auth/logout", (req, res) => {
 app.get("/api/kyc/me", authRequired, (req, res) => {
   const profile = getKycProfile(req.user.id);
   res.json({ profile });
+});
+
+app.get("/api/wallet/me", authRequired, (req, res) => {
+  const wallet = getUserWallet(req.user.id);
+  res.json({
+    wallet: {
+      provider: wallet.wallet_provider || "",
+      address: wallet.wallet_address || "",
+      connectedAt: wallet.connected_at || "",
+      updatedAt: wallet.updated_at || "",
+    },
+  });
+});
+
+app.put("/api/wallet/me/connect", authRequired, (req, res) => {
+  const provider = String(req.body?.provider || "").trim();
+  const address = String(req.body?.address || "").trim();
+  if (!provider) return res.status(400).json({ message: "지갑 제공자를 입력하세요." });
+  if (address.length < 6) return res.status(400).json({ message: "유효한 지갑 주소를 입력하세요." });
+  db.prepare(`
+    INSERT INTO user_wallets (user_id, wallet_provider, wallet_address, connected_at, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET
+      wallet_provider = excluded.wallet_provider,
+      wallet_address = excluded.wallet_address,
+      connected_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(req.user.id, provider, address);
+  const wallet = getUserWallet(req.user.id);
+  res.json({
+    wallet: {
+      provider: wallet.wallet_provider || "",
+      address: wallet.wallet_address || "",
+      connectedAt: wallet.connected_at || "",
+      updatedAt: wallet.updated_at || "",
+    },
+  });
+});
+
+app.get("/api/finance/me", authRequired, (req, res) => {
+  const account = getOrCreateFinancialAccount(req.user.id);
+  const wallet = getUserWallet(req.user.id);
+  const recentWithdrawals = db.prepare(`
+    SELECT id, amount, status, destination_wallet_provider, destination_wallet_address, request_note, requested_at, processed_at, company_wallet_tx_id, reject_reason
+    FROM withdrawal_requests
+    WHERE user_id = ?
+    ORDER BY requested_at DESC
+    LIMIT 20
+  `).all(req.user.id);
+  res.json({
+    account: {
+      availableBalance: Number(account.available_balance || 0),
+      referralEarningsTotal: Number(account.referral_earnings_total || 0),
+      pendingWithdrawal: Number(account.pending_withdrawal || 0),
+      updatedAt: account.updated_at || "",
+    },
+    wallet: {
+      provider: wallet.wallet_provider || "",
+      address: wallet.wallet_address || "",
+    },
+    withdrawals: recentWithdrawals,
+  });
+});
+
+app.post("/api/finance/withdrawals", authRequired, (req, res) => {
+  const amount = Number(req.body?.amount || 0);
+  const note = String(req.body?.note || "").trim();
+  const account = getOrCreateFinancialAccount(req.user.id);
+  const wallet = getUserWallet(req.user.id);
+  if (!wallet.wallet_address) {
+    return res.status(400).json({ message: "출금 전에 지갑을 먼저 연결하세요." });
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ message: "출금 금액을 올바르게 입력하세요." });
+  }
+  if (amount > Number(account.available_balance || 0)) {
+    return res.status(400).json({ message: "출금 가능 잔고를 초과했습니다." });
+  }
+  const result = db.prepare(`
+    INSERT INTO withdrawal_requests (
+      user_id, amount, status, destination_wallet_provider, destination_wallet_address, request_note, requested_at
+    ) VALUES (?, ?, 'pending', ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(req.user.id, amount, wallet.wallet_provider || "", wallet.wallet_address || "", note);
+  db.prepare(`
+    UPDATE user_financial_accounts
+    SET available_balance = available_balance - ?, pending_withdrawal = pending_withdrawal + ?, updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ?
+  `).run(amount, amount, req.user.id);
+  const updated = getOrCreateFinancialAccount(req.user.id);
+  res.status(201).json({
+    requestId: Number(result.lastInsertRowid),
+    message: "출금 신청이 접수되었습니다. 회사 지갑에서 순차 처리됩니다.",
+    account: {
+      availableBalance: Number(updated.available_balance || 0),
+      referralEarningsTotal: Number(updated.referral_earnings_total || 0),
+      pendingWithdrawal: Number(updated.pending_withdrawal || 0),
+    },
+  });
 });
 
 app.post("/api/kyc/me/submit", authRequired, (req, res) => {
@@ -913,6 +1100,130 @@ app.get("/api/admin/kyc/documents/:docId/access-logs/verify", authRequired, admi
 app.get("/api/admin/users", authRequired, (_req, res) => {
   const users = userRepo.listPublic();
   res.json({ users });
+});
+
+app.get("/api/admin/finance/withdrawals", authRequired, adminRequired, (req, res) => {
+  const status = String(req.query?.status || "all");
+  const rows = db.prepare(`
+    SELECT
+      wr.id,
+      wr.user_id,
+      wr.amount,
+      wr.status,
+      wr.destination_wallet_provider,
+      wr.destination_wallet_address,
+      wr.request_note,
+      wr.requested_at,
+      wr.processed_at,
+      wr.processed_by_user_id,
+      wr.company_wallet_tx_id,
+      wr.reject_reason,
+      u.email AS user_email,
+      u.nickname AS user_nickname
+    FROM withdrawal_requests wr
+    LEFT JOIN users u ON u.id = wr.user_id
+    WHERE (? = 'all' OR wr.status = ?)
+    ORDER BY wr.requested_at DESC
+    LIMIT 100
+  `).all(status, status);
+  const companyWallet = db.prepare("SELECT wallet_label, wallet_address, available_balance, updated_at FROM company_wallet WHERE id = 1").get();
+  res.json({ withdrawals: rows, companyWallet });
+});
+
+app.post("/api/admin/finance/withdrawals/:id/process", authRequired, adminRequired, (req, res) => {
+  const requestId = Number(req.params.id);
+  const approve = Boolean(req.body?.approve);
+  const rejectReason = String(req.body?.rejectReason || "").trim();
+  const row = db.prepare("SELECT * FROM withdrawal_requests WHERE id = ?").get(requestId);
+  if (!row) return res.status(404).json({ message: "출금 신청을 찾을 수 없습니다." });
+  if (row.status !== "pending") return res.status(400).json({ message: "대기중 신청만 처리할 수 있습니다." });
+  const amount = Number(row.amount || 0);
+  const companyWallet = db.prepare("SELECT * FROM company_wallet WHERE id = 1").get();
+
+  const tx = db.transaction(() => {
+    if (approve) {
+      if (Number(companyWallet.available_balance || 0) < amount) {
+        throw new Error("회사 지갑 잔고가 부족합니다.");
+      }
+      const txId = `COMPANY-TX-${Date.now()}-${requestId}`;
+      db.prepare(`
+        UPDATE withdrawal_requests
+        SET status = 'approved',
+            processed_at = CURRENT_TIMESTAMP,
+            processed_by_user_id = ?,
+            company_wallet_tx_id = ?,
+            reject_reason = ''
+        WHERE id = ?
+      `).run(req.user.id, txId, requestId);
+      db.prepare(`
+        UPDATE user_financial_accounts
+        SET pending_withdrawal = CASE WHEN pending_withdrawal >= ? THEN pending_withdrawal - ? ELSE 0 END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?
+      `).run(amount, amount, row.user_id);
+      db.prepare(`
+        UPDATE company_wallet
+        SET available_balance = available_balance - ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1
+      `).run(amount);
+      return txId;
+    }
+    if (!rejectReason) {
+      throw new Error("반려 사유를 입력하세요.");
+    }
+    db.prepare(`
+      UPDATE withdrawal_requests
+      SET status = 'rejected',
+          processed_at = CURRENT_TIMESTAMP,
+          processed_by_user_id = ?,
+          reject_reason = ?
+      WHERE id = ?
+    `).run(req.user.id, rejectReason, requestId);
+    db.prepare(`
+      UPDATE user_financial_accounts
+      SET available_balance = available_balance + ?,
+          pending_withdrawal = CASE WHEN pending_withdrawal >= ? THEN pending_withdrawal - ? ELSE 0 END,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = ?
+    `).run(amount, amount, amount, row.user_id);
+    return "";
+  });
+
+  try {
+    const txId = tx();
+    const updated = db.prepare("SELECT * FROM withdrawal_requests WHERE id = ?").get(requestId);
+    res.json({
+      message: approve ? "회사 지갑에서 출금 처리를 완료했습니다." : "출금 신청이 반려되었고 잔고가 복구되었습니다.",
+      withdrawal: updated,
+      txId,
+    });
+  } catch (error) {
+    return res.status(400).json({ message: error.message || "출금 처리에 실패했습니다." });
+  }
+});
+
+app.post("/api/admin/finance/users/:userId/referral-credit", authRequired, adminRequired, (req, res) => {
+  const userId = Number(req.params.userId);
+  const amount = Number(req.body?.amount || 0);
+  if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ message: "유효한 회원 ID가 필요합니다." });
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "유효한 수익 금액을 입력하세요." });
+  getOrCreateFinancialAccount(userId);
+  db.prepare(`
+    UPDATE user_financial_accounts
+    SET available_balance = available_balance + ?,
+        referral_earnings_total = referral_earnings_total + ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ?
+  `).run(amount, amount, userId);
+  const account = getOrCreateFinancialAccount(userId);
+  res.json({
+    message: "레퍼럴 수익이 잔고에 반영되었습니다.",
+    account: {
+      availableBalance: Number(account.available_balance || 0),
+      referralEarningsTotal: Number(account.referral_earnings_total || 0),
+      pendingWithdrawal: Number(account.pending_withdrawal || 0),
+    },
+  });
 });
 
 app.get("/api/features", authRequired, (_req, res) => {

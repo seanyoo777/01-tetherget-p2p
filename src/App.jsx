@@ -193,6 +193,111 @@ const initialFriends = [
     sellPrice: 0,
     sellCurrency: "KRW",
   },
+  {
+    id: "FR-004",
+    nickname: "USDT마스터",
+    level: "Lv.3",
+    status: "거래매칭",
+    online: true,
+    unread: 3,
+    instantRelease: true,
+    delayedRelease: false,
+    selling: true,
+    sellAmount: 650,
+    sellCoin: "USDT",
+    sellPrice: 1391,
+    sellCurrency: "KRW",
+  },
+  {
+    id: "FR-005",
+    nickname: "KRW데스크",
+    level: "Lv.4",
+    status: "완전매칭",
+    online: false,
+    unread: 0,
+    instantRelease: true,
+    delayedRelease: false,
+    selling: true,
+    sellAmount: 2000,
+    sellCoin: "USDT",
+    sellPrice: 1390,
+    sellCurrency: "KRW",
+  },
+  {
+    id: "FR-006",
+    nickname: "베트남파트너",
+    level: "Lv.2",
+    status: "친구요청",
+    online: true,
+    unread: 1,
+    instantRelease: false,
+    delayedRelease: true,
+    selling: false,
+    sellAmount: 0,
+    sellCoin: "USDT",
+    sellPrice: 0,
+    sellCurrency: "VND",
+  },
+  {
+    id: "FR-007",
+    nickname: "BTC브로커",
+    level: "Lv.5",
+    status: "완전매칭",
+    online: true,
+    unread: 4,
+    instantRelease: true,
+    delayedRelease: false,
+    selling: true,
+    sellAmount: 2,
+    sellCoin: "BTC",
+    sellPrice: 90000000,
+    sellCurrency: "KRW",
+  },
+  {
+    id: "FR-008",
+    nickname: "ETH센터",
+    level: "Lv.3",
+    status: "거래매칭",
+    online: false,
+    unread: 0,
+    instantRelease: true,
+    delayedRelease: false,
+    selling: true,
+    sellAmount: 25,
+    sellCoin: "ETH",
+    sellPrice: 4300000,
+    sellCurrency: "KRW",
+  },
+  {
+    id: "FR-009",
+    nickname: "솔라파트너",
+    level: "Lv.4",
+    status: "거래매칭",
+    online: true,
+    unread: 2,
+    instantRelease: true,
+    delayedRelease: false,
+    selling: true,
+    sellAmount: 120,
+    sellCoin: "SOL",
+    sellPrice: 238000,
+    sellCurrency: "KRW",
+  },
+  {
+    id: "FR-010",
+    nickname: "신규거래회원",
+    level: "Lv.1",
+    status: "친구요청",
+    online: false,
+    unread: 0,
+    instantRelease: false,
+    delayedRelease: true,
+    selling: false,
+    sellAmount: 0,
+    sellCoin: "USDT",
+    sellPrice: 0,
+    sellCurrency: "KRW",
+  },
 ];
 
 const initialChatRooms = {
@@ -206,6 +311,27 @@ const initialChatRooms = {
   ],
   "FR-003": [
     { id: "FR-003-MSG-1", sender: "friend", text: "친구 승인 부탁드립니다.", deleted: false, createdAt: "17:28" },
+  ],
+  "FR-004": [
+    { id: "FR-004-MSG-1", sender: "friend", text: "빠른 거래 가능합니다.", deleted: false, createdAt: "16:22" },
+  ],
+  "FR-005": [
+    { id: "FR-005-MSG-1", sender: "friend", text: "대량 거래도 처리 가능합니다.", deleted: false, createdAt: "15:11" },
+  ],
+  "FR-006": [
+    { id: "FR-006-MSG-1", sender: "friend", text: "친구 승인 대기 중입니다.", deleted: false, createdAt: "14:05" },
+  ],
+  "FR-007": [
+    { id: "FR-007-MSG-1", sender: "friend", text: "BTC 오늘 변동성 큽니다.", deleted: false, createdAt: "13:40" },
+  ],
+  "FR-008": [
+    { id: "FR-008-MSG-1", sender: "friend", text: "ETH 매도 가능 수량 있습니다.", deleted: false, createdAt: "12:58" },
+  ],
+  "FR-009": [
+    { id: "FR-009-MSG-1", sender: "friend", text: "SOL 즉시 체결 가능해요.", deleted: false, createdAt: "11:24" },
+  ],
+  "FR-010": [
+    { id: "FR-010-MSG-1", sender: "friend", text: "먼저 친구 요청 확인 부탁드립니다.", deleted: false, createdAt: "10:09" },
   ],
 };
 
@@ -372,6 +498,11 @@ export default function App() {
   const [adminMediaFriendFilter, setAdminMediaFriendFilter] = useState("전체");
   const [adminActionLogs, setAdminActionLogs] = useState([]);
   const [sellerDepositNotice, setSellerDepositNotice] = useState(defaultSellerDepositNotice);
+  const [walletAccount, setWalletAccount] = useState({ provider: "", address: "", connectedAt: "", updatedAt: "" });
+  const [financeAccount, setFinanceAccount] = useState({ availableBalance: 0, referralEarningsTotal: 0, pendingWithdrawal: 0, updatedAt: "" });
+  const [withdrawRequests, setWithdrawRequests] = useState([]);
+  const [withdrawAmountInput, setWithdrawAmountInput] = useState("");
+  const [withdrawNoteInput, setWithdrawNoteInput] = useState("");
   const [escrowPolicy, setEscrowPolicy] = useState({
     mainCustodyAccount: "TG-COMPANY-CUSTODY-001",
     requiredApprovals: 3,
@@ -477,6 +608,25 @@ export default function App() {
   }, [authToken, apiClient]);
 
   useEffect(() => {
+    if (!authToken) return;
+    apiClient.request("/api/wallet/me", { auth: true })
+      .then((data) => {
+        if (data?.wallet) setWalletAccount(data.wallet);
+      })
+      .catch(() => {});
+    apiClient.request("/api/finance/me", { auth: true })
+      .then((data) => {
+        if (data?.account) setFinanceAccount(data.account);
+        if (Array.isArray(data?.withdrawals)) setWithdrawRequests(data.withdrawals);
+        if (data?.wallet?.address) {
+          setLinkedWallet(data.wallet.address);
+          setWalletAccount((prev) => ({ ...prev, ...data.wallet }));
+        }
+      })
+      .catch(() => {});
+  }, [authToken, apiClient, setLinkedWallet]);
+
+  useEffect(() => {
     let mounted = true;
     async function loadRuntimeState() {
       try {
@@ -576,6 +726,54 @@ export default function App() {
       notify("로그인 완료");
     } catch (error) {
       notify(error.message || "인증 서버 연결에 실패했습니다. API 서버를 실행하세요.");
+    }
+  }
+
+  async function connectMyWallet(provider, address) {
+    if (!authToken) {
+      notify("로그인이 필요합니다.");
+      return;
+    }
+    try {
+      const data = await apiClient.request("/api/wallet/me/connect", {
+        method: "PUT",
+        auth: true,
+        body: JSON.stringify({ provider, address }),
+      });
+      if (data?.wallet) {
+        setWalletAccount(data.wallet);
+        setLinkedWallet(data.wallet.address || "");
+      }
+      notify("지갑 연결이 완료되었습니다.");
+    } catch (error) {
+      notify(error.message || "지갑 연결에 실패했습니다.");
+    }
+  }
+
+  async function requestWithdrawal() {
+    if (!authToken) {
+      notify("로그인이 필요합니다.");
+      return;
+    }
+    const amount = Number(withdrawAmountInput || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify("출금 금액을 입력하세요.");
+      return;
+    }
+    try {
+      await apiClient.request("/api/finance/withdrawals", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ amount, note: withdrawNoteInput }),
+      });
+      const financeData = await apiClient.request("/api/finance/me", { auth: true });
+      if (financeData?.account) setFinanceAccount(financeData.account);
+      if (Array.isArray(financeData?.withdrawals)) setWithdrawRequests(financeData.withdrawals);
+      setWithdrawAmountInput("");
+      setWithdrawNoteInput("");
+      notify("출금 신청이 접수되었습니다. 회사 지갑에서 처리됩니다.");
+    } catch (error) {
+      notify(error.message || "출금 신청에 실패했습니다.");
     }
   }
 
@@ -1363,7 +1561,7 @@ export default function App() {
             buyerKyc={buyerKyc}
           />
         )}
-        {activePage === "myinfo" && <MyInfo nickname={nickname} setNickname={setNickname} bankRegistered={bankRegistered} setBankRegistered={setBankRegistered} buyerKyc={buyerKyc} setBuyerKyc={setBuyerKyc} apiClient={apiClient} myInfoTab={myInfoTab} setMyInfoTab={setMyInfoTab} showReferral={showReferral} setShowReferral={setShowReferral} theme={t} notify={notify} linkedGoogle={linkedGoogle} setLinkedGoogle={setLinkedGoogle} linkedWallet={linkedWallet} setLinkedWallet={setLinkedWallet} linkedReferral={linkedReferral} mergeStatus={mergeStatus} setMergeStatus={setMergeStatus} googleEmail={googleEmail} phantomWallet={phantomWallet} />}
+        {activePage === "myinfo" && <MyInfo nickname={nickname} setNickname={setNickname} bankRegistered={bankRegistered} setBankRegistered={setBankRegistered} buyerKyc={buyerKyc} setBuyerKyc={setBuyerKyc} apiClient={apiClient} myInfoTab={myInfoTab} setMyInfoTab={setMyInfoTab} showReferral={showReferral} setShowReferral={setShowReferral} theme={t} notify={notify} linkedGoogle={linkedGoogle} setLinkedGoogle={setLinkedGoogle} linkedWallet={linkedWallet} setLinkedWallet={setLinkedWallet} linkedReferral={linkedReferral} mergeStatus={mergeStatus} setMergeStatus={setMergeStatus} googleEmail={googleEmail} phantomWallet={phantomWallet} walletAccount={walletAccount} financeAccount={financeAccount} withdrawRequests={withdrawRequests} withdrawAmountInput={withdrawAmountInput} setWithdrawAmountInput={setWithdrawAmountInput} withdrawNoteInput={withdrawNoteInput} setWithdrawNoteInput={setWithdrawNoteInput} onConnectWallet={connectMyWallet} onRequestWithdrawal={requestWithdrawal} />}
         {activePage === "mytrades" && <MyTradesOnly theme={t} notify={notify} />}
         {activePage === "friends" && (
           <FriendsPage
@@ -1419,7 +1617,7 @@ function Modal({ title, desc, onClose, theme, children }) {
       <div className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl ${theme.card}`}>
         <div className="flex items-start justify-between gap-4">
           <div><div className="text-2xl font-black">{title}</div><div className={`mt-1 text-sm ${theme.subtext}`}>{desc}</div></div>
-          <button onClick={onClose} className={`rounded-xl border px-3 py-2 text-sm font-black ${theme.input}`}>닫기</button>
+          <button onClick={onClose} className={`rounded-xl border px-3 py-2 text-sm font-black whitespace-nowrap ${theme.input}`}>닫기</button>
         </div>
         <div className="mt-5 grid gap-3">{children}</div>
       </div>
@@ -1758,12 +1956,12 @@ function MyPage({ nickname, setNickname, bankRegistered, setBankRegistered, them
   );
 }
 
-function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buyerKyc, setBuyerKyc, apiClient, myInfoTab, setMyInfoTab, showReferral, setShowReferral, theme, notify, linkedGoogle, setLinkedGoogle, linkedWallet, setLinkedWallet, linkedReferral, mergeStatus, setMergeStatus, googleEmail, phantomWallet }) {
+function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buyerKyc, setBuyerKyc, apiClient, myInfoTab, setMyInfoTab, showReferral, setShowReferral, theme, notify, linkedGoogle, setLinkedGoogle, linkedWallet, setLinkedWallet, linkedReferral, mergeStatus, setMergeStatus, googleEmail, phantomWallet, walletAccount, financeAccount, withdrawRequests, withdrawAmountInput, setWithdrawAmountInput, withdrawNoteInput, setWithdrawNoteInput, onConnectWallet, onRequestWithdrawal }) {
   const [idDocFile, setIdDocFile] = useState(null);
   const [bankDocFile, setBankDocFile] = useState(null);
-  const tabs = ["기본정보", "계정연결", "지갑", "계좌", "레퍼럴"];
+  const tabs = ["기본정보", "계정연결", "지갑", "잔고/출금", "계좌", "레퍼럴"];
   return (
-    <section className="mx-auto max-w-7xl px-4 py-8">
+    <section className="mx-auto w-full max-w-[1400px] px-3 py-8 lg:px-4">
       <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
         <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
@@ -1816,8 +2014,64 @@ function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buye
 
         {myInfoTab === "지갑" && (
           <div className="grid gap-3 md:grid-cols-2">
-            <Box label="등록 지갑" value={linkedWallet || "8xA2...9QpL"} theme={theme} />
-            <button onClick={() => notify("지갑 변경 기능 실행")} className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>지갑 변경</button>
+            <Box label="등록 지갑" value={walletAccount?.address || linkedWallet || "미연결"} theme={theme} />
+            <Box label="지갑 제공자" value={walletAccount?.provider || "미지정"} theme={theme} />
+            <button onClick={() => onConnectWallet("Phantom", phantomWallet)} className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>Phantom 지갑 연결</button>
+            <button onClick={() => onConnectWallet("MetaMask", phantomWallet)} className={`rounded-2xl border px-4 py-3 text-sm font-black ${theme.input}`}>MetaMask로 변경 연결</button>
+          </div>
+        )}
+
+        {myInfoTab === "잔고/출금" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <Box label="내 잔고" value={`${number(financeAccount?.availableBalance || 0)} USDT`} theme={theme} />
+            <Box label="누적 레퍼럴 수익" value={`${number(financeAccount?.referralEarningsTotal || 0)} USDT`} theme={theme} />
+            <Box label="출금 대기" value={`${number(financeAccount?.pendingWithdrawal || 0)} USDT`} theme={theme} />
+            <Box label="출금 지갑" value={walletAccount?.address || "지갑 미연결"} theme={theme} />
+            <label className={`rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div className={`text-xs ${theme.muted}`}>출금 금액 (USDT)</div>
+              <input
+                value={withdrawAmountInput}
+                onChange={(e) => setWithdrawAmountInput(e.target.value)}
+                className="mt-1 w-full bg-transparent font-black outline-none"
+                placeholder="예: 120"
+              />
+            </label>
+            <label className={`rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div className={`text-xs ${theme.muted}`}>출금 메모</div>
+              <input
+                value={withdrawNoteInput}
+                onChange={(e) => setWithdrawNoteInput(e.target.value)}
+                className="mt-1 w-full bg-transparent font-black outline-none"
+                placeholder="예: 레퍼럴 수익 정산"
+              />
+            </label>
+            <button
+              onClick={onRequestWithdrawal}
+              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+            >
+              출금 신청 (회사 지갑 처리)
+            </button>
+            <div className={`rounded-2xl border p-4 text-xs ${theme.input}`}>
+              출금 신청 시 회사 지갑에서 검토 후 순차 출금됩니다.
+            </div>
+            <div className="md:col-span-2">
+              <div className="mb-2 text-sm font-black">최근 출금 신청</div>
+              <div className="space-y-2">
+                {(withdrawRequests || []).slice(0, 6).map((item) => (
+                  <div key={item.id} className={`rounded-2xl border p-3 text-xs ${theme.input}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-black">#{item.id} · {number(item.amount)} USDT</div>
+                      <span className={`rounded-full px-2 py-1 text-[11px] font-black ${item.status === "approved" ? "bg-emerald-600 text-white" : item.status === "rejected" ? "bg-red-600 text-white" : "bg-amber-500 text-white"}`}>
+                        {item.status}
+                      </span>
+                    </div>
+                    <div className={`mt-1 ${theme.muted}`}>{item.destination_wallet_provider} · {item.destination_wallet_address}</div>
+                    <div className={`mt-1 ${theme.muted}`}>{item.requested_at}{item.company_wallet_tx_id ? ` · tx ${item.company_wallet_tx_id}` : ""}</div>
+                  </div>
+                ))}
+                {!withdrawRequests?.length && <div className={`rounded-2xl border p-3 text-xs ${theme.input}`}>아직 출금 신청 내역이 없습니다.</div>}
+              </div>
+            </div>
           </div>
         )}
 
@@ -2001,6 +2255,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     generatedAt: "",
   });
   const [opsActionLoading, setOpsActionLoading] = useState("");
+  const [adminViewTab, setAdminViewTab] = useState("dashboard");
+  const [selectedOpsUserId, setSelectedOpsUserId] = useState("");
+  const [selectedSecurityUserId, setSelectedSecurityUserId] = useState("");
   const [opsSnapshots, setOpsSnapshots] = useState([]);
   const [opsSnapshotLabel, setOpsSnapshotLabel] = useState("");
   const [opsSnapshotReason, setOpsSnapshotReason] = useState("");
@@ -2018,8 +2275,16 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [emergencyReasonInput, setEmergencyReasonInput] = useState("");
   const [emergencyEtaInput, setEmergencyEtaInput] = useState("");
   const [emergencyLoading, setEmergencyLoading] = useState(false);
+  const [selectedChildRateInput, setSelectedChildRateInput] = useState("");
+  const [selectedChildIds, setSelectedChildIds] = useState([]);
+  const [bulkChildRateInput, setBulkChildRateInput] = useState("");
+  const [childInlineRates, setChildInlineRates] = useState({});
   const [monitorPath, setMonitorPath] = useState([]);
   const [userRateOverrides, setUserRateOverrides] = useState({});
+  const memberTreeSectionRef = useRef(null);
+  const rateValidationSectionRef = useRef(null);
+  const adminActionLogSectionRef = useRef(null);
+  const hierarchyPathSectionRef = useRef(null);
   const lang = useLang();
   const visibleUsers = fakeUsers
     .filter((u) => `${u.id} ${u.nickname} ${u.email} ${u.wallet} ${u.parent}`.toLowerCase().includes(adminUserSearch.toLowerCase()))
@@ -2030,12 +2295,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const marginRate = Math.max(received - childRate, 0);
   const invalidRate = childRate > received;
 
-  const selectedChildren = selectedAdminUser
-    ? fakeUsers.filter((u) => u.parent === selectedAdminUser.id).slice(0, selectedAdminUser.children || 0)
-    : [];
   const monitorCurrentId = monitorPath[monitorPath.length - 1] || selectedAdminUser?.id || "";
   const monitorCurrentUser = fakeUsers.find((u) => u.id === monitorCurrentId) || selectedAdminUser || null;
   const monitorChildren = monitorCurrentUser ? fakeUsers.filter((u) => u.parent === monitorCurrentUser.id) : [];
+  const selectedChildren = monitorCurrentUser
+    ? fakeUsers.filter((u) => u.parent === monitorCurrentUser.id).slice(0, monitorCurrentUser.children || 0)
+    : [];
+  const monitorDirectChildrenCount = monitorChildren.length;
+  const monitorDescendantCount = monitorCurrentUser ? countDescendants(monitorCurrentUser.id) : 0;
 
   const securityUsers = fakeUsers.filter((u) => {
     if (securityFilter === "전체") return true;
@@ -2086,16 +2353,55 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const myWeeklyProfit = myReferralProfit * 0.11;
   const myWithdrawable = myReferralProfit * 0.72;
   const myPendingProfit = myReferralProfit - myWithdrawable;
+  const selectedOpsUser = authUsers.find((user) => String(user.id) === String(selectedOpsUserId)) || authUsers[0] || null;
+  const selectedSecurityUser = securityUsers.find((user) => String(user.id) === String(selectedSecurityUserId)) || securityUsers[0] || null;
 
-  function selectUser(user) {
+  function applyUserContext(user) {
     setSelectedAdminUser(user);
     setSelectedChildUser(null);
+    setSelectedChildRateInput("");
+    setSelectedChildIds([]);
+    setBulkChildRateInput("");
+    setChildInlineRates({});
     setAdminMember(user.id);
     setAdminParent(user.parent);
     setAdminReceivedRate(String(user.receivedRate));
     setAdminRate(String(user.childRate));
     setAdminMemo(`${user.nickname} / ${user.parent} 하부 / 현재 배분율 ${user.childRate}%`);
+  }
+
+  function selectUser(user) {
+    applyUserContext(user);
     setMonitorPath([user.id]);
+  }
+
+  function drillDownToUser(user) {
+    applyUserContext(user);
+    setMonitorPath((prev) => {
+      const foundIndex = prev.indexOf(user.id);
+      if (foundIndex >= 0) return prev.slice(0, foundIndex + 1);
+      return [...prev, user.id];
+    });
+    requestAnimationFrame(() => {
+      hierarchyPathSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function moveToHierarchyDepth(targetIndex) {
+    setMonitorPath((prev) => {
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+      const nextPath = prev.slice(0, targetIndex + 1);
+      const targetUser = fakeUsers.find((u) => u.id === nextPath[nextPath.length - 1]);
+      if (targetUser) applyUserContext(targetUser);
+      return nextPath;
+    });
+    requestAnimationFrame(() => {
+      hierarchyPathSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  function moveToHierarchyRoot() {
+    moveToHierarchyDepth(0);
   }
 
   function countDescendants(userId) {
@@ -2105,6 +2411,87 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
 
   function appliedRate(user) {
     return userRateOverrides[user.id] ?? user.childRate;
+  }
+
+  function saveSelectedChildRate() {
+    if (!selectedChildUser) {
+      notify("먼저 하부 회원을 선택하세요.");
+      return;
+    }
+    if (!isSuperAdmin) {
+      notify("슈퍼관리자 권한이 필요합니다.");
+      return;
+    }
+    const nextRate = Number(selectedChildRateInput || 0);
+    if (!Number.isFinite(nextRate) || nextRate < 0) {
+      notify("유효한 배분율을 입력하세요.");
+      return;
+    }
+    if (nextRate > received) {
+      notify(`하부 배분율은 상위 배분율(${received}%)을 초과할 수 없습니다.`);
+      return;
+    }
+    setUserRateOverrides((prev) => ({ ...prev, [selectedChildUser.id]: nextRate }));
+    appendAdminAction?.(`하부 배분율 변경: ${selectedChildUser.id} -> ${nextRate}%`);
+    notify(`${selectedChildUser.nickname} 배분율이 ${nextRate}%로 저장되었습니다.`);
+  }
+
+  function setInlineChildRate(childId, value) {
+    setChildInlineRates((prev) => ({ ...prev, [childId]: value }));
+  }
+
+  function saveInlineChildRate(child) {
+    if (!isSuperAdmin) {
+      notify("슈퍼관리자 권한이 필요합니다.");
+      return;
+    }
+    const rawValue = childInlineRates[child.id];
+    const nextRate = Number(rawValue ?? appliedRate(child));
+    if (!Number.isFinite(nextRate) || nextRate < 0) {
+      notify("유효한 배분율을 입력하세요.");
+      return;
+    }
+    if (nextRate > received) {
+      notify(`하부 배분율은 상위 배분율(${received}%)을 초과할 수 없습니다.`);
+      return;
+    }
+    setUserRateOverrides((prev) => ({ ...prev, [child.id]: nextRate }));
+    setChildInlineRates((prev) => ({ ...prev, [child.id]: String(nextRate) }));
+    appendAdminAction?.(`하부 배분율 즉시 변경: ${child.id} -> ${nextRate}%`);
+    notify(`${child.nickname} 배분율이 ${nextRate}%로 저장되었습니다.`);
+  }
+
+  function toggleChildSelection(childId) {
+    setSelectedChildIds((prev) => (prev.includes(childId) ? prev.filter((id) => id !== childId) : [...prev, childId]));
+  }
+
+  function applyBulkChildRate() {
+    if (!isSuperAdmin) {
+      notify("슈퍼관리자 권한이 필요합니다.");
+      return;
+    }
+    if (!selectedChildIds.length) {
+      notify("일괄 적용할 하부를 먼저 선택하세요.");
+      return;
+    }
+    const nextRate = Number(bulkChildRateInput || 0);
+    if (!Number.isFinite(nextRate) || nextRate < 0) {
+      notify("유효한 배분율을 입력하세요.");
+      return;
+    }
+    if (nextRate > received) {
+      notify(`하부 배분율은 상위 배분율(${received}%)을 초과할 수 없습니다.`);
+      return;
+    }
+    setUserRateOverrides((prev) => {
+      const next = { ...prev };
+      selectedChildIds.forEach((id) => {
+        next[id] = nextRate;
+      });
+      return next;
+    });
+    appendAdminAction?.(`하부 배분율 일괄 변경: ${selectedChildIds.length}명 -> ${nextRate}%`);
+    notify(`${selectedChildIds.length}명의 하부 배분율을 ${nextRate}%로 일괄 저장했습니다.`);
   }
 
   async function updateAuthRole(userId, nextRole) {
@@ -2732,6 +3119,15 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const filteredWebhookEvents = (webhookEvents || []).filter((event) =>
     webhookStatusFilter === "all" ? true : event.status === webhookStatusFilter
   );
+  const isAdminTab = (tab) => adminViewTab === tab;
+  const adminCategories = [
+    { key: "member", title: "회원관리", desc: "유저 선택, 하부 목록, 선택 유저 상세 확인", color: "bg-indigo-600" },
+    { key: "memberOps", title: "회원운영", desc: "권한/배분/공지/관리 로그/운영 액션", color: "bg-sky-600" },
+    { key: "security", title: "보안", desc: "위험 모니터링, 신고/블랙 정책", color: "bg-red-600" },
+    { key: "kyc", title: "KYC", desc: "회사 승인, 문서 열람, 2인 승인 워크플로우", color: "bg-violet-600" },
+    { key: "dispute", title: "분쟁/정산", desc: "다중승인, OTP 최종승인, 보관계좌 정책", color: "bg-amber-500" },
+    { key: "ops", title: "감사/복구", desc: "감사리포트, 해시검증, 스냅샷/롤백/비상모드", color: "bg-emerald-600" },
+  ];
 
   const actorNameMap = useMemo(
     () =>
@@ -2750,9 +3146,15 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     return actionMatch && fromMatch && toMatch;
   });
 
+  function moveToSection(sectionRef) {
+    requestAnimationFrame(() => {
+      sectionRef?.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   return (
-    <section className="mx-auto max-w-7xl px-4 py-8">
-      <div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}>
+    <section className="mx-auto max-w-[1400px] px-4 py-6">
+      <div className={`rounded-3xl border p-4 shadow-sm md:p-6 ${theme.card}`}>
         <div className="mb-5">
           <div className="text-2xl font-black">{lang.adminTitle}</div>
           <div className={`mt-1 text-sm ${theme.subtext}`}>
@@ -2760,7 +3162,45 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-5 rounded-3xl border p-5 ${theme.cardSoft}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-lg font-black">관리자 메인 카테고리</div>
+              <div className={`text-xs ${theme.muted}`}>카테고리를 누르면 해당 기능 화면으로 이동합니다.</div>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {adminCategories.map((category) => (
+              <button
+                key={category.key}
+                onClick={() => setAdminViewTab(category.key)}
+                className={`rounded-2xl border p-4 text-left transition hover:scale-[1.01] ${theme.input}`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="text-base font-black">{category.title}</div>
+                  <span className={`rounded-full px-2 py-1 text-[11px] font-black text-white ${category.color}`}>이동</span>
+                </div>
+                <div className={`mt-2 text-xs leading-5 ${theme.muted}`}>{category.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className={`sticky top-2 z-20 mb-5 rounded-3xl border p-3 backdrop-blur ${theme.cardSoft}`}>
+          <div className="grid gap-2 md:grid-cols-7">
+            <button onClick={() => setAdminViewTab("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dashboard") ? theme.main : theme.input}`}>대시보드</button>
+            <button onClick={() => setAdminViewTab("member")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("member") ? theme.main : theme.input}`}>회원관리</button>
+            <button onClick={() => setAdminViewTab("memberOps")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("memberOps") ? theme.main : theme.input}`}>회원운영</button>
+            <button onClick={() => setAdminViewTab("security")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("security") ? theme.main : theme.input}`}>보안</button>
+            <button onClick={() => setAdminViewTab("kyc")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("kyc") ? theme.main : theme.input}`}>KYC</button>
+            <button onClick={() => setAdminViewTab("dispute")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dispute") ? theme.main : theme.input}`}>분쟁/정산</button>
+            <button onClick={() => setAdminViewTab("ops")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("ops") ? theme.main : theme.input}`}>감사/복구</button>
+          </div>
+        </div>
+
+        <div className="space-y-5 lg:max-h-[calc(100vh-260px)] lg:overflow-y-auto lg:pr-2">
+
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-black">비상 점검 모드 (원클릭)</div>
@@ -2800,7 +3240,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-black">운영 리스크 센터</div>
@@ -2853,7 +3293,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-black">복구 스냅샷 · 롤백 센터</div>
@@ -2932,7 +3372,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-black">리포트 해시 서버 기록</div>
@@ -2982,7 +3422,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">
             <div>
               <div className="text-sm font-black">Webhook 전송 상태</div>
@@ -3041,7 +3481,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-sm font-black">권한 감사 리포트</div>
@@ -3107,7 +3547,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mb-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${isAdminTab("member") ? "" : "hidden "}mb-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-xl font-black">{lang.adminStorage}</div>
@@ -3155,7 +3595,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+        <div ref={memberTreeSectionRef} className={`${isAdminTab("member") ? "" : "hidden "}grid gap-4 md:grid-cols-[340px_minmax(0,1fr)]`}>
           <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
@@ -3172,7 +3612,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               placeholder="닉네임, ID, 이메일, 지갑 검색"
             />
 
-            <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
+            <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
               {visibleUsers.map((user) => (
                 <button
                   key={user.id}
@@ -3194,28 +3634,66 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
               <div className="text-lg font-black">{lang.selectedUser}</div>
 
-              {selectedAdminUser ? (
+              {monitorCurrentUser ? (
                 <>
+                  <div ref={hierarchyPathSectionRef} className="mt-3 rounded-2xl border p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="text-xs font-black">현재 탐색 경로</div>
+                      <div className="flex items-center gap-1 text-[11px]">
+                        <span className={`rounded-full border px-2 py-0.5 font-black ${theme.input}`}>직계 하부 {monitorDirectChildrenCount}명</span>
+                        <span className={`rounded-full border px-2 py-0.5 font-black ${theme.input}`}>전체 하위 {monitorDescendantCount}명</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <button
+                        onClick={moveToHierarchyRoot}
+                        className={`rounded-full border px-2 py-1 text-[11px] font-black ${monitorPath.length <= 1 ? "border-emerald-400/70 bg-emerald-500 text-white" : theme.input}`}
+                      >
+                        본사(최상위)
+                      </button>
+                      {monitorPath.map((userId, index) => {
+                        const nodeUser = fakeUsers.find((u) => u.id === userId);
+                        return (
+                          <button
+                            key={`${userId}-${index}`}
+                            onClick={() => moveToHierarchyDepth(index)}
+                            className={`rounded-full border px-2 py-1 text-[11px] font-black ${index === monitorPath.length - 1 ? theme.main : theme.input}`}
+                          >
+                            {nodeUser?.nickname || userId}
+                          </button>
+                        );
+                      })}
+                      {monitorPath.length > 1 && (
+                        <button
+                          onClick={() => moveToHierarchyDepth(monitorPath.length - 2)}
+                          className={`rounded-full border px-2 py-1 text-[11px] font-black ${theme.input}`}
+                        >
+                          한 단계 위로
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
-                    <DetailBox label="닉네임" value={selectedAdminUser.nickname} theme={theme} />
-                    <DetailBox label="회원 ID" value={selectedAdminUser.id} theme={theme} />
-                    <DetailBox label="이메일" value={selectedAdminUser.email} theme={theme} />
-                    <DetailBox label="지갑" value={selectedAdminUser.wallet} theme={theme} />
-                    <DetailBox label="상위" value={selectedAdminUser.parent} theme={theme} />
-                    <DetailBox label="가입일" value={selectedAdminUser.joined} theme={theme} />
-                    <DetailBox label="누적 거래" value={`${number(selectedAdminUser.trades)}건`} theme={theme} />
-                    <DetailBox label="누적 거래액" value={`$${number(selectedAdminUser.volume)}`} theme={theme} />
+                    <DetailBox label="닉네임" value={monitorCurrentUser.nickname} theme={theme} />
+                    <DetailBox label="회원 ID" value={monitorCurrentUser.id} theme={theme} />
+                    <DetailBox label="이메일" value={monitorCurrentUser.email} theme={theme} />
+                    <DetailBox label="지갑" value={monitorCurrentUser.wallet} theme={theme} />
+                    <DetailBox label="상위" value={monitorCurrentUser.parent} theme={theme} />
+                    <DetailBox label="가입일" value={monitorCurrentUser.joined} theme={theme} />
+                    <DetailBox label="누적 거래" value={`${number(monitorCurrentUser.trades)}건`} theme={theme} />
+                    <DetailBox label="누적 거래액" value={`$${number(monitorCurrentUser.volume)}`} theme={theme} />
                   </div>
 
                   <div className="mt-4 grid gap-2 md:grid-cols-2">
                     <button
-                      onClick={() => selectedChildren.length ? notify(`${selectedAdminUser.nickname} 하부 ${selectedChildren.length}명 조회`) : notify("등록된 하부가 없습니다.")}
+                      onClick={() => selectedChildren.length ? notify(`${monitorCurrentUser.nickname} 하부 ${selectedChildren.length}명 조회`) : notify("등록된 하부가 없습니다.")}
                       className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
                     >
                       하부 {selectedChildren.length}명 보기
                     </button>
                     <button
-                      onClick={() => notify(`${selectedAdminUser.nickname} 닉네임/정보 수정 화면`)}
+                      onClick={() => notify(`${monitorCurrentUser.nickname} 닉네임/정보 수정 화면`)}
                       className={`rounded-2xl border px-4 py-3 text-sm font-black ${theme.input}`}
                     >
                       정보 수정
@@ -3225,40 +3703,79 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                   {selectedChildren.length > 0 && (
                     <div className="mt-4 rounded-3xl bg-black/10 p-4">
                       <div className="mb-3 flex items-center justify-between">
-                        <div className="font-black">{selectedAdminUser.nickname}의 직접 하부</div>
-                        <div className={`text-xs ${theme.muted}`}>클릭하면 하부 상세 표시</div>
+                        <div className="font-black">{monitorCurrentUser.nickname}의 직접 하부</div>
+                        <div className={`text-xs ${theme.muted}`}>행에서 배분율 바로 수정 + 선택 항목만 부분 일괄 적용</div>
                       </div>
-                      <div className="grid gap-2 md:grid-cols-2">
-                        {selectedChildren.map((child) => (
+                      <div className="mb-3 grid gap-2 md:grid-cols-[1fr_auto_auto]">
+                        <input
+                          value={bulkChildRateInput}
+                          onChange={(e) => setBulkChildRateInput(e.target.value)}
+                          className={`rounded-2xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+                          placeholder="선택 하부 일괄 배분율(%)"
+                        />
+                        <button onClick={applyBulkChildRate} className={`rounded-2xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                          선택 하부 일괄 저장
+                        </button>
+                        <div className="flex gap-2">
                           <button
-                            key={child.id}
-                            onClick={() => setSelectedChildUser(child)}
-                            className={`rounded-2xl border p-3 text-left text-sm ${selectedChildUser?.id === child.id ? theme.main : theme.input}`}
+                            onClick={() => setSelectedChildIds(selectedChildren.map((child) => child.id))}
+                            className={`rounded-2xl border px-3 py-2 text-xs font-black ${theme.input}`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <b>{child.nickname}</b>
-                              <span className="text-xs opacity-80">하부 {child.children}명</span>
-                            </div>
-                            <div className="mt-1 text-xs opacity-80">가입일: {child.joined}</div>
-                            <div className="mt-1 text-xs opacity-80">배분 {child.childRate}% · 거래 {number(child.trades)}건</div>
+                            전체선택
                           </button>
-                        ))}
+                          <button
+                            onClick={() => setSelectedChildIds([])}
+                            className={`rounded-2xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                          >
+                            전체해제
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-
-                  {selectedChildUser && (
-                    <div className="mt-4 rounded-3xl bg-black/10 p-4">
-                      <div className="text-lg font-black">선택한 하부 상세 정보</div>
-                      <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
-                        <DetailBox label="닉네임" value={selectedChildUser.nickname} theme={theme} />
-                        <DetailBox label="회원 ID" value={selectedChildUser.id} theme={theme} />
-                        <DetailBox label="가입일" value={selectedChildUser.joined} theme={theme} />
-                        <DetailBox label="상위" value={selectedChildUser.parent} theme={theme} />
-                        <DetailBox label="이메일" value={selectedChildUser.email} theme={theme} />
-                        <DetailBox label="지갑" value={selectedChildUser.wallet} theme={theme} />
-                        <DetailBox label="누적 거래" value={`${number(selectedChildUser.trades)}건`} theme={theme} />
-                        <DetailBox label="누적 거래액" value={`$${number(selectedChildUser.volume)}`} theme={theme} />
+                      <div className="space-y-2">
+                        {selectedChildren.map((child) => (
+                          <div
+                            key={child.id}
+                            className={`w-full rounded-2xl border px-3 py-2 text-left text-xs ${theme.input}`}
+                          >
+                            <div className="grid items-center gap-2 md:grid-cols-[auto_1.2fr_1fr_1fr_auto_auto_auto]">
+                              <label className="inline-flex items-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedChildIds.includes(child.id)}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    toggleChildSelection(child.id);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </label>
+                              <div className="font-black">{child.nickname} ({child.id})</div>
+                              <div className="opacity-80">가입일 {child.joined}</div>
+                              <div className="opacity-80">거래 {number(child.trades)}건</div>
+                              <button
+                                onClick={() => drillDownToUser(child)}
+                                className={`rounded-full border px-2 py-1 text-[10px] font-black ${theme.input}`}
+                              >
+                                하부 {child.children}명 열기
+                              </button>
+                              <div className="flex items-center justify-end gap-1">
+                                <input
+                                  value={childInlineRates[child.id] ?? String(appliedRate(child))}
+                                  onChange={(e) => setInlineChildRate(child.id, e.target.value)}
+                                  className={`w-20 rounded-xl border px-2 py-1 text-[11px] font-bold outline-none ${theme.input}`}
+                                  placeholder="배분율"
+                                />
+                                <span className="text-[11px]">%</span>
+                                <button
+                                  onClick={() => saveInlineChildRate(child)}
+                                  className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}
+                                >
+                                  저장
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -3285,7 +3802,155 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mt-5 rounded-3xl p-4 text-sm ${invalidRate ? "bg-red-600 text-white" : theme.cardSoft}`}>
+        <div className={`${isAdminTab("memberOps") ? "" : "hidden "}mt-5 grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]`}>
+          <div className={`rounded-3xl border p-4 ${theme.card}`}>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-black">회원 운영 대상</div>
+              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${theme.input}`}>{authUsers.length}명</span>
+            </div>
+            <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
+              {authUsers.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => setSelectedOpsUserId(user.id)}
+                  className={`w-full rounded-2xl border p-3 text-left text-xs ${String(selectedOpsUser?.id) === String(user.id) ? theme.main : theme.input}`}
+                >
+                  <div className="font-black">{user.nickname}</div>
+                  <div className={`mt-1 ${theme.muted}`}>{user.id}</div>
+                  <div className={`mt-1 ${theme.muted}`}>{user.role}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={`rounded-3xl border p-4 ${theme.card}`}>
+            {selectedOpsUser ? (
+              <>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <DetailBox label="닉네임" value={selectedOpsUser.nickname} theme={theme} />
+                  <DetailBox label="회원 ID" value={selectedOpsUser.id} theme={theme} />
+                  <DetailBox label="이메일" value={selectedOpsUser.email} theme={theme} />
+                  <DetailBox label="현재 권한" value={selectedOpsUser.role} theme={theme} />
+                </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+                  <select
+                    value={selectedOpsUser.role}
+                    onChange={(e) => updateAuthRole(selectedOpsUser.id, e.target.value)}
+                    disabled={!isSuperAdmin}
+                    className={`rounded-2xl border px-3 py-2 text-sm font-black outline-none ${theme.input}`}
+                  >
+                    <option>일반회원</option>
+                    <option>운영관리자</option>
+                    <option>본사 슈퍼관리자</option>
+                  </select>
+                  <button
+                    onClick={() => notify(`${selectedOpsUser.nickname} 정보 수정 화면`)}
+                    className={`rounded-2xl border px-4 py-2 text-sm font-black ${theme.input}`}
+                  >
+                    정보 수정
+                  </button>
+                </div>
+                <div className="mt-3 rounded-2xl border p-3">
+                  <div className="mb-2 text-xs font-black">판매자 입금자명 공지</div>
+                  <textarea
+                    value={sellerDepositNotice}
+                    onChange={(e) => setSellerDepositNotice(e.target.value)}
+                    className={`min-h-20 w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+                  />
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      onClick={() => {
+                        appendAdminAction?.("판매자 입금자명 확인 공지 수정");
+                        notify("판매자 공지 문구가 업데이트되었습니다.");
+                      }}
+                      className={`rounded-xl px-3 py-2 text-xs font-black ${theme.main}`}
+                    >
+                      공지 저장
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAdminViewTab("ops");
+                        notify("감사/복구 탭으로 이동합니다.");
+                      }}
+                      className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                    >
+                      로그 보기
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className={`text-sm ${theme.subtext}`}>왼쪽에서 운영 대상을 선택하세요.</div>
+            )}
+          </div>
+        </div>
+
+        <div className={`${isAdminTab("security") ? "" : "hidden "}mt-5 grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]`}>
+          <div className={`rounded-3xl border p-4 ${theme.card}`}>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-black">{lang.riskMonitor}</div>
+              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${theme.input}`}>{securityUsers.length}명</span>
+            </div>
+            <select
+              value={securityFilter}
+              onChange={(e) => setSecurityFilter(e.target.value)}
+              className={`mb-3 w-full rounded-2xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
+            >
+              <option>전체</option>
+              <option>주의</option>
+              <option>신고</option>
+              <option>블랙</option>
+            </select>
+            <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
+              {securityUsers.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => setSelectedSecurityUserId(user.id)}
+                  className={`w-full rounded-2xl border p-3 text-left text-xs ${String(selectedSecurityUser?.id) === String(user.id) ? theme.main : theme.input}`}
+                >
+                  <div className="font-black">{user.nickname}</div>
+                  <div className={`mt-1 ${theme.muted}`}>{user.id} · 위험 {user.riskScore}</div>
+                  <div className={`mt-1 ${theme.muted}`}>신고 {user.reports}건 · 블랙 {user.blacklist ? "Y" : "N"}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={`rounded-3xl border p-4 ${theme.card}`}>
+            {selectedSecurityUser ? (
+              <>
+                <div className="grid gap-2 md:grid-cols-3">
+                  <Admin title="위험 점수" value={selectedSecurityUser.riskScore} sub={selectedSecurityUser.blacklist ? "블랙리스트" : "모니터링"} />
+                  <Admin title="신고 건수" value={selectedSecurityUser.reports} sub="누적 신고" />
+                  <Admin title="최근 접속" value={selectedSecurityUser.lastLogin} sub={selectedSecurityUser.country} />
+                </div>
+                <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
+                  <DetailBox label="회원" value={`${selectedSecurityUser.nickname} (${selectedSecurityUser.id})`} theme={theme} />
+                  <DetailBox label="디바이스" value={selectedSecurityUser.device} theme={theme} />
+                  <DetailBox label="IP" value={selectedSecurityUser.ip} theme={theme} />
+                  <DetailBox label="전화번호" value={selectedSecurityUser.phone} theme={theme} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={() => notify(`${selectedSecurityUser.nickname} 거래 일시정지`)} className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-white">거래정지</button>
+                  <button onClick={() => notify(`${selectedSecurityUser.nickname} 블랙리스트 등록`)} className="rounded-xl bg-red-600 px-3 py-2 text-xs font-black text-white">블랙등록</button>
+                  <button onClick={() => notify(`${selectedSecurityUser.nickname} IP 추적 조회`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>IP분석</button>
+                  <button onClick={() => notify(`${selectedSecurityUser.nickname} 다중계정 분석`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>다중계정</button>
+                </div>
+                <Field label="차단 사유 메모" theme={theme}>
+                  <textarea
+                    value={blockReason}
+                    onChange={(e) => setBlockReason(e.target.value)}
+                    className={`min-h-20 rounded-2xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}
+                  />
+                </Field>
+              </>
+            ) : (
+              <div className={`text-sm ${theme.subtext}`}>왼쪽에서 보안 모니터링 유저를 선택하세요.</div>
+            )}
+          </div>
+        </div>
+
+        <div ref={rateValidationSectionRef} className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl p-4 text-sm ${invalidRate ? "bg-red-600 text-white" : theme.cardSoft}`}>
           <div className="flex justify-between py-1"><span>대상 회원</span><b>{adminMember || "미입력"}</b></div>
           <div className="flex justify-between py-1"><span>상위 회원</span><b>{adminParent || "미입력"}</b></div>
           <div className="flex justify-between py-1"><span>상위자 받은 배분율</span><b>{received}%</b></div>
@@ -3294,7 +3959,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           {invalidRate && <div className="mt-2 font-black">하위 배분율은 상위자가 받은 배분율보다 클 수 없습니다.</div>}
         </div>
 
-        <div className={`mt-5 rounded-3xl p-4 ${theme.cardSoft}`}>
+        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl p-4 ${theme.cardSoft}`}>
           <div className="text-sm font-black">하부트리 예시</div>
           <div className="mt-3 grid gap-2 text-sm">
             <div className="rounded-2xl bg-black/10 p-3">본사: 전체 수수료 100% 권한</div>
@@ -3304,11 +3969,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <Field label="관리 메모" theme={theme}>
-          <textarea value={adminMemo} onChange={(e) => setAdminMemo(e.target.value)} className={`min-h-24 rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="관리자 메모" />
-        </Field>
+        <div className={isAdminTab("memberOps") ? "" : "hidden"}>
+          <Field label="관리 메모" theme={theme}>
+            <textarea value={adminMemo} onChange={(e) => setAdminMemo(e.target.value)} className={`min-h-24 rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="관리자 메모" />
+          </Field>
+        </div>
 
-        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${false && isAdminTab("security") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-xl font-black">{lang.securityCenter}</div>
@@ -3334,7 +4001,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <Admin title="블랙리스트" value={securityUsers.filter((u) => u.blacklist).length} sub="차단된 계정" />
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="mt-5 grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
             <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
               <div className="mb-3 flex items-center justify-between">
                 <div className="font-black">{lang.riskMonitor}</div>
@@ -3404,7 +4071,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-xl font-black">실계정 권한 관리</div>
@@ -3437,7 +4104,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-xl font-black">판매자 입금자명 확인 공지 관리</div>
@@ -3461,7 +4128,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </button>
         </div>
 
-        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${isAdminTab("kyc") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-xl font-black">회사 KYC 승인 센터</div>
@@ -3669,7 +4336,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${isAdminTab("dispute") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-xl font-black">분쟁 다중승인 / 메인 관리자 보관계좌 정책</div>
@@ -3888,7 +4555,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div ref={adminActionLogSectionRef} className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-xl font-black">첨부/음성 메시지 모니터링</div>
@@ -3962,7 +4629,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-xl font-black">관리자 액션 로그</div>
@@ -3984,13 +4651,52 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <button onClick={() => !isSuperAdmin ? notify("슈퍼관리자 권한이 필요합니다.") : (invalidRate ? notify("배분율 오류: 하위 배분율이 상위 배분율보다 큽니다.") : notify(`${adminMember} 회원을 ${adminParent} 하부로 연결했습니다.`))} className={`rounded-2xl px-5 py-4 font-black ${invalidRate ? "bg-red-600 text-white" : theme.main}`}>하부 연결 저장</button>
-          <button onClick={() => notify("전체 하부 트리 조회 실행")} className={`rounded-2xl border px-5 py-4 font-black ${theme.input}`}>하부 트리 조회</button>
-          <button onClick={() => !isSuperAdmin ? notify("슈퍼관리자 권한이 필요합니다.") : notify("상위-하위 차액 수익 검증 실행")} className={`rounded-2xl border px-5 py-4 font-black ${theme.input}`}>차액 수익 검증</button>
+        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 grid gap-3 md:grid-cols-3`}>
+          <button
+            onClick={() => {
+              if (!isSuperAdmin) {
+                notify("슈퍼관리자 권한이 필요합니다.");
+                return;
+              }
+              if (invalidRate) {
+                notify("배분율 오류: 하위 배분율이 상위 배분율보다 큽니다.");
+                moveToSection(rateValidationSectionRef);
+                return;
+              }
+              appendAdminAction?.(`하부 연결 저장: ${adminParent} -> ${adminMember}`);
+              notify(`${adminMember} 회원을 ${adminParent} 하부로 연결했습니다.`);
+              moveToSection(adminActionLogSectionRef);
+            }}
+            className={`rounded-2xl px-5 py-4 font-black ${invalidRate ? "bg-red-600 text-white" : theme.main}`}
+          >
+            하부 연결 저장
+          </button>
+          <button
+            onClick={() => {
+              notify("전체 하부 트리 조회 실행");
+              moveToSection(memberTreeSectionRef);
+            }}
+            className={`rounded-2xl border px-5 py-4 font-black ${theme.input}`}
+          >
+            하부 트리 조회
+          </button>
+          <button
+            onClick={() => {
+              if (!isSuperAdmin) {
+                notify("슈퍼관리자 권한이 필요합니다.");
+                return;
+              }
+              notify("상위-하위 차액 수익 검증 실행");
+              moveToSection(rateValidationSectionRef);
+            }}
+            className={`rounded-2xl border px-5 py-4 font-black ${theme.input}`}
+          >
+            차액 수익 검증
+          </button>
         </div>
-        <div className={`mt-3 rounded-2xl border p-3 text-xs ${theme.cardSoft}`}>
+        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-3 rounded-2xl border p-3 text-xs ${theme.cardSoft}`}>
           권한 레벨: {isSuperAdmin ? "슈퍼관리자 (전체 제어)" : "일반 관리자 (조회/모니터링 중심)"}
+        </div>
         </div>
       </div>
     </section>
@@ -4257,13 +4963,14 @@ function FriendMessenger({
       <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
         <div className="mb-4 text-2xl font-black">메신저</div>
         <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-          <div className="space-y-2">
+          <div className="h-[640px] overflow-y-auto pr-1">
             <input
               value={friendSearch}
               onChange={(event) => setFriendSearch(event.target.value)}
               placeholder="친구 검색 (이름/ID)"
               className={`w-full rounded-2xl border px-4 py-2 text-sm font-bold outline-none ${theme.input}`}
             />
+            <div className="mt-2 space-y-2">
             {filteredFriends.map((friend) => {
               return (
                 <div key={friend.id}>
@@ -4287,6 +4994,7 @@ function FriendMessenger({
                 </div>
               );
             })}
+            </div>
           </div>
 
           <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
@@ -4303,10 +5011,10 @@ function FriendMessenger({
               </button>
             </div>
 
-            <div className="h-[360px] space-y-2 overflow-y-auto rounded-2xl bg-black/10 p-3">
+            <div className="h-[640px] space-y-1.5 overflow-y-auto rounded-2xl bg-black/10 p-3">
               {messages.length ? (
                 messages.map((message) => (
-                  <div key={message.id} className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm ${message.sender === "me" ? "ml-auto bg-emerald-600 text-white" : "bg-slate-700 text-white"}`}>
+                  <div key={message.id} className={`max-w-[86%] rounded-2xl px-3 py-1.5 text-xs leading-5 ${message.sender === "me" ? "ml-auto bg-emerald-600 text-white" : "bg-slate-700 text-white"}`}>
                     {message.attachment?.previewUrl && (
                       <img src={message.attachment.previewUrl} alt={message.attachment.name} className="mb-2 max-h-44 w-full rounded-xl object-cover" />
                     )}
