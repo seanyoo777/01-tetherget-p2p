@@ -1,0 +1,51 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0f172a; color: white; font-family: Arial, sans-serif; }
+button, select, input { font: inherit; }
+button { cursor: pointer; border: 0; border-radius: 14px; padding: 12px 16px; font-weight: 800; }
+select, input { border-radius: 14px; border: 1px solid #334155; padding: 13px 14px; background: #1e293b; color: white; width: 100%; }
+
+.app { min-height: 100vh; }
+header { position: sticky; top: 0; z-index: 10; display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 18px 36px; background: #020617; border-bottom: 1px solid #1e293b; }
+header small { color: #94a3b8; }
+nav { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+nav button, nav select { width: auto; background: #1e293b; color: white; }
+
+.hero { padding: 110px 24px; text-align: center; }
+.hero h1 { font-size: clamp(38px, 6vw, 72px); line-height: 1.12; }
+.hero p { margin-top: 18px; color: #94a3b8; font-size: 18px; }
+.hero button, .card button, .modalBox button, .userDetail button { margin-top: 18px; background: #2563eb; color: white; }
+
+.dashboard, main { max-width: 1200px; margin: 0 auto; padding: 28px 20px; }
+.dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.dashCard, .card, .adminBox, .modalBox { background: #111827; border: 1px solid #1e293b; border-radius: 26px; padding: 22px; }
+.dashCard h3, .card h3 { margin-top: 10px; font-size: 28px; }
+.dashCard p, .card p, .userDetail p { margin-top: 8px; color: #cbd5e1; }
+
+.titleRow { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.flags { display: flex; gap: 8px; flex-wrap: wrap; }
+.flags button { background: #1e293b; color: white; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 18px; }
+.card .top { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.card .top span { background: #16a34a; color: white; border-radius: 999px; padding: 6px 10px; font-size: 12px; font-weight: 800; }
+
+.adminBox { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 18px; margin-top: 18px; }
+.userList { max-height: 520px; overflow: auto; display: grid; gap: 8px; }
+.userList button { background: #1e293b; color: white; text-align: left; }
+.userDetail .danger { background: #dc2626; margin-left: 8px; }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+.modalBox { width: 100%; max-width: 560px; max-height: 92vh; overflow: auto; }
+.close { background: #334155 !important; width: auto !important; margin: 0 0 18px 0 !important; }
+.modalBox label { display: block; margin-top: 14px; margin-bottom: 6px; color: #cbd5e1; font-weight: 800; }
+.summary { margin-top: 16px; background: #1e293b; border-radius: 18px; padding: 16px; }
+.summary p { margin-top: 8px; color: #e2e8f0; }
+.error { display: block; margin-top: 12px; color: #f87171; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+@media (max-width: 780px) {
+  header { padding: 16px; align-items: flex-start; flex-direction: column; }
+  nav { width: 100%; }
+  nav button, nav select { flex: 1; min-width: 120px; }
+  .adminBox { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,4424 @@
+import React, { useEffect, useMemo, useRef, useState, createContext, useContext } from "react";
+import { createApiClient } from "./lib/apiClient";
+
+const orders = [
+  { id: 1, seller: "TG-Seller01", coin: "USDT", price: 1392, amount: 1200, limit: "100 ~ 1,200 USDT", method: "KRW", release: "구매확인 후 자동 릴리즈", level: "Lv.4", trust: 96, trades: 1280, featured: true, category: "코인↔통화" },
+  { id: 2, seller: "SafeTrade88", coin: "USDT", price: 1395, amount: 5200, limit: "500 ~ 5,200 USDT", method: "USD", release: "24시간 지연 릴리즈", level: "Lv.3", trust: 91, trades: 760, featured: true, category: "코인↔통화" },
+  { id: 3, seller: "KoreaDesk", coin: "SOL", price: 238000, amount: 340, limit: "1 ~ 340 SOL", method: "VND", release: "친구등록 즉시 릴리즈", level: "Lv.5", trust: 99, trades: 2380, featured: true, category: "코인↔통화" },
+  { id: 4, seller: "GlobalUSDT", coin: "USDT", price: 1390, amount: 9800, limit: "1,000 ~ 9,800 USDT", method: "KRW", release: "24시간 지연 릴리즈", level: "Lv.4", trust: 94, trades: 1560, featured: false, category: "코인↔통화" },
+  { id: 5, seller: "VNDesk", coin: "USDT", price: 26000, amount: 3000, limit: "100 ~ 3,000 USDT", method: "VND", release: "구매확인 후 자동 릴리즈", level: "Lv.3", trust: 89, trades: 430, featured: false, category: "코인↔통화" },
+  { id: 6, seller: "SwapMaster", coin: "BTC", price: 90000000, amount: 2, limit: "0.01 ~ 2 BTC", method: "USDT", release: "코인 교환", level: "Lv.5", trust: 98, trades: 980, featured: false, category: "코인↔코인" },
+  { id: 7, seller: "EthDesk", coin: "ETH", price: 4300000, amount: 40, limit: "0.5 ~ 40 ETH", method: "KRW", release: "구매확인 후 자동 릴리즈", level: "Lv.4", trust: 93, trades: 610, featured: false, category: "코인↔통화" },
+  { id: 8, seller: "JapanDesk", coin: "USDT", price: 156, amount: 7000, limit: "500 ~ 7,000 USDT", method: "JPY", release: "24시간 지연 릴리즈", level: "Lv.3", trust: 88, trades: 350, featured: false, category: "코인↔통화" },
+];
+
+const fakeUsers = Array.from({ length: 100 }, (_, i) => {
+  const n = i + 1;
+  const parentNo = Math.max(1, Math.ceil(n / 7));
+  const receivedRate = n <= 10 ? 50 : n <= 35 ? 45 : n <= 70 ? 40 : 35;
+  const childRate = Math.max(10, receivedRate - ((n % 5) + 1));
+  return {
+    id: `TG-MEMBER-${String(n).padStart(3, "0")}`,
+    nickname: `TG유저${String(n).padStart(3, "0")}`,
+    email: `user${n}@tetherget.com`,
+    wallet: `${String(n).padStart(2, "0")}xA2...${String(9000 + n).slice(-4)}`,
+    parent: n <= 7 ? "본사" : `TG-MEMBER-${String(parentNo).padStart(3, "0")}`,
+    receivedRate,
+    childRate,
+    marginRate: receivedRate - childRate,
+    trades: 12 + n * 3,
+    volume: 10000 + n * 3700,
+    children: Math.max(0, 7 - (n % 8)),
+    status: n % 9 === 0 ? "주의" : "정상",
+    phone: `010-${String(2000 + n).slice(-4)}-${String(7000 + n).slice(-4)}`,
+    ip: `52.78.${n % 255}.${(n * 7) % 255}`,
+    device: n % 3 === 0 ? "Chrome / Windows" : n % 3 === 1 ? "Safari / iPhone" : "Chrome / Android",
+    country: n % 4 === 0 ? "KR" : n % 4 === 1 ? "VN" : n % 4 === 2 ? "US" : "JP",
+    riskScore: Math.min(99, 20 + (n % 10) * 7),
+    reports: n % 11 === 0 ? 2 : n % 7 === 0 ? 1 : 0,
+    blacklist: n % 17 === 0,
+    lastLogin: `2026-05-${String((n % 28) + 1).padStart(2, "0")} 14:${String(n % 60).padStart(2, "0")}`,
+    joined: `2026-05-${String((n % 28) + 1).padStart(2, "0")}`,
+  };
+});
+
+const currentAdminProfile = {
+  id: "HQ-ADMIN-001",
+  nickname: "본사관리자",
+  role: "본사 슈퍼관리자",
+  email: "hq@tetherget.com",
+  wallet: "HQxA2...0001",
+  permission: "전체 회원 · 전체 거래 · 전체 정산 · 전체 하부트리",
+  managedRoot: "본사 전체 트리",
+  receivedRate: 100,
+  canCreateAdmin: true,
+};
+
+const countryFilters = [
+  { flag: "🇰🇷", label: "한국", currency: "KRW" },
+  { flag: "🇺🇸", label: "미국", currency: "USD" },
+  { flag: "🇻🇳", label: "베트남", currency: "VND" },
+  { flag: "🇯🇵", label: "일본", currency: "JPY" },
+  { flag: "🇨🇳", label: "중국", currency: "CNY" },
+];
+
+const languages = [
+  { code: "KR", label: "한국어", flag: "🇰🇷" },
+  { code: "EN", label: "English", flag: "🇺🇸" },
+  { code: "VN", label: "Tiếng Việt", flag: "🇻🇳" },
+  { code: "JP", label: "日本語", flag: "🇯🇵" },
+  { code: "CN", label: "中文", flag: "🇨🇳" },
+];
+
+const translations = {
+  KR: {
+    menuTrade: "거래", sellRegister: "판매등록", myInfo: "내정보", myTrades: "내 거래", p2p: "P2P", admin: "관리자", support: "고객센터",
+    login: "로그인", logout: "로그아웃", connectWallet: "지갑 연결", dashboard: "거래 대시보드", onlyNeeded: "필요한 거래 기능만 표시됩니다.",
+    currentLogin: "현재 로그인", role: "권한", manageRoot: "관리 기준", ratePermission: "배분 권한", accountStatus: "계정 상태",
+    heroTitle: "위험한 개인거래를\n안전한 시스템으로.", heroBadge: "스마트컨트랙트 에스크로 기반 P2P 거래", heroDesc: "TetherGet은 판매자 코인을 스마트컨트랙트에 예치하고, 구매자 입금 확인 후 자동 릴리즈하는 탈중앙화 P2P 거래 플랫폼입니다.",
+    loginJoin: "로그인 / 가입하기", startWallet: "지갑으로 시작하기", beforeTrade: "거래 전 핵심 절차",
+    adminTitle: "관리자 하부트리 / 수수료 배분", adminDesc: "상위 회원이 본인 하부를 누르면 가입일, 이메일, 지갑, 거래정보, 하부 리스트를 확인할 수 있습니다.",
+    adminStorage: "본인 관리자 저장소", totalVolume: "총 거래량", referralProfit: "총 레퍼럴 수익", withdrawable: "출금 가능액", pendingSettlement: "정산 대기", weeklyProfit: "이번 주 수익", monthlyProfit: "이번 달 수익", managedChildren: "관리 하부 수", withdrawRequest: "출금 신청",
+    childList: "내 하부 가입자 리스트", selectedUser: "선택 회원 상세", securityCenter: "본사 보안 / 검증 센터", riskMonitor: "위험 회원 모니터링", blockPolicy: "본사 차단 정책",
+    tradeStart: "거래 시작", tradeDetail: "거래 상세 / 신청", tradeRequest: "거래 요청", confirmButton: "확인 버튼", proofUpload: "입금증빙 업로드", close: "닫기",
+    seller: "판매자", trust: "신뢰도", availableAmount: "거래 가능 수량", finalReceive: "구매자 최종 수령", buyerFee: "구매자 수수료 1%", expectedPay: "예상 송금액"
+  },
+  EN: {
+    menuTrade: "Trade", sellRegister: "Register Sale", myInfo: "My Info", myTrades: "My Trades", p2p: "P2P", admin: "Admin", support: "Support",
+    login: "Login", logout: "Logout", connectWallet: "Connect Wallet", dashboard: "Trading Dashboard", onlyNeeded: "Only essential trading features are shown.",
+    currentLogin: "Current Login", role: "Role", manageRoot: "Management Scope", ratePermission: "Rate Permission", accountStatus: "Account Status",
+    heroTitle: "Turn risky P2P trades\ninto a safe system.", heroBadge: "Smart-contract escrow based P2P trading", heroDesc: "TetherGet is a decentralized P2P platform where sellers escrow crypto and buyers complete payment verification before release.",
+    loginJoin: "Login / Sign up", startWallet: "Start with Wallet", beforeTrade: "Before Trading",
+    adminTitle: "Admin Downline / Fee Distribution", adminDesc: "Click a downline member to view join date, email, wallet, trading data, and their own downline list.",
+    adminStorage: "Admin Personal Vault", totalVolume: "Total Volume", referralProfit: "Total Referral Profit", withdrawable: "Withdrawable", pendingSettlement: "Pending", weeklyProfit: "Weekly Profit", monthlyProfit: "Monthly Profit", managedChildren: "Managed Downline", withdrawRequest: "Request Withdrawal",
+    childList: "My Downline Members", selectedUser: "Selected Member Detail", securityCenter: "HQ Security / Verification Center", riskMonitor: "Risk Monitoring", blockPolicy: "HQ Blocking Policy",
+    tradeStart: "Start Trade", tradeDetail: "Trade Detail / Request", tradeRequest: "Request Trade", confirmButton: "Confirm", proofUpload: "Upload Proof", close: "Close",
+    seller: "Seller", trust: "Trust", availableAmount: "Available Amount", finalReceive: "Buyer Final Receive", buyerFee: "Buyer Fee 1%", expectedPay: "Expected Payment"
+  },
+  VN: {
+    menuTrade: "Giao dịch", sellRegister: "Đăng bán", myInfo: "Thông tin", myTrades: "GD của tôi", p2p: "P2P", admin: "Quản trị", support: "Hỗ trợ",
+    login: "Đăng nhập", logout: "Đăng xuất", connectWallet: "Kết nối ví", dashboard: "Bảng giao dịch", onlyNeeded: "Chỉ hiển thị các chức năng cần thiết.",
+    currentLogin: "Đang đăng nhập", role: "Quyền", manageRoot: "Phạm vi quản lý", ratePermission: "Quyền chia %", accountStatus: "Trạng thái tài khoản",
+    heroTitle: "Biến giao dịch cá nhân rủi ro\nthành hệ thống an toàn.", heroBadge: "Giao dịch P2P escrow bằng smart contract", heroDesc: "TetherGet là nền tảng P2P phi tập trung, người bán ký quỹ crypto và người mua xác nhận thanh toán trước khi giải ngân.",
+    loginJoin: "Đăng nhập / Đăng ký", startWallet: "Bắt đầu bằng ví", beforeTrade: "Quy trình trước giao dịch",
+    adminTitle: "Quản lý tuyến dưới / Chia phí", adminDesc: "Bấm vào tuyến dưới để xem ngày tham gia, email, ví, dữ liệu giao dịch và danh sách tuyến dưới.",
+    adminStorage: "Kho quản trị cá nhân", totalVolume: "Tổng khối lượng", referralProfit: "Lợi nhuận giới thiệu", withdrawable: "Có thể rút", pendingSettlement: "Đang chờ", weeklyProfit: "Lãi tuần", monthlyProfit: "Lãi tháng", managedChildren: "Tuyến dưới", withdrawRequest: "Yêu cầu rút",
+    childList: "Danh sách tuyến dưới", selectedUser: "Chi tiết thành viên", securityCenter: "Trung tâm bảo mật HQ", riskMonitor: "Theo dõi rủi ro", blockPolicy: "Chính sách chặn HQ",
+    tradeStart: "Bắt đầu", tradeDetail: "Chi tiết / Yêu cầu", tradeRequest: "Yêu cầu GD", confirmButton: "Xác nhận", proofUpload: "Tải bằng chứng", close: "Đóng",
+    seller: "Người bán", trust: "Tin cậy", availableAmount: "Số lượng khả dụng", finalReceive: "Người mua nhận", buyerFee: "Phí người mua 1%", expectedPay: "Số tiền chuyển"
+  },
+  JP: {
+    menuTrade: "取引", sellRegister: "販売登録", myInfo: "マイ情報", myTrades: "取引履歴", p2p: "P2P", admin: "管理者", support: "サポート",
+    login: "ログイン", logout: "ログアウト", connectWallet: "ウォレット接続", dashboard: "取引ダッシュボード", onlyNeeded: "必要な取引機能のみ表示されます。",
+    currentLogin: "現在ログイン", role: "権限", manageRoot: "管理範囲", ratePermission: "配分権限", accountStatus: "アカウント状態",
+    heroTitle: "危険な個人取引を\n安全なシステムへ。", heroBadge: "スマートコントラクトエスクロー型P2P取引", heroDesc: "TetherGetは、販売者が暗号資産を預託し、購入者の支払い確認後にリリースする分散型P2P取引プラットフォームです。",
+    loginJoin: "ログイン / 登録", startWallet: "ウォレットで開始", beforeTrade: "取引前の流れ",
+    adminTitle: "管理者下部ツリー / 手数料配分", adminDesc: "下部会員をクリックすると、加入日、メール、ウォレット、取引情報、下部リストを確認できます。",
+    adminStorage: "管理者マイ保管庫", totalVolume: "総取引量", referralProfit: "紹介収益", withdrawable: "出金可能額", pendingSettlement: "精算待ち", weeklyProfit: "週間収益", monthlyProfit: "月間収益", managedChildren: "管理下部数", withdrawRequest: "出金申請",
+    childList: "下部会員リスト", selectedUser: "選択会員詳細", securityCenter: "本社セキュリティセンター", riskMonitor: "リスク監視", blockPolicy: "本社遮断ポリシー",
+    tradeStart: "取引開始", tradeDetail: "取引詳細 / 申請", tradeRequest: "取引申請", confirmButton: "確認", proofUpload: "証憑アップロード", close: "閉じる",
+    seller: "販売者", trust: "信頼度", availableAmount: "取引可能数量", finalReceive: "購入者最終受取", buyerFee: "購入者手数料1%", expectedPay: "予想送金額"
+  },
+  CN: {
+    menuTrade: "交易", sellRegister: "发布出售", myInfo: "我的信息", myTrades: "我的交易", p2p: "P2P", admin: "管理员", support: "客服",
+    login: "登录", logout: "退出", connectWallet: "连接钱包", dashboard: "交易仪表盘", onlyNeeded: "仅显示必要交易功能。",
+    currentLogin: "当前登录", role: "权限", manageRoot: "管理范围", ratePermission: "分配权限", accountStatus: "账户状态",
+    heroTitle: "把高风险个人交易\n变成安全系统。", heroBadge: "基于智能合约托管的P2P交易", heroDesc: "TetherGet 是去中心化P2P平台，卖家托管加密资产，买家完成付款验证后释放资产。",
+    loginJoin: "登录 / 注册", startWallet: "用钱包开始", beforeTrade: "交易前流程",
+    adminTitle: "管理员下级树 / 手续费分配", adminDesc: "点击下级会员可查看加入日期、邮箱、钱包、交易数据和下级列表。",
+    adminStorage: "管理员个人仓库", totalVolume: "总交易量", referralProfit: "推荐收益", withdrawable: "可提现", pendingSettlement: "待结算", weeklyProfit: "本周收益", monthlyProfit: "本月收益", managedChildren: "管理下级", withdrawRequest: "申请提现",
+    childList: "我的下级会员", selectedUser: "会员详情", securityCenter: "总部安全 / 验证中心", riskMonitor: "风险监控", blockPolicy: "总部封禁策略",
+    tradeStart: "开始交易", tradeDetail: "交易详情 / 申请", tradeRequest: "申请交易", confirmButton: "确认", proofUpload: "上传凭证", close: "关闭",
+    seller: "卖家", trust: "信任度", availableAmount: "可交易数量", finalReceive: "买家最终收到", buyerFee: "买家手续费1%", expectedPay: "预计付款"
+  }
+};
+
+const LangContext = createContext(translations.KR);
+function useLang() { return useContext(LangContext); }
+
+const trades = [
+  { id: "TG-24001", type: "구매", coin: "USDT", amount: 500, status: "입금대기", time: "2026-05-07 08:20" },
+  { id: "TG-23998", type: "판매", coin: "USDT", amount: 1200, status: "증빙확인", time: "2026-05-06 22:14" },
+  { id: "TG-23991", type: "구매", coin: "SOL", amount: 12, status: "완료", time: "2026-05-06 19:02" },
+];
+
+const instantReleasePolicyText =
+  "판매자는 반드시 실제 입금 여부를 직접 확인한 후 확인 버튼을 눌러야 하며, 잘못된 확인·사기·피싱·계정 탈취·제3자 사칭 등으로 인한 손실에 대해 플랫폼은 관련 법령상 책임 범위를 제외하고 책임지지 않습니다.";
+const defaultSellerDepositNotice =
+  "코인 판매자는 구매자의 입금자 이름을 사전에 확인하고, 실제 입금 내역의 예금주와 일치할 때만 송금 확인 버튼을 눌러야 합니다. 이름 불일치 상태에서 확인 시 사고 책임이 발생할 수 있습니다.";
+
+const initialFriends = [
+  {
+    id: "FR-001",
+    nickname: "코인헌터",
+    level: "Lv.5",
+    status: "완전매칭",
+    online: true,
+    unread: 2,
+    instantRelease: true,
+    delayedRelease: false,
+    selling: true,
+    sellAmount: 1200,
+    sellCoin: "USDT",
+    sellPrice: 1392,
+    sellCurrency: "KRW",
+  },
+  {
+    id: "FR-002",
+    nickname: "SafePartner",
+    level: "Lv.4",
+    status: "거래매칭",
+    online: true,
+    unread: 1,
+    instantRelease: true,
+    delayedRelease: false,
+    selling: true,
+    sellAmount: 800,
+    sellCoin: "USDT",
+    sellPrice: 1394,
+    sellCurrency: "KRW",
+  },
+  {
+    id: "FR-003",
+    nickname: "신규요청회원",
+    level: "Lv.2",
+    status: "친구요청",
+    online: false,
+    unread: 0,
+    instantRelease: false,
+    delayedRelease: true,
+    selling: false,
+    sellAmount: 0,
+    sellCoin: "USDT",
+    sellPrice: 0,
+    sellCurrency: "KRW",
+  },
+];
+
+const initialChatRooms = {
+  "FR-001": [
+    { id: "FR-001-MSG-1", sender: "friend", text: "입금 확인되면 바로 진행해드릴게요.", deleted: false, createdAt: "19:40" },
+    { id: "FR-001-MSG-2", sender: "me", text: "네, 지금 송금 중입니다.", deleted: false, createdAt: "19:42" },
+  ],
+  "FR-002": [
+    { id: "FR-002-MSG-1", sender: "friend", text: "오늘 KRW 환율 좋습니다.", deleted: false, createdAt: "18:05" },
+    { id: "FR-002-MSG-2", sender: "me", text: "좋아요. 500 USDT 거래할게요.", deleted: false, createdAt: "18:09" },
+  ],
+  "FR-003": [
+    { id: "FR-003-MSG-1", sender: "friend", text: "친구 승인 부탁드립니다.", deleted: false, createdAt: "17:28" },
+  ],
+};
+
+const AUTH_TOKEN_KEY = "tetherget_auth_token_v1";
+const AUTH_REFRESH_TOKEN_KEY = "tetherget_refresh_token_v1";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000";
+
+const defaultAuthUsers = [
+  {
+    id: "AUTH-ADMIN-001",
+    email: "admin@tetherget.com",
+    password: "admin1234",
+    nickname: "본사관리자",
+    role: "본사 슈퍼관리자",
+    createdAt: "2026-05-01",
+  },
+];
+
+const themeMap = {
+  dark: {
+    name: "블랙",
+    page: "bg-slate-950",
+    header: "bg-slate-950 border-slate-800 text-white",
+    card: "bg-slate-900 border-slate-800 text-white",
+    cardSoft: "bg-slate-800 text-white",
+    input: "bg-slate-800 border-slate-700 text-white placeholder:text-slate-400",
+    main: "bg-white text-slate-950",
+    subtext: "text-slate-300",
+    muted: "text-slate-400",
+  },
+  blue: {
+    name: "블루",
+    page: "bg-blue-50",
+    header: "bg-white border-slate-200 text-slate-950",
+    card: "bg-white border-slate-200 text-slate-950",
+    cardSoft: "bg-blue-50 text-slate-950",
+    input: "bg-white border-slate-200 text-slate-950",
+    main: "bg-blue-600 text-white",
+    subtext: "text-slate-500",
+    muted: "text-slate-500",
+  },
+  green: {
+    name: "그린",
+    page: "bg-emerald-50",
+    header: "bg-white border-slate-200 text-slate-950",
+    card: "bg-white border-slate-200 text-slate-950",
+    cardSoft: "bg-emerald-50 text-slate-950",
+    input: "bg-white border-slate-200 text-slate-950",
+    main: "bg-emerald-600 text-white",
+    subtext: "text-slate-500",
+    muted: "text-slate-500",
+  },
+  purple: {
+    name: "퍼플",
+    page: "bg-violet-50",
+    header: "bg-white border-slate-200 text-slate-950",
+    card: "bg-white border-slate-200 text-slate-950",
+    cardSoft: "bg-violet-50 text-slate-950",
+    input: "bg-white border-slate-200 text-slate-950",
+    main: "bg-violet-600 text-white",
+    subtext: "text-slate-500",
+    muted: "text-slate-500",
+  },
+};
+
+function number(v) {
+  return new Intl.NumberFormat("ko-KR").format(Math.round(v || 0));
+}
+
+function getMarketRate(sellAsset, receiveAsset, receiveType) {
+  const fiatRates = {
+    USDT: { KRW: 1392, USD: 1, VND: 26000, JPY: 156 },
+    SOL: { KRW: 238000, USD: 171, VND: 4446000, JPY: 26600 },
+    BTC: { KRW: 90000000, USD: 64700, VND: 1682200000, JPY: 10090000 },
+    ETH: { KRW: 4300000, USD: 3090, VND: 80340000, JPY: 482000 },
+  };
+
+  const coinRates = {
+    USDT: { USDT: 1, SOL: 0.0058, BTC: 0.000015, ETH: 0.00032 },
+    SOL: { USDT: 171, SOL: 1, BTC: 0.0026, ETH: 0.055 },
+    BTC: { USDT: 64700, SOL: 378, BTC: 1, ETH: 20.9 },
+    ETH: { USDT: 3090, SOL: 18, BTC: 0.048, ETH: 1 },
+  };
+
+  if (receiveType === "통화") return fiatRates[sellAsset]?.[receiveAsset] || 0;
+  return coinRates[sellAsset]?.[receiveAsset] || 0;
+}
+
+function rateText(value, receiveAsset, receiveType) {
+  if (receiveType === "통화") return `${number(value)} ${receiveAsset}`;
+  return `${value} ${receiveAsset}`;
+}
+
+export default function App() {
+  const [theme, setTheme] = useState("dark");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [sellOpen, setSellOpen] = useState(false);
+  const [activePage, setActivePage] = useState("trade");
+  const [toast, setToast] = useState("");
+  const [coin, setCoin] = useState("USDT");
+  const [amount, setAmount] = useState(1000);
+  const [nickname, setNickname] = useState("TetherKing");
+  const [bankRegistered, setBankRegistered] = useState(false);
+  const [buyerKyc, setBuyerKyc] = useState({
+    realName: "",
+    idVerified: false,
+    idImageUploaded: false,
+    bankAccountUploaded: false,
+    accountNameMatched: false,
+    companyApprovalStatus: "미제출",
+    privateStorageNoticeAccepted: false,
+  });
+  const [myInfoTab, setMyInfoTab] = useState("기본정보");
+  const [showReferral, setShowReferral] = useState(false);
+  const [sellAsset, setSellAsset] = useState("USDT");
+  const [receiveType, setReceiveType] = useState("통화");
+  const [receiveAsset, setReceiveAsset] = useState("KRW");
+  const [sellAmount, setSellAmount] = useState("");
+  const [sellRate, setSellRate] = useState("");
+  const [adminMember, setAdminMember] = useState("TG-MEMBER-001");
+  const [adminParent, setAdminParent] = useState("TG777");
+  const [adminReceivedRate, setAdminReceivedRate] = useState("50");
+  const [adminRate, setAdminRate] = useState("45");
+  const [adminMemo, setAdminMemo] = useState("본사 → 총판 → 하위 파트너 구조");
+  const [adminUserSearch, setAdminUserSearch] = useState("");
+  const [selectedAdminUser, setSelectedAdminUser] = useState(fakeUsers[0]);
+  const [selectedChildUser, setSelectedChildUser] = useState(null);
+  const [securityFilter, setSecurityFilter] = useState("전체");
+  const [blockReason, setBlockReason] = useState("사기 의심 / 다중 계정 / 비정상 거래 패턴");
+  const [loginMode, setLoginMode] = useState("google");
+  const [googleEmail, setGoogleEmail] = useState("demo@gmail.com");
+  const [walletProvider, setWalletProvider] = useState("Phantom");
+  const [phantomWallet, setPhantomWallet] = useState("8xA2...9QpL");
+  const [referralInput, setReferralInput] = useState("TG777");
+  const [accountType, setAccountType] = useState("비로그인");
+  const [linkedGoogle, setLinkedGoogle] = useState("");
+  const [linkedWallet, setLinkedWallet] = useState("");
+  const [linkedReferral, setLinkedReferral] = useState("");
+  const [mergeStatus, setMergeStatus] = useState("아직 연결된 계정 없음");
+  const [currentRole, setCurrentRole] = useState("본사 슈퍼관리자");
+  const [language, setLanguage] = useState("KR");
+  const [friends, setFriends] = useState(initialFriends);
+  const [selectedFriendId, setSelectedFriendId] = useState(initialFriends[0].id);
+  const [chatRooms, setChatRooms] = useState(initialChatRooms);
+  const [chatInput, setChatInput] = useState("");
+  const [friendTradePopup, setFriendTradePopup] = useState(false);
+  const [tradeTargetFriendId, setTradeTargetFriendId] = useState(initialFriends[0].id);
+  const [friendTradeAmount, setFriendTradeAmount] = useState("");
+  const [friendTradeFinalStep, setFriendTradeFinalStep] = useState(false);
+  const [authUsers, setAuthUsers] = useState(defaultAuthUsers.map(({ password, ...rest }) => rest));
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || "");
+  const [authRefreshToken, setAuthRefreshToken] = useState(() => localStorage.getItem(AUTH_REFRESH_TOKEN_KEY) || "");
+  const [authTab, setAuthTab] = useState("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
+  const [authNickname, setAuthNickname] = useState("");
+  const [friendSearch, setFriendSearch] = useState("");
+  const [pinnedFriendIds, setPinnedFriendIds] = useState(["FR-001"]);
+  const [mutedFriendIds, setMutedFriendIds] = useState([]);
+  const [adminMediaTypeFilter, setAdminMediaTypeFilter] = useState("전체");
+  const [adminMediaFriendFilter, setAdminMediaFriendFilter] = useState("전체");
+  const [adminActionLogs, setAdminActionLogs] = useState([]);
+  const [sellerDepositNotice, setSellerDepositNotice] = useState(defaultSellerDepositNotice);
+  const [escrowPolicy, setEscrowPolicy] = useState({
+    mainCustodyAccount: "TG-COMPANY-CUSTODY-001",
+    requiredApprovals: 3,
+    approverIds: [],
+    mainFinalApproverId: 1,
+  });
+  const [disputeCases, setDisputeCases] = useState([]);
+  const [finalApprovalPinInput, setFinalApprovalPinInput] = useState("");
+  const [newPolicyPinInput, setNewPolicyPinInput] = useState("");
+  const [selectedDisputeIdForTimeline, setSelectedDisputeIdForTimeline] = useState("");
+  const [selectedDisputeEvents, setSelectedDisputeEvents] = useState([]);
+  const [timelineActionFilter, setTimelineActionFilter] = useState("전체");
+  const [timelineFromDate, setTimelineFromDate] = useState("");
+  const [timelineToDate, setTimelineToDate] = useState("");
+  const [finalApprovalOtpInput, setFinalApprovalOtpInput] = useState("");
+  const [runtimeEmergencyState, setRuntimeEmergencyState] = useState({
+    emergencyMode: false,
+    emergencyReason: "",
+    emergencyEta: "",
+    updatedAt: "",
+  });
+
+  const t = themeMap[theme];
+  const lang = translations[language] || translations.KR;
+  const rate = coin === "USDT" ? 1392 : coin === "SOL" ? 238000 : 90000000;
+  const fee = amount * rate * 0.01;
+  const total = amount * rate + fee;
+  const marketRate = getMarketRate(sellAsset, receiveAsset, receiveType);
+  const marketRateMinus = receiveType === "통화" ? Math.round(marketRate * 0.99) : Number((marketRate * 0.99).toFixed(8));
+  const marketRatePlus = receiveType === "통화" ? Math.round(marketRate * 1.01) : Number((marketRate * 1.01).toFixed(8));
+  const selectedFriend = useMemo(() => friends.find((friend) => friend.id === selectedFriendId), [friends, selectedFriendId]);
+  const selectedFriendMessages = chatRooms[selectedFriendId] || [];
+  const friendLastMessages = useMemo(
+    () =>
+      friends.reduce((acc, friend) => {
+        const roomMessages = chatRooms[friend.id] || [];
+        const latest = roomMessages[roomMessages.length - 1];
+        acc[friend.id] = latest?.deleted ? "삭제된 메시지입니다." : latest?.text || "대화 없음";
+        return acc;
+      }, {}),
+    [friends, chatRooms]
+  );
+  const tradeTargetFriend = friends.find((friend) => friend.id === tradeTargetFriendId);
+  const canAccessAdmin = currentRole.includes("관리자");
+  const isSuperAdmin = currentRole.includes("슈퍼관리자");
+  const currentAdminActorId = useMemo(() => {
+    const matched = authUsers.find((user) => user.email === linkedGoogle);
+    return matched?.id || authUsers[0]?.id || 1;
+  }, [authUsers, linkedGoogle]);
+  const apiClient = useMemo(
+    () =>
+      createApiClient({
+        baseUrl: API_BASE,
+        getAccessToken: () => authToken,
+        getRefreshToken: () => authRefreshToken,
+        setAccessToken: setAuthToken,
+        setRefreshToken: setAuthRefreshToken,
+        onAuthFailure: () => {
+          setLoggedIn(false);
+          setAuthToken("");
+          setAuthRefreshToken("");
+        },
+      }),
+    [authToken, authRefreshToken]
+  );
+
+  useEffect(() => {
+    if (authToken) localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+  }, [authToken]);
+
+  useEffect(() => {
+    if (authRefreshToken) localStorage.setItem(AUTH_REFRESH_TOKEN_KEY, authRefreshToken);
+    else localStorage.removeItem(AUTH_REFRESH_TOKEN_KEY);
+  }, [authRefreshToken]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    apiClient.request("/api/admin/users", { auth: true })
+      .then((data) => setAuthUsers(Array.isArray(data.users) ? data.users : []))
+      .catch(() => {});
+  }, [authToken, apiClient]);
+
+  useEffect(() => {
+    if (!authToken || !canAccessAdmin) return;
+    apiClient.request("/api/admin/escrow-policy", { auth: true })
+      .then((data) => {
+        if (data?.policy) setEscrowPolicy(data.policy);
+      })
+      .catch(() => {});
+    apiClient.request("/api/admin/disputes", { auth: true })
+      .then((data) => setDisputeCases(Array.isArray(data.disputes) ? data.disputes : []))
+      .catch(() => {});
+  }, [authToken, canAccessAdmin, apiClient]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    apiClient.request("/api/kyc/me", { auth: true })
+      .then((data) => {
+        if (data?.profile) setBuyerKyc(data.profile);
+      })
+      .catch(() => {});
+  }, [authToken, apiClient]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadRuntimeState() {
+      try {
+        const data = await apiClient.request("/api/runtime-state");
+        if (!mounted) return;
+        setRuntimeEmergencyState({
+          emergencyMode: Boolean(data?.emergencyMode),
+          emergencyReason: String(data?.emergencyReason || ""),
+          emergencyEta: String(data?.emergencyEta || ""),
+          updatedAt: String(data?.updatedAt || ""),
+        });
+      } catch {
+        // ignore runtime-state polling errors for UX stability
+      }
+    }
+    loadRuntimeState();
+    const timer = setInterval(loadRuntimeState, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [apiClient]);
+
+  function notify(message) {
+    setToast(message);
+    setTimeout(() => setToast(""), 1800);
+  }
+
+  function requireLogin(action) {
+    if (!loggedIn) {
+      setLoginOpen(true);
+      notify("로그인이 필요합니다.");
+      return;
+    }
+    action?.();
+  }
+
+  function isValidEmail(email) {
+    return /\S+@\S+\.\S+/.test(email);
+  }
+
+  async function handleAuthSubmit() {
+    const email = authEmail.trim().toLowerCase();
+    const password = authPassword.trim();
+    const nicknameInput = authNickname.trim();
+    if (!isValidEmail(email)) {
+      notify("유효한 이메일을 입력하세요.");
+      return;
+    }
+    if (password.length < 6) {
+      notify("비밀번호는 6자 이상이어야 합니다.");
+      return;
+    }
+
+    try {
+      if (authTab === "signup") {
+        if (!nicknameInput) {
+          notify("닉네임을 입력하세요.");
+          return;
+        }
+        if (password !== authPasswordConfirm.trim()) {
+          notify("비밀번호 확인이 일치하지 않습니다.");
+          return;
+        }
+        const signupData = await apiClient.request("/api/auth/signup", {
+          method: "POST",
+          body: JSON.stringify({ email, password, nickname: nicknameInput }),
+        });
+        const user = signupData.user || {};
+        setAuthToken(signupData.accessToken || signupData.token || "");
+        setAuthRefreshToken(signupData.refreshToken || "");
+        setLoggedIn(true);
+        setAccountType("이메일 계정");
+        setCurrentRole(user.role || "일반회원");
+        setNickname(user.nickname || "회원");
+        setLinkedGoogle(user.email || email);
+        setMergeStatus("DB 계정으로 가입됨");
+        setLoginOpen(false);
+        notify("회원가입 및 로그인 완료");
+        return;
+      }
+
+      const loginData = await apiClient.request("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      const user = loginData.user || {};
+      setAuthToken(loginData.accessToken || loginData.token || "");
+      setAuthRefreshToken(loginData.refreshToken || "");
+      setLoggedIn(true);
+      setAccountType("이메일 계정");
+      setCurrentRole(user.role || "일반회원");
+      setNickname(user.nickname || "회원");
+      setLinkedGoogle(user.email || email);
+      setMergeStatus("DB 로그인 완료");
+      setLoginOpen(false);
+      notify("로그인 완료");
+    } catch (error) {
+      notify(error.message || "인증 서버 연결에 실패했습니다. API 서버를 실행하세요.");
+    }
+  }
+
+  function openPage(key) {
+    if (key === "sell") {
+      requireLogin(() => setSellOpen(true));
+      return;
+    }
+    if (key === "admin") {
+      requireLogin(() => {
+        if (!canAccessAdmin) {
+          notify("관리자 권한이 필요합니다.");
+          return;
+        }
+        setActivePage("admin");
+      });
+      return;
+    }
+    setActivePage(key);
+  }
+
+  function appendAdminAction(action) {
+    setAdminActionLogs((prev) => [
+      { id: `ADMIN-ACTION-${Date.now()}`, action, role: currentRole, time: new Date().toLocaleTimeString("ko-KR", { hour12: false }) },
+      ...prev.slice(0, 49),
+    ]);
+  }
+
+  async function registerDisputeCase(payload) {
+    try {
+      const created = await apiClient.request("/api/disputes", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify(payload),
+      });
+      appendAdminAction(`분쟁 접수: ${created.id || "신규"}`);
+      const data = await apiClient.request("/api/admin/disputes", { auth: true });
+      setDisputeCases(Array.isArray(data.disputes) ? data.disputes : []);
+      notify(`분쟁이 접수되었습니다. ${escrowPolicy.requiredApprovals}인 승인 후 메인 관리자 최종승인이 필요합니다.`);
+    } catch (error) {
+      notify(error.message || "분쟁 접수에 실패했습니다.");
+    }
+  }
+
+  async function approveDisputeCase(caseId, approverId) {
+    if (!approverId) return;
+    if (!escrowPolicy.approverIds.includes(approverId)) {
+      notify("지정 승인자만 결재할 수 있습니다.");
+      return;
+    }
+    try {
+      await apiClient.request(`/api/admin/disputes/${caseId}/approve`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      const data = await apiClient.request("/api/admin/disputes", { auth: true });
+      setDisputeCases(Array.isArray(data.disputes) ? data.disputes : []);
+    } catch (error) {
+      notify(error.message || "승인 처리에 실패했습니다.");
+    }
+  }
+
+  async function finalizeDisputeByMain(caseId, actorId, pin, otp) {
+    if (actorId !== escrowPolicy.mainFinalApproverId) {
+      notify("메인 관리자 최종승인 계정만 반환 확정할 수 있습니다.");
+      return;
+    }
+    try {
+      await apiClient.request(`/api/admin/disputes/${caseId}/finalize`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ pin, otp }),
+      });
+      appendAdminAction(`메인 관리자 최종승인 완료: ${caseId}`);
+      const data = await apiClient.request("/api/admin/disputes", { auth: true });
+      setDisputeCases(Array.isArray(data.disputes) ? data.disputes : []);
+      setFinalApprovalPinInput("");
+      setFinalApprovalOtpInput("");
+    } catch (error) {
+      notify(error.message || "최종승인 처리에 실패했습니다.");
+    }
+  }
+
+  function isInstantReleaseAvailable(friend) {
+    if (!friend) return false;
+    const matchStatus = friend.status === "완전매칭" || friend.status === "거래매칭";
+    return matchStatus && friend.instantRelease;
+  }
+
+  function formatChatTime() {
+    return new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+
+  function openFriendChat(friendId) {
+    if (!friendId) return;
+    setSelectedFriendId(friendId);
+    setActivePage("messenger");
+    setFriends((prev) => prev.map((friend) => (friend.id === friendId ? { ...friend, unread: 0 } : friend)));
+  }
+
+  function openFriendTrade(friendId) {
+    if (!friendId) return;
+    setTradeTargetFriendId(friendId);
+    setFriendTradeAmount("");
+    setFriendTradeFinalStep(false);
+    setFriendTradePopup(true);
+  }
+
+  function proceedFriendTrade(friend) {
+    if (!friend) return;
+    const requestedAmount = Number(friendTradeAmount || 0);
+    const maxAmount = Number(friend.sellAmount || 0);
+    if (!requestedAmount || requestedAmount <= 0) {
+      notify("거래할 수량을 입력하세요.");
+      return;
+    }
+    if (requestedAmount > maxAmount) {
+      notify(`최대 ${number(maxAmount)} ${friend.sellCoin}까지 거래 가능합니다.`);
+      return;
+    }
+    setFriendTradeFinalStep(true);
+  }
+
+  function startFriendTrade(friend) {
+    if (!friend) return;
+    const requestedAmount = Number(friendTradeAmount || 0);
+    setFriendTradePopup(false);
+    setFriendTradeFinalStep(false);
+    setActivePage("trade");
+    setCoin(friend.sellCoin || "USDT");
+    setAmount(requestedAmount);
+    notify(`${friend.nickname}와 ${number(requestedAmount)} ${friend.sellCoin} 부분 거래를 시작합니다.`);
+  }
+
+  function selectFriend(friendId) {
+    if (!friendId) return;
+    setSelectedFriendId(friendId);
+    setFriends((prev) => prev.map((friend) => (friend.id === friendId ? { ...friend, unread: 0 } : friend)));
+  }
+
+  function sendFriendMessage() {
+    const trimmed = chatInput.trim();
+    if (!selectedFriendId || !trimmed) return;
+    const nextMessage = {
+      id: `${selectedFriendId}-${Date.now()}`,
+      sender: "me",
+      text: trimmed,
+      deleted: false,
+      createdAt: formatChatTime(),
+    };
+    setChatRooms((prev) => ({
+      ...prev,
+      [selectedFriendId]: [...(prev[selectedFriendId] || []), nextMessage],
+    }));
+    setChatInput("");
+  }
+
+  function sendFriendAttachment(file) {
+    if (!selectedFriendId || !file) return;
+    const isImage = file.type.startsWith("image/");
+    const isAudio = file.type.startsWith("audio/");
+    const nextMessage = {
+      id: `${selectedFriendId}-FILE-${Date.now()}`,
+      sender: "me",
+      text: isImage ? "이미지를 전송했습니다." : isAudio ? "음성 메시지를 전송했습니다." : `${file.name} 파일을 전송했습니다.`,
+      deleted: false,
+      createdAt: formatChatTime(),
+      attachment: {
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        size: file.size || 0,
+        previewUrl: isImage ? URL.createObjectURL(file) : "",
+        audioUrl: isAudio ? URL.createObjectURL(file) : "",
+      },
+    };
+    setChatRooms((prev) => ({
+      ...prev,
+      [selectedFriendId]: [...(prev[selectedFriendId] || []), nextMessage],
+    }));
+  }
+
+  function deleteFriendMessage(friendId, messageId) {
+    if (!friendId || !messageId) return;
+    setChatRooms((prev) => ({
+      ...prev,
+      [friendId]: (prev[friendId] || []).map((message) =>
+        message.id === messageId ? { ...message, deleted: true, text: "삭제된 메시지입니다." } : message
+      ),
+    }));
+  }
+
+  function clearFriendMessages(friendId) {
+    if (!friendId) return;
+    setChatRooms((prev) => ({ ...prev, [friendId]: [] }));
+  }
+
+  return (
+    <LangContext.Provider value={lang}>
+    <div className={`min-h-screen ${t.page}`}>
+      {toast && <div className="fixed left-1/2 top-5 z-[100] -translate-x-1/2 rounded-2xl bg-black px-5 py-3 text-sm font-black text-white shadow-xl">{toast}</div>}
+      {runtimeEmergencyState.emergencyMode && (
+        <div className="sticky top-0 z-[95] border-b border-red-400/40 bg-red-600/95 px-4 py-2 text-center text-xs font-black text-white">
+          비상 점검 모드 활성화: {runtimeEmergencyState.emergencyReason || "관리자 복구 작업 진행 중"}
+          {runtimeEmergencyState.emergencyEta ? ` · ETA ${runtimeEmergencyState.emergencyEta}` : ""}
+          {" · "}
+          {runtimeEmergencyState.updatedAt || ""}
+        </div>
+      )}
+
+      {loginOpen && (
+        <Modal title="로그인 / 가입" desc="실전형 이메일 계정으로 가입/로그인하고, 필요 시 지갑을 추가 연결합니다." onClose={() => setLoginOpen(false)} theme={t}>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setAuthTab("login")}
+              className={`rounded-2xl border px-4 py-3 font-black ${authTab === "login" ? t.main : t.input}`}
+            >
+              이메일 로그인
+            </button>
+            <button
+              onClick={() => setAuthTab("signup")}
+              className={`rounded-2xl border px-4 py-3 font-black ${authTab === "signup" ? t.main : t.input}`}
+            >
+              이메일 회원가입
+            </button>
+          </div>
+          <Field label="이메일" theme={t}>
+            <input
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+              placeholder="예: user@gmail.com"
+            />
+          </Field>
+          <Field label="비밀번호" theme={t}>
+            <input
+              type="password"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+              placeholder="6자 이상"
+            />
+          </Field>
+          {authTab === "signup" && (
+            <>
+              <Field label="비밀번호 확인" theme={t}>
+                <input
+                  type="password"
+                  value={authPasswordConfirm}
+                  onChange={(e) => setAuthPasswordConfirm(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+                  placeholder="비밀번호 재입력"
+                />
+              </Field>
+              <Field label="닉네임" theme={t}>
+                <input
+                  value={authNickname}
+                  onChange={(e) => setAuthNickname(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+                  placeholder="표시 닉네임"
+                />
+              </Field>
+            </>
+          )}
+          <button onClick={handleAuthSubmit} className={`rounded-2xl px-5 py-4 font-black ${t.main}`}>
+            {authTab === "signup" ? "실전 회원가입" : "실전 로그인"}
+          </button>
+          <div className={`rounded-2xl border p-3 text-xs ${t.cardSoft}`}>
+            기본 관리자 계정: <b>admin@tetherget.com / admin1234</b>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setLoginMode("google")}
+              className={`rounded-2xl border px-4 py-3 font-black ${loginMode === "google" ? t.main : t.input}`}
+            >
+              데모 구글 로그인
+            </button>
+            <button
+              onClick={() => setLoginMode("wallet")}
+              className={`rounded-2xl border px-4 py-3 font-black ${loginMode === "wallet" ? t.main : t.input}`}
+            >
+              데모 지갑 로그인
+            </button>
+          </div>
+
+          {loginMode === "google" && (
+            <>
+              <Field label="구글 이메일" theme={t}>
+                <input
+                  value={googleEmail}
+                  onChange={(e) => setGoogleEmail(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+                  placeholder="예: user@gmail.com"
+                />
+              </Field>
+              <Field label="추천인 코드" theme={t}>
+                <input
+                  value={referralInput}
+                  onChange={(e) => setReferralInput(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+                  placeholder="추천인 코드 입력"
+                />
+              </Field>
+              <button
+                onClick={() => {
+                  setLoggedIn(true);
+                  setAccountType("구글 계정");
+                  setCurrentRole("본사 슈퍼관리자");
+                  setLinkedGoogle(googleEmail);
+                  setLinkedReferral(referralInput);
+                  setMergeStatus("구글 계정으로 가입됨 · 지갑 추가 가능");
+                  setLoginOpen(false);
+                  notify("구글 로그인 완료");
+                }}
+                className={`rounded-2xl px-5 py-4 font-black ${t.main}`}
+              >
+                구글로 가입 / 로그인
+              </button>
+              <button
+                onClick={() => {
+                  setLinkedWallet(phantomWallet);
+                  setMergeStatus("구글 계정에 팬텀 지갑이 추가 연결됨");
+                  notify("구글 계정에 지갑 추가 완료");
+                }}
+                className={`rounded-2xl border px-5 py-4 font-black ${t.input}`}
+              >
+                로그인 후 지갑 추가
+              </button>
+            </>
+          )}
+
+          {loginMode === "wallet" && (
+            <>
+              <Field label="지갑 선택" theme={t}>
+                <select
+                  value={walletProvider}
+                  onChange={(e) => setWalletProvider(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+                >
+                  <option>Phantom</option>
+                  <option>Solflare</option>
+                  <option>Backpack</option>
+                  <option>MetaMask</option>
+                  <option>OKX Wallet</option>
+                  <option>Trust Wallet</option>
+                  <option>Coinbase Wallet</option>
+                </select>
+              </Field>
+
+              <Field label={`${walletProvider} 지갑 주소`} theme={t}>
+                <input
+                  value={phantomWallet}
+                  onChange={(e) => setPhantomWallet(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+                  placeholder={`${walletProvider} 지갑 주소`}
+                />
+              </Field>
+              <Field label="추천인 코드" theme={t}>
+                <input
+                  value={referralInput}
+                  onChange={(e) => setReferralInput(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+                  placeholder="추천인 코드 입력"
+                />
+              </Field>
+              <button
+                onClick={() => {
+                  setLoggedIn(true);
+                  setAccountType(`${walletProvider} 지갑`);
+                  setCurrentRole("본사 슈퍼관리자");
+                  setLinkedWallet(phantomWallet);
+                  setLinkedReferral(referralInput);
+                  setMergeStatus("팬텀 지갑으로 가입됨 · 지메일 추가 가능");
+                  setLoginOpen(false);
+                  notify("지갑 로그인 완료");
+                }}
+                className={`rounded-2xl px-5 py-4 font-black ${t.main}`}
+              >
+                지갑으로 가입 / 로그인
+              </button>
+              <button
+                onClick={() => {
+                  setLinkedGoogle(googleEmail);
+                  setMergeStatus("팬텀 지갑 계정에 지메일이 추가 연결됨");
+                  notify("팬텀 계정에 지메일 추가 완료");
+                }}
+                className={`rounded-2xl border px-5 py-4 font-black ${t.input}`}
+              >
+                로그인 후 지메일 추가
+              </button>
+            </>
+          )}
+
+          <div className={`rounded-3xl p-4 text-sm ${t.cardSoft}`}>
+            <div className="font-black">계정 합산 원칙</div>
+            <div className={`mt-2 leading-6 ${t.subtext}`}>
+              구글로 먼저 가입해도 팬텀 지갑을 추가할 수 있고, 지갑으로 먼저 가입해도 지메일을 추가할 수 있습니다. 같은 회원 ID에 이메일·지갑·레퍼럴을 묶어 관리합니다.
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {sellOpen && (
+        <Modal title="판매 등록" desc="내가 판매하는 자산과 받을 종류를 먼저 선택합니다." onClose={() => setSellOpen(false)} theme={t}>
+          <Field label="1. 내가 판매하는 자산" theme={t}>
+            <select
+              value={sellAsset}
+              onChange={(e) => setSellAsset(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+            >
+              <option>USDT</option>
+              <option>SOL</option>
+              <option>BTC</option>
+              <option>ETH</option>
+            </select>
+          </Field>
+
+          <Field label="2. 받을 종류 선택" theme={t}>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { setReceiveType("통화"); setReceiveAsset("KRW"); }}
+                className={`rounded-2xl border px-4 py-3 font-black ${receiveType === "통화" ? t.main : t.input}`}
+              >
+                통화로 받기
+              </button>
+              <button
+                onClick={() => { setReceiveType("코인"); setReceiveAsset("USDT"); }}
+                className={`rounded-2xl border px-4 py-3 font-black ${receiveType === "코인" ? t.main : t.input}`}
+              >
+                코인으로 받기
+              </button>
+            </div>
+          </Field>
+
+          <Field label={receiveType === "통화" ? "3. 받을 통화 종류" : "3. 받을 코인 종류"} theme={t}>
+            <select
+              value={receiveAsset}
+              onChange={(e) => setReceiveAsset(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+            >
+              {receiveType === "통화" ? (
+                <>
+                  <option>KRW</option>
+                  <option>USD</option>
+                  <option>VND</option>
+                  <option>JPY</option>
+                </>
+              ) : (
+                <>
+                  <option>USDT</option>
+                  <option>SOL</option>
+                  <option>BTC</option>
+                  <option>ETH</option>
+                </>
+              )}
+            </select>
+          </Field>
+
+          <div className={`rounded-3xl p-4 ${t.cardSoft}`}>
+            <div className="text-sm font-black">판매 조건 입력</div>
+            <div className={`mt-1 text-xs ${t.muted}`}>
+              {sellAsset}를 판매하고 {receiveAsset}로 받는 조건입니다.
+            </div>
+          </div>
+
+          <Field label={`4. 판매 수량 (${sellAsset})`} theme={t}>
+            <input
+              value={sellAmount}
+              onChange={(e) => setSellAmount(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+              placeholder={`예: 1000 ${sellAsset}`}
+            />
+          </Field>
+
+          <Field label={receiveType === "통화" ? `5. 희망 환율 (1 ${sellAsset} = ? ${receiveAsset})` : `5. 교환 비율 (1 ${sellAsset} = ? ${receiveAsset})`} theme={t}>
+            <div className={`rounded-3xl p-4 ${t.cardSoft}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold opacity-70">현재 실시간 기준가</div>
+                  <div className="mt-1 text-xl font-black">
+                    1 {sellAsset} = {rateText(marketRate, receiveAsset, receiveType)}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSellRate(String(marketRate))}
+                  className={`rounded-2xl px-4 py-3 text-sm font-black ${t.main}`}
+                >
+                  현재가 적용
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                <button onClick={() => setSellRate(String(marketRateMinus))} className={`rounded-2xl border px-3 py-2 font-black ${t.input}`}>-1%</button>
+                <button onClick={() => setSellRate(String(marketRate))} className={`rounded-2xl border px-3 py-2 font-black ${t.input}`}>현재가</button>
+                <button onClick={() => setSellRate(String(marketRatePlus))} className={`rounded-2xl border px-3 py-2 font-black ${t.input}`}>+1%</button>
+              </div>
+            </div>
+
+            <input
+              value={sellRate}
+              onChange={(e) => setSellRate(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+              placeholder={receiveType === "통화" ? `예: ${marketRate} ${receiveAsset}` : `예: ${marketRate} ${receiveAsset}`}
+            />
+          </Field>
+
+          <div className={`rounded-3xl p-4 text-sm ${t.cardSoft}`}>
+            <div className="flex justify-between py-1">
+              <span>판매 자산</span>
+              <b>{sellAsset}</b>
+            </div>
+            <div className="flex justify-between py-1">
+              <span>받을 종류</span>
+              <b>{receiveType}</b>
+            </div>
+            <div className="flex justify-between py-1">
+              <span>받을 자산</span>
+              <b>{receiveAsset}</b>
+            </div>
+            <div className="mt-2 border-t border-white/20 pt-2">
+              <div className="flex justify-between py-1">
+                <span>판매자 수수료 1%</span>
+                <b>{sellAmount ? `${(Number(sellAmount) * 0.01).toFixed(4)} ${sellAsset}` : `0 ${sellAsset}`}</b>
+              </div>
+              <div className="flex justify-between py-1">
+                <span>판매자 총 예치 필요</span>
+                <b>{sellAmount ? `${(Number(sellAmount) * 1.01).toFixed(4)} ${sellAsset}` : `0 ${sellAsset}`}</b>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => { setSellOpen(false); notify(`${sellAsset} 판매 등록 완료`); }}
+            className={`rounded-2xl px-5 py-4 font-black ${t.main}`}
+          >
+            판매 등록 완료
+          </button>
+        </Modal>
+      )}
+
+      {friendTradePopup && (
+        <Modal
+          title="친구 거래 신청"
+          desc={`${tradeTargetFriend?.nickname || "선택 친구"}와 거래 정책을 확인하세요.`}
+          onClose={() => setFriendTradePopup(false)}
+          theme={t}
+        >
+          <div className={`rounded-2xl border p-4 text-sm ${t.cardSoft}`}>
+            <div className="font-black">즉시송금 가능 여부</div>
+            <div className={`mt-2 ${t.subtext}`}>
+              대상: {tradeTargetFriend?.id || "-"} · 상태: {tradeTargetFriend?.status || "-"} · 즉시 릴리즈 설정:{" "}
+              {tradeTargetFriend?.instantRelease ? "true" : "false"}
+            </div>
+            <div className={`mt-2 ${t.subtext}`}>
+              판매 상태: {tradeTargetFriend?.selling ? "판매중" : "판매 대기"} · 판매 금액:{" "}
+              {tradeTargetFriend?.selling ? `${number(tradeTargetFriend?.sellAmount)} ${tradeTargetFriend?.sellCoin}` : "-"}
+            </div>
+            <div className="mt-2 font-black">
+              {isInstantReleaseAvailable(tradeTargetFriend) ? "즉시송금 가능" : "지연 릴리즈 적용"}
+            </div>
+          </div>
+          <Field label={`거래 수량 입력 (${tradeTargetFriend?.sellCoin || "USDT"})`} theme={t}>
+            <input
+              value={friendTradeAmount}
+              onChange={(e) => setFriendTradeAmount(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 font-bold outline-none ${t.input}`}
+              placeholder={`최대 ${number(tradeTargetFriend?.sellAmount || 0)} ${tradeTargetFriend?.sellCoin || "USDT"}`}
+            />
+          </Field>
+          <div className={`rounded-2xl border p-3 text-sm ${t.cardSoft}`}>
+            <div className="flex justify-between">
+              <span>요청 거래 수량</span>
+              <b>{friendTradeAmount ? `${number(friendTradeAmount)} ${tradeTargetFriend?.sellCoin || "USDT"}` : "-"}</b>
+            </div>
+            <div className="mt-1 flex justify-between">
+              <span>최대 가능 수량</span>
+              <b>{`${number(tradeTargetFriend?.sellAmount || 0)} ${tradeTargetFriend?.sellCoin || "USDT"}`}</b>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm leading-6">
+            <div className="font-black">즉시 릴리즈 안내</div>
+            <div className="mt-2">{instantReleasePolicyText}</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                proceedFriendTrade(tradeTargetFriend);
+              }}
+              className={`rounded-2xl px-4 py-3 font-black ${tradeTargetFriend?.selling ? t.main : "bg-slate-500 text-white"}`}
+              disabled={!tradeTargetFriend?.selling}
+            >
+              바로 거래하기
+            </button>
+            <button onClick={() => setFriendTradePopup(false)} className={`rounded-2xl border px-4 py-3 font-black ${t.input}`}>
+              취소
+            </button>
+          </div>
+          {friendTradeFinalStep && (
+            <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4">
+              <div className="text-sm font-black">최종적으로 구매하시겠습니까?</div>
+              <div className={`mt-1 text-sm ${t.subtext}`}>
+                {tradeTargetFriend?.nickname || "선택 친구"} · {number(friendTradeAmount || 0)} {tradeTargetFriend?.sellCoin || "USDT"}
+              </div>
+              <button
+                onClick={() => startFriendTrade(tradeTargetFriend)}
+                className="mt-3 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white"
+              >
+                최종 구매
+              </button>
+            </div>
+          )}
+        </Modal>
+      )}
+
+      <header className={`sticky top-0 z-50 border-b ${t.header}`}>
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
+          <button onClick={() => setActivePage("trade")} className="text-left">
+            <div className="text-xl font-black">TetherGet</div>
+            <div className={`text-xs font-bold ${t.muted}`}>Decentralized P2P Escrow MVP</div>
+          </button>
+
+          <nav className="hidden flex-nowrap items-center gap-2 overflow-x-auto md:flex">
+            {[
+              { key: "trade", label: lang.menuTrade },
+              { key: "sell", label: lang.sellRegister },
+              { key: "myinfo", label: lang.myInfo },
+              { key: "mytrades", label: lang.myTrades },
+              { key: "friends", label: "친구" },
+              { key: "messenger", label: "메신저" },
+              { key: "p2p", label: lang.p2p },
+              { key: "admin", label: lang.admin },
+              { key: "support", label: lang.support },
+            ].map((item) => (
+              <button key={item.key} onClick={() => openPage(item.key)} className={`whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold ${activePage === item.key ? t.main : `${t.muted} hover:opacity-80`}`}>{item.label}</button>
+            ))}
+          </nav>
+
+          <div className="hidden items-center gap-2 md:flex">
+            <select value={language} onChange={(e) => { setLanguage(e.target.value); notify(`${languages.find((l) => l.code === e.target.value)?.label} 언어 적용`); }} className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${t.input}`}>
+              {languages.map((lang) => <option key={lang.code} value={lang.code}>{lang.flag} {lang.label}</option>)}
+            </select>
+            <select value={theme} onChange={(e) => setTheme(e.target.value)} className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${t.input}`}>
+              {Object.entries(themeMap).map(([key, val]) => <option key={key} value={key}>{val.name}</option>)}
+            </select>
+            {loggedIn ? (
+              <button onClick={async () => {
+                try {
+                  if (authRefreshToken) {
+                    await apiClient.request("/api/auth/logout", {
+                      method: "POST",
+                      body: JSON.stringify({ refreshToken: authRefreshToken }),
+                    });
+                  }
+                } catch {}
+                setLoggedIn(false);
+                setAuthToken("");
+                setAuthRefreshToken("");
+                setCurrentRole("일반회원");
+                setMergeStatus("로그아웃됨");
+                notify("Logout complete");
+              }} className={`rounded-xl border px-4 py-2 text-sm font-bold ${t.input}`}>{lang.logout}</button>
+            ) : (
+              <button onClick={() => setLoginOpen(true)} className={`rounded-xl border px-4 py-2 text-sm font-bold ${t.input}`}>{lang.login}</button>
+            )}
+            <button onClick={() => requireLogin(() => notify("지갑이 연결되어 있습니다."))} className={`rounded-xl px-4 py-2 text-sm font-bold ${t.main}`}>{lang.connectWallet}</button>
+          </div>
+
+          <div className="flex items-center gap-2 md:hidden">
+            <select value={language} onChange={(e) => setLanguage(e.target.value)} className={`rounded-xl border px-2 py-2 text-xs font-bold outline-none ${t.input}`}>
+              {languages.map((lang) => <option key={lang.code} value={lang.code}>{lang.flag}</option>)}
+            </select>
+            <button onClick={() => setMenuOpen(!menuOpen)} className={`rounded-xl border px-3 py-2 text-sm font-bold ${t.input}`}>메뉴</button>
+          </div>
+        </div>
+
+        {menuOpen && (
+          <div className={`border-t px-4 py-3 md:hidden ${t.header}`}>
+            {[
+              { key: "trade", label: lang.menuTrade },
+              { key: "sell", label: lang.sellRegister },
+              { key: "myinfo", label: lang.myInfo },
+              { key: "mytrades", label: lang.myTrades },
+              { key: "friends", label: "친구" },
+              { key: "messenger", label: "메신저" },
+              { key: "p2p", label: lang.p2p },
+              { key: "admin", label: lang.admin },
+              { key: "support", label: lang.support },
+            ].map((item) => (
+              <button key={item.key} onClick={() => { setMenuOpen(false); openPage(item.key); }} className="block w-full rounded-xl px-4 py-3 text-left text-sm font-bold">{item.label}</button>
+            ))}
+            <select value={theme} onChange={(e) => setTheme(e.target.value)} className={`mt-2 w-full rounded-xl border px-4 py-3 text-sm font-bold outline-none ${t.input}`}>
+              {Object.entries(themeMap).map(([key, val]) => <option key={key} value={key}>{val.name}</option>)}
+            </select>
+          </div>
+        )}
+      </header>
+
+      <main>
+        {!loggedIn ? (
+          <>
+            <section className="mx-auto grid max-w-7xl gap-8 px-4 py-10 md:grid-cols-2 md:py-16">
+              <div className={theme === "dark" ? "text-white" : "text-slate-950"}>
+                <div className={`inline-block rounded-full border px-4 py-2 text-sm font-black shadow-sm ${t.cardSoft}`}>{lang.heroBadge}</div>
+                <h1 className="mt-6 whitespace-pre-line text-4xl font-black tracking-tight md:text-6xl">{lang.heroTitle}</h1>
+                <p className={`mt-5 max-w-2xl text-lg leading-8 ${t.subtext}`}>{lang.heroDesc}</p>
+                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                  <button onClick={() => setLoginOpen(true)} className={`rounded-2xl px-6 py-4 font-black ${t.main}`}>{lang.loginJoin}</button>
+                  <button onClick={() => setLoginOpen(true)} className={`rounded-2xl border px-6 py-4 font-black ${t.input}`}>{lang.startWallet}</button>
+                </div>
+                <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                  <Stat title="1% + 1%" text="구매자/판매자 수수료" theme={t} />
+                  <Stat title="24H" text="기본 지연 릴리즈" theme={t} />
+                  <Stat title="DAO" text="분쟁 중재 구조" theme={t} />
+                </div>
+              </div>
+
+              <div className={`rounded-3xl border p-5 shadow-sm ${t.card}`}>
+                <div className="text-xl font-black">{lang.beforeTrade}</div>
+                <div className={`mt-2 text-sm leading-6 ${t.subtext}`}>가입 후 지갑 연결, 추천인 코드 저장, 판매자 예치, 구매자 증빙 업로드, 구매확인 후 자동 릴리즈 순서로 진행됩니다.</div>
+                <div className="mt-5 grid gap-3">
+                  <Info title="1. 로그인" text="구글 또는 지갑으로 가입하고 추천인 코드를 연결합니다." theme={t} />
+                  <Info title="2. 지갑 연결" text="Phantom, Solflare, Backpack, MetaMask 등 지갑을 계정에 연결합니다." theme={t} />
+                  <Info title="3. 안전거래" text="거래 상태와 증빙을 기록하고 분쟁 발생 시 신고할 수 있습니다." theme={t} />
+                </div>
+              </div>
+            </section>
+
+            <section className="mx-auto max-w-7xl px-4 pb-8">
+              <div className="grid gap-4 md:grid-cols-4">
+                <Info title="지갑 직접 보관" text="플랫폼이 고객 자산을 보관하지 않고 사용자의 지갑을 기준으로 거래합니다." theme={t} />
+                <Info title="입금증빙 업로드" text="구매자는 송금 후 증빙 사진을 업로드하고 판매자는 구매확인을 진행합니다." theme={t} />
+                <Info title="자동 릴리즈" text="판매자 구매확인 버튼 또는 정책 조건 충족 시 코인이 자동 지급됩니다." theme={t} />
+                <Info title="사고신고 후 제공" text="피싱·사기 신고 접수 후 필요한 범위에서 거래정보 제공 구조를 둡니다." theme={t} />
+              </div>
+            </section>
+          </>
+        ) : (
+          <section className="mx-auto max-w-7xl px-4 py-6">
+            <div className={`rounded-3xl border p-5 shadow-sm ${t.card}`}>
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-2xl font-black">{lang.dashboard}</div>
+                  <div className={`mt-1 text-sm ${t.subtext}`}>{nickname} · {lang.onlyNeeded}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 md:flex">
+                  <button onClick={() => setActivePage("trade")} className={`rounded-2xl px-4 py-3 text-sm font-black ${activePage === "trade" ? t.main : t.input}`}>{lang.menuTrade}</button>
+                  <button onClick={() => setSellOpen(true)} className={`rounded-2xl px-4 py-3 text-sm font-black ${t.main}`}>{lang.sellRegister}</button>
+                  <button onClick={() => setActivePage("mytrades")} className={`rounded-2xl px-4 py-3 text-sm font-black ${activePage === "mytrades" ? t.main : t.input}`}>{lang.myTrades}</button>
+                  <button onClick={() => setActivePage("myinfo")} className={`rounded-2xl px-4 py-3 text-sm font-black ${activePage === "myinfo" ? t.main : t.input}`}>{lang.myInfo}</button>
+                </div>
+              </div>
+              <div className={`mt-4 grid gap-3 rounded-2xl p-4 text-sm ${t.cardSoft} md:grid-cols-4`}>
+                <div>
+                  <div className={t.muted}>{lang.currentLogin}</div>
+                  <b>{currentAdminProfile.nickname}</b>
+                </div>
+                <div>
+                  <div className={t.muted}>{lang.role}</div>
+                  <b>{currentRole}</b>
+                </div>
+                <div>
+                  <div className={t.muted}>{lang.manageRoot}</div>
+                  <b>{currentAdminProfile.managedRoot}</b>
+                </div>
+                <div>
+                  <div className={t.muted}>{lang.ratePermission}</div>
+                  <b>{currentAdminProfile.receivedRate}%</b>
+                </div>
+                <div className="md:col-span-4">
+                  <div className={t.muted}>{lang.accountStatus}</div>
+                  <b>{accountType}</b> · {mergeStatus}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {activePage === "trade" && (
+          <TradeList
+            theme={t}
+            requireLogin={requireLogin}
+            notify={notify}
+            sellerDepositNotice={sellerDepositNotice}
+            onReportDispute={registerDisputeCase}
+            buyerKyc={buyerKyc}
+          />
+        )}
+        {activePage === "myinfo" && <MyInfo nickname={nickname} setNickname={setNickname} bankRegistered={bankRegistered} setBankRegistered={setBankRegistered} buyerKyc={buyerKyc} setBuyerKyc={setBuyerKyc} apiClient={apiClient} myInfoTab={myInfoTab} setMyInfoTab={setMyInfoTab} showReferral={showReferral} setShowReferral={setShowReferral} theme={t} notify={notify} linkedGoogle={linkedGoogle} setLinkedGoogle={setLinkedGoogle} linkedWallet={linkedWallet} setLinkedWallet={setLinkedWallet} linkedReferral={linkedReferral} mergeStatus={mergeStatus} setMergeStatus={setMergeStatus} googleEmail={googleEmail} phantomWallet={phantomWallet} />}
+        {activePage === "mytrades" && <MyTradesOnly theme={t} notify={notify} />}
+        {activePage === "friends" && (
+          <FriendsPage
+            theme={t}
+            friends={friends}
+            selectedFriendId={selectedFriendId}
+            selectedFriend={selectedFriend}
+            friendLastMessages={friendLastMessages}
+            roomPreview={selectedFriend ? chatRooms[selectedFriend.id] || [] : []}
+            onSelectFriend={selectFriend}
+            onOpenTrade={openFriendTrade}
+            onOpenChat={openFriendChat}
+          />
+        )}
+        {activePage === "messenger" && (
+          <FriendMessenger
+            theme={t}
+            friends={friends}
+            selectedFriendId={selectedFriendId}
+            selectedFriend={selectedFriend}
+            friendLastMessages={friendLastMessages}
+            messages={selectedFriendMessages}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            friendSearch={friendSearch}
+            setFriendSearch={setFriendSearch}
+            pinnedFriendIds={pinnedFriendIds}
+            setPinnedFriendIds={setPinnedFriendIds}
+            mutedFriendIds={mutedFriendIds}
+            setMutedFriendIds={setMutedFriendIds}
+            onSelectFriend={selectFriend}
+            onSendMessage={sendFriendMessage}
+            onDeleteMessage={deleteFriendMessage}
+            onClearMessages={clearFriendMessages}
+            onOpenTrade={openFriendTrade}
+            notify={notify}
+            onSendAttachment={sendFriendAttachment}
+          />
+        )}
+        {activePage === "p2p" && <P2PInfo theme={t} />}
+        {activePage === "admin" && <AdminReferralPanel theme={t} notify={notify} isSuperAdmin={isSuperAdmin} apiClient={apiClient} authToken={authToken} authUsers={authUsers} setAuthUsers={setAuthUsers} buyerKyc={buyerKyc} setBuyerKyc={setBuyerKyc} friends={friends} chatRooms={chatRooms} sellerDepositNotice={sellerDepositNotice} setSellerDepositNotice={setSellerDepositNotice} escrowPolicy={escrowPolicy} setEscrowPolicy={setEscrowPolicy} disputeCases={disputeCases} approveDisputeCase={approveDisputeCase} finalizeDisputeByMain={finalizeDisputeByMain} currentAdminActorId={currentAdminActorId} finalApprovalPinInput={finalApprovalPinInput} setFinalApprovalPinInput={setFinalApprovalPinInput} finalApprovalOtpInput={finalApprovalOtpInput} setFinalApprovalOtpInput={setFinalApprovalOtpInput} newPolicyPinInput={newPolicyPinInput} setNewPolicyPinInput={setNewPolicyPinInput} selectedDisputeIdForTimeline={selectedDisputeIdForTimeline} setSelectedDisputeIdForTimeline={setSelectedDisputeIdForTimeline} selectedDisputeEvents={selectedDisputeEvents} setSelectedDisputeEvents={setSelectedDisputeEvents} timelineActionFilter={timelineActionFilter} setTimelineActionFilter={setTimelineActionFilter} timelineFromDate={timelineFromDate} setTimelineFromDate={setTimelineFromDate} timelineToDate={timelineToDate} setTimelineToDate={setTimelineToDate} adminMediaTypeFilter={adminMediaTypeFilter} setAdminMediaTypeFilter={setAdminMediaTypeFilter} adminMediaFriendFilter={adminMediaFriendFilter} setAdminMediaFriendFilter={setAdminMediaFriendFilter} adminActionLogs={adminActionLogs} appendAdminAction={appendAdminAction} adminMember={adminMember} setAdminMember={setAdminMember} adminParent={adminParent} setAdminParent={setAdminParent} adminReceivedRate={adminReceivedRate} setAdminReceivedRate={setAdminReceivedRate} adminRate={adminRate} setAdminRate={setAdminRate} adminMemo={adminMemo} setAdminMemo={setAdminMemo} adminUserSearch={adminUserSearch} setAdminUserSearch={setAdminUserSearch} selectedAdminUser={selectedAdminUser} setSelectedAdminUser={setSelectedAdminUser} selectedChildUser={selectedChildUser} setSelectedChildUser={setSelectedChildUser} securityFilter={securityFilter} setSecurityFilter={setSecurityFilter} blockReason={blockReason} setBlockReason={setBlockReason} />}
+        {activePage === "support" && <Support theme={t} notify={notify} />}
+
+      </main>
+    </div>
+    </LangContext.Provider>
+  );
+}
+
+function Modal({ title, desc, onClose, theme, children }) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 px-4">
+      <div className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl ${theme.card}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div><div className="text-2xl font-black">{title}</div><div className={`mt-1 text-sm ${theme.subtext}`}>{desc}</div></div>
+          <button onClick={onClose} className={`rounded-xl border px-3 py-2 text-sm font-black ${theme.input}`}>닫기</button>
+        </div>
+        <div className="mt-5 grid gap-3">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, theme, children }) {
+  return <label className="grid gap-2"><span className={`text-sm font-bold ${theme.subtext}`}>{label}</span>{children}</label>;
+}
+
+function TradeList({ theme, requireLogin, notify, sellerDepositNotice, onReportDispute, buyerKyc }) {
+  const lang = useLang();
+  const [query, setQuery] = useState("");
+  const [selectedOrder, setSelectedOrder] = useState(null);
+  const [buyAmount, setBuyAmount] = useState("");
+  const [proofUploaded, setProofUploaded] = useState(false);
+  const [tradeRequested, setTradeRequested] = useState(false);
+  const [tradeConfirmed, setTradeConfirmed] = useState(false);
+  const [finalBuyReady, setFinalBuyReady] = useState(false);
+  const [depositorName, setDepositorName] = useState("");
+  const [sellerNameMatched, setSellerNameMatched] = useState(false);
+  const [coinFilter, setCoinFilter] = useState("전체");
+  const [currencyFilter, setCurrencyFilter] = useState("전체");
+  const [categoryFilter, setCategoryFilter] = useState("전체");
+  const [sortMode, setSortMode] = useState("상위노출");
+  const [minAmount, setMinAmount] = useState("");
+
+  function openTrade(order) {
+    requireLogin(() => {
+      setSelectedOrder(order);
+      setBuyAmount("");
+      setProofUploaded(false);
+      setTradeRequested(false);
+      setTradeConfirmed(false);
+      setFinalBuyReady(false);
+      setDepositorName("");
+      setSellerNameMatched(false);
+      notify(`${order.seller} 거래 상세로 이동`);
+    });
+  }
+
+  const featuredOrders = orders
+    .filter((o) => o.featured || o.trust >= 95 || o.level === "Lv.5")
+    .sort((a, b) => b.trust - a.trust)
+    .slice(0, 3);
+
+  const requestAmount = Number(buyAmount || 0);
+  const isOverAmount = selectedOrder ? requestAmount > selectedOrder.amount : false;
+  const isInvalidAmount = !requestAmount || requestAmount <= 0 || isOverAmount;
+  const expectedPay = selectedOrder ? requestAmount * selectedOrder.price : 0;
+  const buyerFeeAmount = requestAmount * 0.01;
+  const buyerReceiveAmount = Math.max(requestAmount - buyerFeeAmount, 0);
+  const sellerFeeDeposit = selectedOrder ? selectedOrder.amount * 0.01 : 0;
+  const sellerTotalEscrow = selectedOrder ? selectedOrder.amount + sellerFeeDeposit : 0;
+
+  function requestTrade() {
+    if (isInvalidAmount) {
+      notify(isOverAmount ? "거래 가능 수량을 초과했습니다." : "구매 수량을 입력하세요.");
+      return;
+    }
+    if (!buyerKyc?.companyApprovalStatus?.includes("승인") || !buyerKyc?.privateStorageNoticeAccepted) {
+      notify("회사 KYC 승인(비공개 보관) 완료 후 거래할 수 있습니다.");
+      return;
+    }
+    if (!depositorName.trim()) {
+      notify("입금자 이름을 입력하세요.");
+      return;
+    }
+    setTradeRequested(true);
+    notify("거래 요청 전 확인이 필요합니다.");
+  }
+
+  function confirmTrade() {
+    if (!tradeRequested) {
+      notify("먼저 거래 요청을 눌러주세요.");
+      return;
+    }
+    if (isInvalidAmount) {
+      notify("수량을 다시 확인하세요.");
+      return;
+    }
+    if (!sellerNameMatched) {
+      notify("판매자 입금자명 일치 확인이 필요합니다.");
+      return;
+    }
+    setFinalBuyReady(true);
+    notify("최종 구매 확인 버튼을 눌러주세요.");
+  }
+
+  function finalizeTrade() {
+    setTradeConfirmed(true);
+    setFinalBuyReady(false);
+    notify("거래 신청이 최종 확인되었습니다.");
+  }
+
+  const filtered = orders
+    .filter((o) => `${o.seller} ${o.coin} ${o.method}`.toLowerCase().includes(query.toLowerCase()))
+    .filter((o) => coinFilter === "전체" || o.coin === coinFilter)
+    .filter((o) => currencyFilter === "전체" || o.method === currencyFilter)
+    .filter((o) => categoryFilter === "전체" || o.category === categoryFilter)
+    .filter((o) => !minAmount || o.amount >= Number(minAmount))
+    .sort((a, b) => {
+      if (sortMode === "상위노출") return Number(b.featured) - Number(a.featured) || b.trust - a.trust || b.trades - a.trades;
+      if (sortMode === "신뢰도") return b.trust - a.trust;
+      if (sortMode === "거래량") return b.trades - a.trades;
+      if (sortMode === "낮은환율") return a.price - b.price;
+      return b.price - a.price;
+    });
+
+  return (
+    <section className={`mx-auto max-w-7xl px-4 py-8 ${theme.card.includes("slate-900") ? "text-white" : "text-slate-950"}`}>
+      {selectedOrder && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 px-4">
+          <div className={`w-full max-w-2xl rounded-3xl border p-6 shadow-2xl ${theme.card}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-2xl font-black">{lang.tradeDetail}</div>
+                <div className={`mt-1 text-sm ${theme.subtext}`}>{selectedOrder.seller} · {selectedOrder.coin} · {selectedOrder.method}</div>
+              </div>
+              <button onClick={() => setSelectedOrder(null)} className={`rounded-xl border px-3 py-2 text-sm font-black ${theme.input}`}>{lang.close}</button>
+            </div>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <DetailBox label={lang.seller} value={selectedOrder.seller} theme={theme} />
+              <DetailBox label={lang.trust} value={`${selectedOrder.trust}%`} theme={theme} />
+              <DetailBox label="기준 환율" value={`1 ${selectedOrder.coin} = ${number(selectedOrder.price)} ${selectedOrder.method}`} theme={theme} />
+              <DetailBox label={lang.availableAmount} value={`${number(selectedOrder.amount)} ${selectedOrder.coin}`} theme={theme} />
+              <DetailBox label="거래 한도" value={selectedOrder.limit} theme={theme} />
+              <DetailBox label="릴리즈 방식" value={selectedOrder.release} theme={theme} />
+              <DetailBox label="판매자 1% 추가 예치" value={`${sellerFeeDeposit.toFixed(4)} ${selectedOrder.coin}`} theme={theme} />
+              <DetailBox label="판매자 총 예치" value={`${sellerTotalEscrow.toFixed(4)} ${selectedOrder.coin}`} theme={theme} />
+            </div>
+
+            <div className={`mt-5 rounded-3xl p-4 ${theme.cardSoft}`}>
+              <Field label={`구매 수량 입력 (${selectedOrder.coin})`} theme={theme}>
+                <input
+                  value={buyAmount}
+                  onChange={(e) => setBuyAmount(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
+                  placeholder={`예: 100 ${selectedOrder.coin}`}
+                />
+              </Field>
+              <Field label="입금자 이름 (예금주)" theme={theme}>
+                <input
+                  value={depositorName}
+                  onChange={(e) => setDepositorName(e.target.value)}
+                  className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
+                  placeholder="실제 송금 예금주명을 입력하세요"
+                />
+              </Field>
+              <div className="mt-3 grid gap-2 text-sm">
+                <div className="flex justify-between"><span>{lang.expectedPay}</span><b>{buyAmount ? `${number(expectedPay)} ${selectedOrder.method}` : `0 ${selectedOrder.method}`}</b></div>
+                <div className="flex justify-between"><span>{lang.buyerFee}</span><b>{buyAmount ? `${buyerFeeAmount.toFixed(4)} ${selectedOrder.coin}` : `0 ${selectedOrder.coin}`}</b></div>
+                <div className="flex justify-between"><span>{lang.finalReceive}</span><b>{buyAmount ? `${buyerReceiveAmount.toFixed(4)} ${selectedOrder.coin}` : `0 ${selectedOrder.coin}`}</b></div>
+                {isOverAmount && <div className="rounded-2xl bg-red-600 p-3 font-black text-white">거래 가능 수량 {number(selectedOrder.amount)} {selectedOrder.coin}을 초과했습니다.</div>}
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm leading-6">
+              <div className="font-black">판매자 확인 공지</div>
+              <div className="mt-1">{sellerDepositNotice}</div>
+              <div className="mt-2 rounded-xl bg-black/20 p-2 text-xs">
+                구매자 인증 상태: {buyerKyc?.companyApprovalStatus}
+              </div>
+              <label className="mt-2 flex items-center gap-2 text-xs font-black">
+                <input type="checkbox" checked={sellerNameMatched} onChange={(e) => setSellerNameMatched(e.target.checked)} />
+                입금자 이름과 예금주가 일치함을 확인했을 때만 확인 버튼을 누르겠습니다.
+              </label>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <button onClick={requestTrade} className={`rounded-2xl px-4 py-3 text-sm font-black ${isInvalidAmount ? "bg-slate-500 text-white" : theme.main}`}>{lang.tradeRequest}</button>
+              <button onClick={confirmTrade} className={`rounded-2xl border px-4 py-3 text-sm font-black ${tradeConfirmed ? "bg-emerald-600 text-white" : tradeRequested ? theme.main : theme.input}`}>{tradeConfirmed ? "OK" : lang.confirmButton}</button>
+              <button onClick={() => { setProofUploaded(true); notify("입금증빙 업로드 완료"); }} className={`rounded-2xl border px-4 py-3 text-sm font-black ${proofUploaded ? "bg-emerald-600 text-white" : theme.input}`}>{proofUploaded ? "OK" : lang.proofUpload}</button>
+            </div>
+            <button
+              onClick={() =>
+                onReportDispute?.({
+                  orderSeller: selectedOrder.seller,
+                  coin: selectedOrder.coin,
+                  amount: requestAmount,
+                  senderName: depositorName,
+                  senderAccount: `${depositorName || "미입력"} 계좌`,
+                })
+              }
+              className="mt-3 rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white"
+            >
+              중단/분쟁 신고
+            </button>
+            {finalBuyReady && (
+              <div className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-4">
+                <div className="text-sm font-black">최종적으로 구매하시겠습니까?</div>
+                <div className="mt-1 text-sm">
+                  {number(requestAmount)} {selectedOrder.coin} · 예상 송금액 {number(expectedPay)} {selectedOrder.method}
+                </div>
+                <button onClick={finalizeTrade} className="mt-3 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">
+                  최종 구매
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <h2 className="text-2xl font-black md:text-3xl">P2P 거래</h2>
+            <div className="flex flex-wrap gap-2">
+              {countryFilters.map((c) => (
+                <button
+                  key={c.currency}
+                  onClick={() => {
+                    setCategoryFilter("코인↔통화");
+                    setCurrencyFilter(c.currency);
+                    notify(`${c.label} ${c.currency} 거래 리스트`);
+                  }}
+                  className={`rounded-2xl border px-3 py-2 text-sm font-black ${currencyFilter === c.currency ? theme.main : theme.input}`}
+                >
+                  {c.flag} {c.currency}
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  setCurrencyFilter("전체");
+                  setCategoryFilter("전체");
+                  notify("전체 거래 리스트");
+                }}
+                className={`rounded-2xl border px-3 py-2 text-sm font-black ${currencyFilter === "전체" ? theme.main : theme.input}`}
+              >
+                🌐 전체
+              </button>
+            </div>
+          </div>
+          <p className={`mt-2 ${theme.subtext}`}>국가별 국기를 누르면 해당 통화 판매 등록 리스트가 바로 표시됩니다.</p>
+        </div>
+        <button onClick={() => notify("다른 P2P 거래 카테고리는 상단 리스트로 확장 예정입니다.")} className={`rounded-2xl border px-4 py-3 text-sm font-black ${theme.input}`}>다른 P2P 확장</button>
+      </div>
+
+      <div className="mb-6 grid gap-4 lg:grid-cols-3">
+        {featuredOrders.map((o, idx) => (
+          <div key={o.id} className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+            <div className="flex items-center justify-between">
+              <span className="rounded-full bg-amber-500 px-3 py-1 text-xs font-black text-white">상위노출 #{idx + 1}</span>
+              <span className="text-sm font-black text-emerald-500">신뢰 {o.trust}%</span>
+            </div>
+            <div className="mt-4 text-xl font-black">{o.seller}</div>
+            <div className={`mt-1 text-sm ${theme.subtext}`}>{o.level} · 거래 {number(o.trades)}건 · {o.category}</div>
+            <div className="mt-4 text-2xl font-black">{number(o.price)} {o.method}</div>
+            <div className={`text-sm ${theme.subtext}`}>1 {o.coin} 기준</div>
+            <button onClick={() => openTrade(o)} className={`mt-5 w-full rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>{lang.tradeStart}</button>
+          </div>
+        ))}
+      </div>
+
+      <div className={`mb-5 rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-4 text-lg font-black">거래 조건 선택</div>
+        <div className="grid gap-3 md:grid-cols-5">
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}>
+            <option>전체</option>
+            <option>코인↔통화</option>
+            <option>코인↔코인</option>
+          </select>
+          <select value={coinFilter} onChange={(e) => setCoinFilter(e.target.value)} className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}>
+            <option>전체</option>
+            <option>USDT</option>
+            <option>SOL</option>
+            <option>BTC</option>
+            <option>ETH</option>
+          </select>
+          <select value={currencyFilter} onChange={(e) => setCurrencyFilter(e.target.value)} className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}>
+            <option>전체</option>
+            <option>KRW</option>
+            <option>USD</option>
+            <option>VND</option>
+            <option>JPY</option>
+            <option>USDT</option>
+          </select>
+          <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}>
+            <option>상위노출</option>
+            <option>신뢰도</option>
+            <option>거래량</option>
+            <option>낮은환율</option>
+            <option>높은환율</option>
+          </select>
+          <input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} placeholder="최소 보유수량" className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`} />
+        </div>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="판매자, 코인, 통화 검색" className={`mt-3 w-full rounded-2xl border px-4 py-3 text-sm outline-none ${theme.input}`} />
+      </div>
+
+      <div className={`mb-4 flex flex-col gap-2 rounded-2xl p-4 text-sm md:flex-row md:items-center md:justify-between ${theme.cardSoft}`}>
+        <div><b>{filtered.length}개 거래</b> 표시 중 · 상위노출은 신뢰도/거래량/관리자 승인 기준</div>
+        <div className={theme.muted}>거래가 수천 개가 되면 이 영역은 페이지네이션/무한스크롤로 확장</div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {filtered.map((o) => (
+          <div key={o.id} className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className={`text-sm font-bold ${theme.muted}`}>{o.level} · {o.seller}</div>
+                <div className="mt-3 text-2xl font-black">{number(o.price)} {o.method}</div>
+                <div className={`mt-1 text-sm ${theme.subtext}`}>1 {o.coin} 기준 환율</div>
+              </div>
+              <div className="rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-black text-white">신뢰 {o.trust}%</div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+              <div className={`rounded-2xl p-3 ${theme.cardSoft}`}><div className={theme.muted}>보유수량</div><div className="mt-1 font-black">{number(o.amount)} {o.coin}</div></div>
+              <div className={`rounded-2xl p-3 ${theme.cardSoft}`}><div className={theme.muted}>거래횟수</div><div className="mt-1 font-black">{number(o.trades)}건</div></div>
+            </div>
+            <div className={`mt-4 space-y-2 text-sm ${theme.subtext}`}><div>거래한도: {o.limit}</div><div>방식: {o.category} · {o.release}</div></div>
+            <button onClick={() => openTrade(o)} className={`mt-5 w-full rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>{lang.tradeStart}</button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MyPage({ nickname, setNickname, bankRegistered, setBankRegistered, theme, notify }) {
+  return (
+    <section className="mx-auto grid max-w-7xl gap-5 px-4 py-8 md:grid-cols-2">
+      <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-5 flex items-center justify-between"><div><div className="text-xl font-black">거래 내정보</div><div className={`text-sm ${theme.subtext}`}>기간별 거래내역 · 입금증빙 · 상태조회</div></div><button onClick={() => notify("기간조회 기능 실행")} className={`rounded-2xl border px-4 py-2 text-sm font-bold ${theme.input}`}>기간조회</button></div>
+        <div className="space-y-3">{trades.map((tr) => <div key={tr.id} className={`flex items-center justify-between rounded-2xl p-4 ${theme.cardSoft}`}><div><div className="font-black">{tr.type} {tr.amount} {tr.coin}</div><div className={`mt-1 text-xs ${theme.muted}`}>{tr.id} · {tr.time}</div></div><span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{tr.status}</span></div>)}</div>
+      </div>
+      <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-5"><div className="text-xl font-black">회원 정보</div><div className={`text-sm ${theme.subtext}`}>레퍼럴 코드 · 지갑주소 · 닉네임 · 은행계좌</div></div>
+        <div className="space-y-3">
+          <label className={`block rounded-2xl p-4 ${theme.cardSoft}`}><div className={`text-xs ${theme.muted}`}>닉네임 변경</div><input value={nickname} onChange={(e) => setNickname(e.target.value)} className="mt-1 w-full bg-transparent font-black outline-none" /></label>
+          <Box label="레퍼럴 코드" value="TG777" theme={theme} />
+          <Box label="등록 지갑" value={linkedWallet || "8xA2...9QpL"} theme={theme} />
+          <button onClick={() => { setBankRegistered(true); notify("은행계좌 등록 완료"); }} className={`w-full rounded-2xl px-4 py-3 text-sm font-black ${bankRegistered ? "bg-emerald-600 text-white" : theme.main}`}>{bankRegistered ? "은행계좌 등록됨" : "은행계좌 등록"}</button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buyerKyc, setBuyerKyc, apiClient, myInfoTab, setMyInfoTab, showReferral, setShowReferral, theme, notify, linkedGoogle, setLinkedGoogle, linkedWallet, setLinkedWallet, linkedReferral, mergeStatus, setMergeStatus, googleEmail, phantomWallet }) {
+  const [idDocFile, setIdDocFile] = useState(null);
+  const [bankDocFile, setBankDocFile] = useState(null);
+  const tabs = ["기본정보", "계정연결", "지갑", "계좌", "레퍼럴"];
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-8">
+      <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-2xl font-black">내정보</div>
+            <div className={`mt-1 text-sm ${theme.subtext}`}>회원정보는 필요한 항목만 선택해서 확인합니다.</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 md:flex">
+            {tabs.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setMyInfoTab(tab)}
+                className={`rounded-2xl px-4 py-3 text-sm font-black ${myInfoTab === tab ? theme.main : theme.input}`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {myInfoTab === "기본정보" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className={`block rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div className={`text-xs ${theme.muted}`}>닉네임 변경</div>
+              <input value={nickname} onChange={(e) => setNickname(e.target.value)} className="mt-1 w-full bg-transparent font-black outline-none" />
+            </label>
+            <Box label="회원 등급" value="Lv.4 / 안전거래 회원" theme={theme} />
+          </div>
+        )}
+
+        {myInfoTab === "계정연결" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <Box label="연결된 구글 계정" value={linkedGoogle || "미연결"} theme={theme} />
+            <Box label="연결된 팬텀 지갑" value={linkedWallet || "미연결"} theme={theme} />
+            <Box label="연결된 추천인" value={linkedReferral || "미연결"} theme={theme} />
+            <Box label="합산 상태" value={mergeStatus} theme={theme} />
+            <button
+              onClick={() => { setLinkedGoogle(googleEmail); setMergeStatus("기존 계정에 지메일 추가 연결 완료"); notify("지메일 추가 연결 완료"); }}
+              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+            >
+              지메일 추가 연결
+            </button>
+            <button
+              onClick={() => { setLinkedWallet(phantomWallet); setMergeStatus("기존 계정에 팬텀 지갑 추가 연결 완료"); notify("팬텀 지갑 추가 연결 완료"); }}
+              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+            >
+              팬텀 지갑 추가 연결
+            </button>
+          </div>
+        )}
+
+        {myInfoTab === "지갑" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <Box label="등록 지갑" value={linkedWallet || "8xA2...9QpL"} theme={theme} />
+            <button onClick={() => notify("지갑 변경 기능 실행")} className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>지갑 변경</button>
+          </div>
+        )}
+
+        {myInfoTab === "계좌" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <Box label="은행계좌 상태" value={bankRegistered ? "등록 완료" : "미등록"} theme={theme} />
+            <button onClick={() => { setBankRegistered(true); notify("은행계좌 등록 완료"); }} className={`rounded-2xl px-4 py-3 text-sm font-black ${bankRegistered ? "bg-emerald-600 text-white" : theme.main}`}>{bankRegistered ? "은행계좌 등록됨" : "은행계좌 등록"}</button>
+            <label className={`rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div className={`text-xs ${theme.muted}`}>실명(신분증 기준)</div>
+              <input
+                value={buyerKyc.realName}
+                onChange={(e) => setBuyerKyc((prev) => ({ ...prev, realName: e.target.value }))}
+                className="mt-1 w-full bg-transparent font-black outline-none"
+                placeholder="신분증과 동일한 실명"
+              />
+            </label>
+            <div className={`rounded-2xl p-4 text-xs leading-6 ${theme.cardSoft}`}>
+              KYC 문서(신분증, 은행계좌 증빙)는 회사 내부 분쟁 대응 목적으로만 비공개 보관되며 누구에게도 공개되지 않습니다.
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  if (!idDocFile || !bankDocFile) {
+                    notify("신분증 파일과 계좌증빙 파일을 모두 선택하세요.");
+                    return;
+                  }
+                  const form = new FormData();
+                  form.append("docType", "id_card");
+                  form.append("file", idDocFile);
+                  await fetch(`${API_BASE}/api/kyc/me/upload`, {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${localStorage.getItem(AUTH_TOKEN_KEY) || ""}` },
+                    body: form,
+                  });
+                  const form2 = new FormData();
+                  form2.append("docType", "bank_account");
+                  form2.append("file", bankDocFile);
+                  await fetch(`${API_BASE}/api/kyc/me/upload`, {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${localStorage.getItem(AUTH_TOKEN_KEY) || ""}` },
+                    body: form2,
+                  });
+                  const data = await apiClient.request("/api/kyc/me/submit", {
+                    method: "POST",
+                    auth: true,
+                    body: JSON.stringify({ realName: buyerKyc.realName }),
+                  });
+                  if (data?.profile) setBuyerKyc(data.profile);
+                  notify("KYC 서류 제출 완료 · 회사 심사대기");
+                } catch (error) {
+                  notify(error.message || "KYC 제출에 실패했습니다.");
+                }
+              }}
+              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+            >
+              KYC 서류 제출
+            </button>
+            <label className={`rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div className={`text-xs ${theme.muted}`}>신분증 파일 업로드</div>
+              <input type="file" onChange={(e) => setIdDocFile(e.target.files?.[0] || null)} className="mt-2 w-full text-xs" />
+            </label>
+            <label className={`rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div className={`text-xs ${theme.muted}`}>은행계좌 증빙 업로드</div>
+              <input type="file" onChange={(e) => setBankDocFile(e.target.files?.[0] || null)} className="mt-2 w-full text-xs" />
+            </label>
+            <Box
+              label="KYC 최종 상태"
+              value={buyerKyc.companyApprovalStatus || "미제출"}
+              theme={theme}
+            />
+          </div>
+        )}
+
+        {myInfoTab === "레퍼럴" && (
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className={`rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div className={`text-xs ${theme.muted}`}>레퍼럴 코드는 기본 숨김</div>
+              <div className="mt-1 font-black">{showReferral ? (linkedReferral || "TG777") : "••••••"}</div>
+            </div>
+            <button onClick={() => setShowReferral(!showReferral)} className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>{showReferral ? "레퍼럴 숨기기" : "레퍼럴 보기"}</button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MyTradesOnly({ theme, notify }) {
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const filteredTrades = trades.filter((trade) => {
+    const tradeDate = trade.time.slice(0, 10);
+    if (fromDate && tradeDate < fromDate) return false;
+    if (toDate && tradeDate > toDate) return false;
+    return true;
+  });
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-8">
+      <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-5 flex items-center justify-between">
+          <div>
+            <div className="text-xl font-black">내 거래</div>
+            <div className={`text-sm ${theme.subtext}`}>기간별 거래내역 · 입금증빙 · 상태조회</div>
+          </div>
+          <button onClick={() => notify(`${fromDate || "시작일 미지정"} ~ ${toDate || "종료일 미지정"} 기간 조회`)} className={`rounded-2xl border px-4 py-2 text-sm font-bold ${theme.input}`}>기간조회</button>
+        </div>
+        <div className="mb-4 grid gap-2 md:grid-cols-3">
+          <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`} />
+          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`} />
+          <button
+            onClick={() => {
+              setFromDate("");
+              setToDate("");
+              notify("기간 필터를 초기화했습니다.");
+            }}
+            className={`rounded-2xl border px-4 py-3 text-sm font-black ${theme.input}`}
+          >
+            기간 초기화
+          </button>
+        </div>
+        <div className="space-y-3">
+          {filteredTrades.length ? filteredTrades.map((tr) => (
+            <div key={tr.id} className={`flex items-center justify-between rounded-2xl p-4 ${theme.cardSoft}`}>
+              <div>
+                <div className="font-black">{tr.type} {tr.amount} {tr.coin}</div>
+                <div className={`mt-1 text-xs ${theme.muted}`}>{tr.id} · {tr.time}</div>
+              </div>
+              <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{tr.status}</span>
+            </div>
+          )) : (
+            <div className={`rounded-2xl border p-4 text-sm ${theme.input}`}>선택한 기간의 거래 기록이 없습니다.</div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function P2PInfo({ theme }) {
+  return <section className="mx-auto max-w-7xl px-4 py-8"><div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}><h2 className="text-2xl font-black">P2P 운영 구조</h2><div className="mt-5 grid gap-4 md:grid-cols-3"><Info title="판매자 예치" text="판매자는 거래금액, 수수료, 가스비, 취소비용을 포함해 예치합니다." theme={theme} /><Info title="구매자 송금" text="구매자는 선택한 통화 종류 기준으로 송금 후 증빙을 업로드합니다." theme={theme} /><Info title="릴리즈" text="구매확인, 친구등록, 레벨정책, 지연이체 조건에 따라 코인이 지급됩니다." theme={theme} /></div></div></section>;
+}
+
+function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken, authUsers, setAuthUsers, buyerKyc, setBuyerKyc, friends, chatRooms, sellerDepositNotice, setSellerDepositNotice, escrowPolicy, setEscrowPolicy, disputeCases, approveDisputeCase, finalizeDisputeByMain, currentAdminActorId, finalApprovalPinInput, setFinalApprovalPinInput, finalApprovalOtpInput, setFinalApprovalOtpInput, newPolicyPinInput, setNewPolicyPinInput, selectedDisputeIdForTimeline, setSelectedDisputeIdForTimeline, selectedDisputeEvents, setSelectedDisputeEvents, timelineActionFilter, setTimelineActionFilter, timelineFromDate, setTimelineFromDate, timelineToDate, setTimelineToDate, adminMediaTypeFilter, setAdminMediaTypeFilter, adminMediaFriendFilter, setAdminMediaFriendFilter, adminActionLogs, appendAdminAction, adminMember, setAdminMember, adminParent, setAdminParent, adminReceivedRate, setAdminReceivedRate, adminRate, setAdminRate, adminMemo, setAdminMemo, adminUserSearch, setAdminUserSearch, selectedAdminUser, setSelectedAdminUser, selectedChildUser, setSelectedChildUser, securityFilter, setSecurityFilter, blockReason, setBlockReason }) {
+  const [timelineVerifyResult, setTimelineVerifyResult] = useState("");
+  const [kycDocs, setKycDocs] = useState([]);
+  const [kycViewReason, setKycViewReason] = useState("");
+  const [kycDocPreview, setKycDocPreview] = useState("");
+  const [kycDocLogs, setKycDocLogs] = useState([]);
+  const [kycViewRequests, setKycViewRequests] = useState([]);
+  const [selectedKycRequestId, setSelectedKycRequestId] = useState("");
+  const [kycLogVerifyResult, setKycLogVerifyResult] = useState("");
+  const [selectedKycDocId, setSelectedKycDocId] = useState("");
+  const [kycWatermarkText, setKycWatermarkText] = useState("");
+  const [kycRejectReason, setKycRejectReason] = useState("");
+  const [webhookEvents, setWebhookEvents] = useState([]);
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [webhookStatusFilter, setWebhookStatusFilter] = useState("all");
+  const [webhookAutoRefresh, setWebhookAutoRefresh] = useState(true);
+  const [auditFromDate, setAuditFromDate] = useState("");
+  const [auditToDate, setAuditToDate] = useState("");
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [approvalAuditSummary, setApprovalAuditSummary] = useState({
+    totalEvents: 0,
+    kycRequestCount: 0,
+    kycApprovalCount: 0,
+    kycRejectedCount: 0,
+    kycViewCount: 0,
+    disputeApprovalCount: 0,
+  });
+  const [approvalAuditEvents, setApprovalAuditEvents] = useState([]);
+  const [recentReportHashes, setRecentReportHashes] = useState([]);
+  const [verifyHashInput, setVerifyHashInput] = useState("");
+  const [verifyHashResult, setVerifyHashResult] = useState("");
+  const [verifyHashType, setVerifyHashType] = useState("approval_audit_pdf");
+  const [opsRiskLoading, setOpsRiskLoading] = useState(false);
+  const [opsRiskSummary, setOpsRiskSummary] = useState({
+    overallLevel: "normal",
+    score: 0,
+    risks: [],
+    generatedAt: "",
+  });
+  const [opsActionLoading, setOpsActionLoading] = useState("");
+  const [opsSnapshots, setOpsSnapshots] = useState([]);
+  const [opsSnapshotLabel, setOpsSnapshotLabel] = useState("");
+  const [opsSnapshotReason, setOpsSnapshotReason] = useState("");
+  const [rollbackSnapshotId, setRollbackSnapshotId] = useState("");
+  const [rollbackReason, setRollbackReason] = useState("");
+  const [rollbackConfirmText, setRollbackConfirmText] = useState("");
+  const [opsSnapshotLoading, setOpsSnapshotLoading] = useState(false);
+  const [emergencyState, setEmergencyState] = useState({
+    emergencyMode: false,
+    emergencyReason: "",
+    emergencyEta: "",
+    updatedByUserId: 0,
+    updatedAt: "",
+  });
+  const [emergencyReasonInput, setEmergencyReasonInput] = useState("");
+  const [emergencyEtaInput, setEmergencyEtaInput] = useState("");
+  const [emergencyLoading, setEmergencyLoading] = useState(false);
+  const [monitorPath, setMonitorPath] = useState([]);
+  const [userRateOverrides, setUserRateOverrides] = useState({});
+  const lang = useLang();
+  const visibleUsers = fakeUsers
+    .filter((u) => `${u.id} ${u.nickname} ${u.email} ${u.wallet} ${u.parent}`.toLowerCase().includes(adminUserSearch.toLowerCase()))
+    .slice(0, 100);
+
+  const received = Number(adminReceivedRate || 0);
+  const childRate = Number(adminRate || 0);
+  const marginRate = Math.max(received - childRate, 0);
+  const invalidRate = childRate > received;
+
+  const selectedChildren = selectedAdminUser
+    ? fakeUsers.filter((u) => u.parent === selectedAdminUser.id).slice(0, selectedAdminUser.children || 0)
+    : [];
+  const monitorCurrentId = monitorPath[monitorPath.length - 1] || selectedAdminUser?.id || "";
+  const monitorCurrentUser = fakeUsers.find((u) => u.id === monitorCurrentId) || selectedAdminUser || null;
+  const monitorChildren = monitorCurrentUser ? fakeUsers.filter((u) => u.parent === monitorCurrentUser.id) : [];
+
+  const securityUsers = fakeUsers.filter((u) => {
+    if (securityFilter === "전체") return true;
+    if (securityFilter === "주의") return u.status === "주의" || u.riskScore >= 70;
+    if (securityFilter === "신고") return u.reports > 0;
+    if (securityFilter === "블랙") return u.blacklist;
+    return true;
+  }).slice(0, 12);
+
+  const riskColor = selectedAdminUser?.blacklist ? "bg-red-600 text-white" : selectedAdminUser?.riskScore >= 70 ? "bg-amber-500 text-white" : "bg-emerald-600 text-white";
+  const mediaEvents = Object.entries(chatRooms || {}).flatMap(([friendId, roomMessages = []]) => {
+    const friendName = (friends || []).find((friend) => friend.id === friendId)?.nickname || friendId;
+    return roomMessages
+      .filter((message) => message.attachment)
+      .map((message) => ({
+        id: message.id,
+        friendId,
+        friendName,
+        createdAt: message.createdAt,
+        sender: message.sender,
+        fileName: message.attachment?.name || "unknown",
+        fileType: message.attachment?.type || "unknown",
+        isVoice: (message.attachment?.type || "").startsWith("audio/"),
+      }));
+  });
+  const filteredMediaEvents = mediaEvents.filter((item) => {
+    const typeMatch =
+      adminMediaTypeFilter === "전체"
+        ? true
+        : adminMediaTypeFilter === "음성"
+          ? item.isVoice
+          : !item.isVoice;
+    const friendMatch = adminMediaFriendFilter === "전체" ? true : item.friendId === adminMediaFriendFilter;
+    return typeMatch && friendMatch;
+  });
+  const totalMediaCount = filteredMediaEvents.length;
+  const voiceMediaCount = filteredMediaEvents.filter((item) => item.isVoice).length;
+  const fileMediaCount = totalMediaCount - voiceMediaCount;
+
+  const myDirectUsers = fakeUsers.filter((u) => u.parent === selectedAdminUser?.id || (selectedAdminUser?.parent === "본사" && u.parent === selectedAdminUser?.id));
+  const myTotalVolume = myDirectUsers.reduce((sum, u) => sum + u.volume, 0);
+
+  const myReferralProfit = myDirectUsers.reduce((sum, u) => {
+    const referralFee = u.volume * (u.marginRate / 100) * 0.02;
+    return sum + referralFee;
+  }, 0);
+  const myMonthlyProfit = myReferralProfit * 0.42;
+  const myWeeklyProfit = myReferralProfit * 0.11;
+  const myWithdrawable = myReferralProfit * 0.72;
+  const myPendingProfit = myReferralProfit - myWithdrawable;
+
+  function selectUser(user) {
+    setSelectedAdminUser(user);
+    setSelectedChildUser(null);
+    setAdminMember(user.id);
+    setAdminParent(user.parent);
+    setAdminReceivedRate(String(user.receivedRate));
+    setAdminRate(String(user.childRate));
+    setAdminMemo(`${user.nickname} / ${user.parent} 하부 / 현재 배분율 ${user.childRate}%`);
+    setMonitorPath([user.id]);
+  }
+
+  function countDescendants(userId) {
+    const children = fakeUsers.filter((u) => u.parent === userId);
+    return children.reduce((acc, child) => acc + 1 + countDescendants(child.id), 0);
+  }
+
+  function appliedRate(user) {
+    return userRateOverrides[user.id] ?? user.childRate;
+  }
+
+  async function updateAuthRole(userId, nextRole) {
+    if (!isSuperAdmin) {
+      notify("슈퍼관리자 권한이 필요합니다.");
+      return;
+    }
+    if (!authToken) {
+      notify("인증 토큰이 없습니다. 다시 로그인하세요.");
+      return;
+    }
+    try {
+      const data = await apiClient.request(`/api/admin/users/${userId}/role`, {
+        method: "PATCH",
+        auth: true,
+        body: JSON.stringify({ role: nextRole }),
+      });
+      setAuthUsers((prev) => prev.map((user) => (user.id === userId ? { ...user, role: data.user?.role || nextRole } : user)));
+      appendAdminAction?.(`권한 변경: ${userId} -> ${nextRole}`);
+      notify(`권한이 ${nextRole}(으)로 변경되었습니다.`);
+    } catch (error) {
+      notify(error.message || "권한 변경 API 연결에 실패했습니다.");
+    }
+  }
+
+  function isRiskyFileName(name) {
+    const lowered = (name || "").toLowerCase();
+    return lowered.includes(".exe") || lowered.includes(".bat") || lowered.includes("seed") || lowered.includes("private");
+  }
+
+  async function loadDisputeEvents(disputeId) {
+    if (!disputeId) return;
+    try {
+      const data = await apiClient.request(`/api/admin/disputes/${disputeId}/events`, {
+        auth: true,
+      });
+      setSelectedDisputeIdForTimeline(disputeId);
+      setSelectedDisputeEvents(Array.isArray(data.events) ? data.events : []);
+    } catch (error) {
+      notify(error.message || "분쟁 이벤트 조회에 실패했습니다.");
+    }
+  }
+
+  async function loadKycDocuments() {
+    const uid = Number(buyerKyc.userId || 0);
+    if (!uid) {
+      notify("조회할 KYC 사용자 정보가 없습니다.");
+      return;
+    }
+    try {
+      const data = await apiClient.request(`/api/admin/kyc/${uid}/documents`, { auth: true });
+      setKycDocs(Array.isArray(data.documents) ? data.documents : []);
+    } catch (error) {
+      notify(error.message || "KYC 문서 조회에 실패했습니다.");
+    }
+  }
+
+  async function viewKycDocument(docId, mimeType) {
+    if (!kycViewReason || kycViewReason.length < 5) {
+      notify("열람 사유를 5자 이상 입력해야 합니다.");
+      return;
+    }
+    try {
+      const viewed = await apiClient.request(`/api/admin/kyc/documents/${docId}/view`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ reason: kycViewReason, requestId: Number(selectedKycRequestId || 0) }),
+      });
+      const doc = viewed.document || {};
+      setKycWatermarkText(String(doc.watermarkText || ""));
+      if (doc.previewText) setKycDocPreview(doc.previewText);
+      else if (doc.contentBase64 && String(mimeType).startsWith("image/")) {
+        setKycDocPreview(`data:${mimeType};base64,${doc.contentBase64}`);
+      } else {
+        setKycDocPreview("미리보기 가능한 텍스트/이미지 형식이 아닙니다.");
+      }
+      const logs = await apiClient.request(`/api/admin/kyc/documents/${docId}/access-logs`, { auth: true });
+      setKycDocLogs(Array.isArray(logs.logs) ? logs.logs : []);
+    } catch (error) {
+      notify(error.message || "문서 열람에 실패했습니다.");
+    }
+  }
+
+  async function loadKycViewRequests(docId) {
+    try {
+      const data = await apiClient.request(`/api/admin/kyc/documents/${docId}/view-requests`, { auth: true });
+      setKycViewRequests(Array.isArray(data.requests) ? data.requests : []);
+      setSelectedKycDocId(String(docId));
+    } catch (error) {
+      notify(error.message || "열람 요청 조회에 실패했습니다.");
+    }
+  }
+
+  async function createKycViewRequest(docId) {
+    if (!kycViewReason || kycViewReason.length < 5) {
+      notify("열람 사유를 5자 이상 입력하세요.");
+      return;
+    }
+    try {
+      const data = await apiClient.request(`/api/admin/kyc/documents/${docId}/view-requests`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ reason: kycViewReason }),
+      });
+      setSelectedKycRequestId(String(data.requestId || ""));
+      await loadKycViewRequests(docId);
+      notify("열람 요청이 생성되었습니다. 관리자 2인 승인 후 열람 가능합니다.");
+    } catch (error) {
+      notify(error.message || "열람 요청 생성에 실패했습니다.");
+    }
+  }
+
+  async function approveKycViewRequest(requestId, docId) {
+    try {
+      await apiClient.request(`/api/admin/kyc/view-requests/${requestId}/approve`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      await loadKycViewRequests(docId);
+      notify("열람 요청 승인 처리되었습니다.");
+    } catch (error) {
+      notify(error.message || "열람 요청 승인에 실패했습니다.");
+    }
+  }
+
+  async function rejectKycViewRequest(requestId, docId) {
+    if (!kycRejectReason || kycRejectReason.length < 5) {
+      notify("반려 사유를 5자 이상 입력하세요.");
+      return;
+    }
+    try {
+      await apiClient.request(`/api/admin/kyc/view-requests/${requestId}/reject`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ rejectReason: kycRejectReason }),
+      });
+      await loadKycViewRequests(docId);
+      notify("열람 요청이 반려 처리되었습니다.");
+    } catch (error) {
+      notify(error.message || "열람 요청 반려에 실패했습니다.");
+    }
+  }
+
+  async function verifyKycAccessLogs(docId) {
+    try {
+      const data = await apiClient.request(`/api/admin/kyc/documents/${docId}/access-logs/verify`, { auth: true });
+      const message = data.valid ? `접근로그 무결성 검증 성공: ${data.reason}` : `접근로그 무결성 검증 실패: ${data.reason}`;
+      setKycLogVerifyResult(message);
+      notify(message);
+    } catch (error) {
+      notify(error.message || "접근로그 무결성 검증에 실패했습니다.");
+    }
+  }
+
+  function exportTimelineCsv() {
+    const rows = filteredTimelineEvents.map((event) => ({
+      id: event.id,
+      disputeId: event.dispute_id,
+      action: event.action,
+      actor: actorNameMap[event.actor_user_id] || event.actor_user_id,
+      detail: event.detail || "",
+      createdAt: event.created_at,
+    }));
+    if (!rows.length) {
+      notify("내보낼 타임라인 데이터가 없습니다.");
+      return;
+    }
+    const header = ["id", "disputeId", "action", "actor", "detail", "createdAt"];
+    const csvBody = [
+      header.join(","),
+      ...rows.map((row) =>
+        header
+          .map((key) => `"${String(row[key] ?? "").replace(/"/g, '""')}"`)
+          .join(",")
+      ),
+    ].join("\n");
+    const blob = new Blob([csvBody], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `dispute-timeline-${selectedDisputeIdForTimeline || "all"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    notify("타임라인 CSV를 내보냈습니다.");
+  }
+
+  async function verifyTimelineIntegrity() {
+    if (!selectedDisputeIdForTimeline) {
+      notify("먼저 타임라인 조회할 분쟁을 선택하세요.");
+      return;
+    }
+    try {
+      const data = await apiClient.request(`/api/admin/disputes/${selectedDisputeIdForTimeline}/events/verify`, {
+        auth: true,
+      });
+      const msg = data.valid ? `무결성 검증 성공: ${data.reason}` : `무결성 검증 실패: ${data.reason}`;
+      setTimelineVerifyResult(msg);
+      notify(msg);
+    } catch (error) {
+      notify(error.message || "타임라인 무결성 검증에 실패했습니다.");
+    }
+  }
+
+  async function loadWebhookEvents() {
+    try {
+      setWebhookLoading(true);
+      const data = await apiClient.request("/api/admin/webhook-events?limit=15", { auth: true });
+      setWebhookEvents(Array.isArray(data.events) ? data.events : []);
+    } catch (error) {
+      notify(error.message || "웹훅 전송 이력 조회에 실패했습니다.");
+    } finally {
+      setWebhookLoading(false);
+    }
+  }
+
+  async function loadApprovalAuditReport() {
+    try {
+      setAuditLoading(true);
+      const query = new URLSearchParams({
+        limit: "100",
+        ...(auditFromDate ? { from: auditFromDate } : {}),
+        ...(auditToDate ? { to: auditToDate } : {}),
+      });
+      const data = await apiClient.request(`/api/admin/audit/approvals?${query.toString()}`, { auth: true });
+      setApprovalAuditSummary(data.summary || {
+        totalEvents: 0,
+        kycRequestCount: 0,
+        kycApprovalCount: 0,
+        kycRejectedCount: 0,
+        kycViewCount: 0,
+        disputeApprovalCount: 0,
+      });
+      setApprovalAuditEvents(Array.isArray(data.events) ? data.events : []);
+    } catch (error) {
+      notify(error.message || "권한 감사 리포트 조회에 실패했습니다.");
+    } finally {
+      setAuditLoading(false);
+    }
+  }
+
+  async function loadRecentReportHashes() {
+    try {
+      const data = await apiClient.request("/api/admin/audit/report-hashes?limit=8", { auth: true });
+      setRecentReportHashes(Array.isArray(data.hashes) ? data.hashes : []);
+    } catch (error) {
+      notify(error.message || "리포트 해시 이력 조회에 실패했습니다.");
+    }
+  }
+
+  async function loadOpsRiskSummary() {
+    try {
+      setOpsRiskLoading(true);
+      const data = await apiClient.request("/api/admin/ops/risk-summary", { auth: true });
+      setOpsRiskSummary({
+        overallLevel: data.overallLevel || "normal",
+        score: Number(data.score || 0),
+        risks: Array.isArray(data.risks) ? data.risks : [],
+        generatedAt: data.generatedAt || "",
+      });
+    } catch (error) {
+      notify(error.message || "운영 리스크 요약 조회에 실패했습니다.");
+    } finally {
+      setOpsRiskLoading(false);
+    }
+  }
+
+  async function runOpsAction(actionKey) {
+    try {
+      setOpsActionLoading(actionKey);
+      if (actionKey === "expired_otp_unused") {
+        const data = await apiClient.request("/api/admin/ops/actions/cleanup-expired-otp", {
+          method: "POST",
+          auth: true,
+          body: JSON.stringify({}),
+        });
+        notify(`만료 OTP 정리 완료: ${data.cleaned || 0}건`);
+      } else if (actionKey === "kyc_pending_over_12h") {
+        const data = await apiClient.request("/api/admin/ops/actions/reject-stale-kyc-requests", {
+          method: "POST",
+          auth: true,
+          body: JSON.stringify({ reason: "장기 대기 요청 자동 반려(운영자 실행)" }),
+        });
+        notify(`장기 대기 KYC 요청 반려 완료: ${data.rejected || 0}건`);
+      } else {
+        notify("해당 리스크 항목의 자동 조치 기능은 준비 중입니다.");
+      }
+      await loadOpsRiskSummary();
+    } catch (error) {
+      notify(error.message || "운영 조치 실행에 실패했습니다.");
+    } finally {
+      setOpsActionLoading("");
+    }
+  }
+
+  async function loadOpsSnapshots() {
+    try {
+      setOpsSnapshotLoading(true);
+      const data = await apiClient.request("/api/admin/ops/snapshots?limit=12", { auth: true });
+      setOpsSnapshots(Array.isArray(data.snapshots) ? data.snapshots : []);
+    } catch (error) {
+      notify(error.message || "운영 스냅샷 조회에 실패했습니다.");
+    } finally {
+      setOpsSnapshotLoading(false);
+    }
+  }
+
+  async function createOpsSnapshot() {
+    if (!opsSnapshotReason || opsSnapshotReason.length < 5) {
+      notify("스냅샷 사유를 5자 이상 입력하세요.");
+      return;
+    }
+    try {
+      setOpsSnapshotLoading(true);
+      await apiClient.request("/api/admin/ops/snapshots", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({
+          label: opsSnapshotLabel,
+          reason: opsSnapshotReason,
+        }),
+      });
+      notify("운영 스냅샷이 생성되었습니다.");
+      await loadOpsSnapshots();
+      setOpsSnapshotLabel("");
+      setOpsSnapshotReason("");
+    } catch (error) {
+      notify(error.message || "운영 스냅샷 생성에 실패했습니다.");
+    } finally {
+      setOpsSnapshotLoading(false);
+    }
+  }
+
+  async function executeRollback() {
+    if (!rollbackSnapshotId) {
+      notify("롤백할 스냅샷을 선택하세요.");
+      return;
+    }
+    if (!rollbackReason || rollbackReason.length < 5) {
+      notify("롤백 사유를 5자 이상 입력하세요.");
+      return;
+    }
+    if (rollbackConfirmText !== "ROLLBACK") {
+      notify("확인문구 ROLLBACK을 정확히 입력해야 실행됩니다.");
+      return;
+    }
+    try {
+      setOpsSnapshotLoading(true);
+      await apiClient.request("/api/admin/ops/rollback", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({
+          snapshotId: Number(rollbackSnapshotId),
+          reason: rollbackReason,
+          confirmText: rollbackConfirmText,
+        }),
+      });
+      notify("롤백 실행이 완료되었습니다.");
+      setRollbackConfirmText("");
+      setRollbackReason("");
+      await loadOpsSnapshots();
+      await loadOpsRiskSummary();
+      await loadApprovalAuditReport();
+    } catch (error) {
+      notify(error.message || "롤백 실행에 실패했습니다.");
+    } finally {
+      setOpsSnapshotLoading(false);
+    }
+  }
+
+  async function loadEmergencyState() {
+    try {
+      const data = await apiClient.request("/api/admin/ops/emergency-mode", { auth: true });
+      const state = data.state || {};
+      setEmergencyState({
+        emergencyMode: Boolean(state.emergencyMode),
+        emergencyReason: String(state.emergencyReason || ""),
+        emergencyEta: String(state.emergencyEta || ""),
+        updatedByUserId: Number(state.updatedByUserId || 0),
+        updatedAt: String(state.updatedAt || ""),
+      });
+      setEmergencyReasonInput(String(state.emergencyReason || ""));
+      setEmergencyEtaInput(String(state.emergencyEta || ""));
+    } catch (error) {
+      notify(error.message || "비상모드 상태 조회에 실패했습니다.");
+    }
+  }
+
+  async function updateEmergencyMode(enabled) {
+    if (enabled && (!emergencyReasonInput || emergencyReasonInput.length < 5)) {
+      notify("비상모드 사유를 5자 이상 입력하세요.");
+      return;
+    }
+    try {
+      setEmergencyLoading(true);
+      const data = await apiClient.request("/api/admin/ops/emergency-mode", {
+        method: "PUT",
+        auth: true,
+        body: JSON.stringify({
+          enabled,
+          reason: enabled ? emergencyReasonInput : "",
+          eta: enabled ? emergencyEtaInput : "",
+        }),
+      });
+      setEmergencyState(data.state || emergencyState);
+      notify(enabled ? "비상모드가 활성화되었습니다." : "비상모드가 해제되었습니다.");
+      await loadOpsRiskSummary();
+    } catch (error) {
+      notify(error.message || "비상모드 업데이트에 실패했습니다.");
+    } finally {
+      setEmergencyLoading(false);
+    }
+  }
+
+  async function verifyReportHash() {
+    const normalized = String(verifyHashInput || "").trim().toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(normalized)) {
+      notify("검증할 SHA-256 해시 64자(hex)를 입력하세요.");
+      return;
+    }
+    try {
+      const data = await apiClient.request("/api/admin/audit/report-hashes/verify", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({
+          sha256Hash: normalized,
+          reportType: verifyHashType,
+        }),
+      });
+      const msg = data.matched
+        ? `일치: ${data.reason} (record #${data.record?.id || "-"})`
+        : `불일치: ${data.reason}`;
+      setVerifyHashResult(msg);
+      notify(msg);
+    } catch (error) {
+      notify(error.message || "해시 검증에 실패했습니다.");
+    }
+  }
+
+  async function exportApprovalAuditCsv() {
+    if (!approvalAuditEvents.length) {
+      notify("내보낼 감사 리포트 데이터가 없습니다.");
+      return;
+    }
+    const rows = approvalAuditEvents.map((event) => ({
+      kind: event.kind || "",
+      action: event.action || "",
+      actorUserId: event.actorUserId || "",
+      actorName: event.actorName || "",
+      target: event.target || "",
+      detail: event.detail || "",
+      createdAt: event.createdAt || "",
+    }));
+    const header = ["kind", "action", "actorUserId", "actorName", "target", "detail", "createdAt"];
+    const csvBody = [
+      header.join(","),
+      ...rows.map((row) =>
+        header
+          .map((key) => `"${String(row[key] ?? "").replace(/"/g, '""')}"`)
+          .join(",")
+      ),
+    ].join("\n");
+    const encoded = new TextEncoder().encode(csvBody);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
+    const csvIntegrityHash = Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    try {
+      await apiClient.request("/api/admin/audit/report-hashes", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({
+          reportType: "approval_audit_csv",
+          fromDate: auditFromDate || "",
+          toDate: auditToDate || "",
+          rowCount: approvalAuditEvents.length,
+          sha256Hash: csvIntegrityHash,
+        }),
+      });
+      loadRecentReportHashes();
+    } catch (error) {
+      notify(error.message || "CSV 리포트 해시 서버 기록에 실패했습니다.");
+    }
+    const blob = new Blob([csvBody], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const fromLabel = auditFromDate || "all";
+    const toLabel = auditToDate || "all";
+    a.href = url;
+    a.download = `approval-audit-${fromLabel}-to-${toLabel}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    notify(`권한 감사 리포트 CSV를 내보냈습니다. SHA-256: ${csvIntegrityHash.slice(0, 12)}...`);
+  }
+
+  async function exportApprovalAuditPdf() {
+    if (!approvalAuditEvents.length) {
+      notify("출력할 감사 리포트 데이터가 없습니다.");
+      return;
+    }
+    const fromLabel = auditFromDate || "전체기간";
+    const toLabel = auditToDate || "전체기간";
+    const generatedAt = new Date().toISOString();
+    const integrityPayload = JSON.stringify({
+      from: fromLabel,
+      to: toLabel,
+      generatedAt,
+      summary: approvalAuditSummary,
+      events: approvalAuditEvents,
+    });
+    const encoded = new TextEncoder().encode(integrityPayload);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", encoded);
+    const integrityHash = Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    try {
+      await apiClient.request("/api/admin/audit/report-hashes", {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({
+          reportType: "approval_audit_pdf",
+          fromDate: auditFromDate || "",
+          toDate: auditToDate || "",
+          rowCount: approvalAuditEvents.length,
+          sha256Hash: integrityHash,
+        }),
+      });
+      loadRecentReportHashes();
+    } catch (error) {
+      notify(error.message || "리포트 해시 서버 기록에 실패했습니다.");
+    }
+    const rowsHtml = approvalAuditEvents
+      .map(
+        (event) => `
+          <tr>
+            <td>${String(event.createdAt || "")}</td>
+            <td>${String(event.action || "")}</td>
+            <td>${String(event.actorName || "")} (${String(event.actorUserId || "")})</td>
+            <td>${String(event.target || "")}</td>
+            <td>${String(event.detail || "")}</td>
+          </tr>
+        `
+      )
+      .join("");
+    const printHtml = `
+      <!doctype html>
+      <html lang="ko">
+        <head>
+          <meta charset="utf-8" />
+          <title>권한 감사 리포트</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+            h1 { margin: 0 0 8px; font-size: 20px; }
+            .meta { margin-bottom: 16px; font-size: 12px; color: #333; }
+            .kpi { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+            .box { border: 1px solid #999; border-radius: 6px; padding: 8px; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #999; padding: 6px; text-align: left; vertical-align: top; }
+            th { background: #f2f2f2; }
+            @media print { body { padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <h1>권한 감사 리포트</h1>
+          <div class="meta">조회기간: ${fromLabel} ~ ${toLabel} / 생성시각: ${generatedAt}</div>
+          <div class="kpi">
+            <div class="box">전체 이벤트: <b>${approvalAuditSummary.totalEvents || 0}</b></div>
+            <div class="box">KYC 요청: <b>${approvalAuditSummary.kycRequestCount || 0}</b></div>
+            <div class="box">KYC 승인: <b>${approvalAuditSummary.kycApprovalCount || 0}</b></div>
+            <div class="box">KYC 반려: <b>${approvalAuditSummary.kycRejectedCount || 0}</b></div>
+            <div class="box">KYC 열람: <b>${approvalAuditSummary.kycViewCount || 0}</b></div>
+            <div class="box">분쟁 결재: <b>${approvalAuditSummary.disputeApprovalCount || 0}</b></div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>시간</th>
+                <th>액션</th>
+                <th>담당자</th>
+                <th>대상</th>
+                <th>상세</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+          <div style="margin-top:12px; font-size:11px; color:#333; word-break:break-all;">
+            Integrity SHA-256: ${integrityHash}
+          </div>
+        </body>
+      </html>
+    `;
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=1200,height=900");
+    if (!printWindow) {
+      notify("팝업이 차단되어 PDF 출력창을 열 수 없습니다.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    notify("인쇄창이 열렸습니다. PDF로 저장하세요.");
+  }
+
+  useEffect(() => {
+    loadWebhookEvents();
+  }, []);
+
+  useEffect(() => {
+    loadApprovalAuditReport();
+    loadRecentReportHashes();
+    loadOpsRiskSummary();
+    loadOpsSnapshots();
+    loadEmergencyState();
+  }, []);
+
+  useEffect(() => {
+    if (!webhookAutoRefresh) return;
+    const timerId = setInterval(() => {
+      loadWebhookEvents();
+    }, 15000);
+    return () => clearInterval(timerId);
+  }, [webhookAutoRefresh]);
+
+  const filteredWebhookEvents = (webhookEvents || []).filter((event) =>
+    webhookStatusFilter === "all" ? true : event.status === webhookStatusFilter
+  );
+
+  const actorNameMap = useMemo(
+    () =>
+      (authUsers || []).reduce((acc, user) => {
+        acc[user.id] = user.nickname || user.email || String(user.id);
+        return acc;
+      }, {}),
+    [authUsers]
+  );
+
+  const filteredTimelineEvents = (selectedDisputeEvents || []).filter((event) => {
+    const actionMatch = timelineActionFilter === "전체" ? true : event.action === timelineActionFilter;
+    const eventDate = String(event.created_at || "").slice(0, 10);
+    const fromMatch = timelineFromDate ? eventDate >= timelineFromDate : true;
+    const toMatch = timelineToDate ? eventDate <= timelineToDate : true;
+    return actionMatch && fromMatch && toMatch;
+  });
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-8">
+      <div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}>
+        <div className="mb-5">
+          <div className="text-2xl font-black">{lang.adminTitle}</div>
+          <div className={`mt-1 text-sm ${theme.subtext}`}>
+            상위 회원이 본인 하부를 누르면 가입일, 이메일, 지갑, 거래정보, 하부 리스트를 확인할 수 있습니다.
+          </div>
+        </div>
+
+        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">비상 점검 모드 (원클릭)</div>
+              <div className={`text-xs ${theme.muted}`}>활성화 시 일반 사용자 변경 요청을 차단하고 관리자 복구 작업만 허용합니다.</div>
+            </div>
+            <span className={`rounded-full px-2 py-1 text-xs font-black ${
+              emergencyState.emergencyMode ? "bg-red-600 text-white" : "bg-emerald-600 text-white"
+            }`}>
+              {emergencyState.emergencyMode ? "ON" : "OFF"}
+            </span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto_auto_auto]">
+            <input
+              value={emergencyReasonInput}
+              onChange={(e) => setEmergencyReasonInput(e.target.value)}
+              placeholder="비상모드 사유 (예: 결제 장애 긴급 점검)"
+              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
+            <input
+              value={emergencyEtaInput}
+              onChange={(e) => setEmergencyEtaInput(e.target.value)}
+              placeholder="예상 복구 시간 ETA (예: 2026-05-09 03:00 KST)"
+              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
+            <button onClick={() => updateEmergencyMode(true)} disabled={emergencyLoading} className="rounded-xl border border-red-500/60 px-3 py-2 text-xs font-black text-red-400">
+              {emergencyLoading ? "처리중..." : "비상모드 ON"}
+            </button>
+            <button onClick={() => updateEmergencyMode(false)} disabled={emergencyLoading} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              비상모드 OFF
+            </button>
+            <button onClick={loadEmergencyState} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              상태 새로고침
+            </button>
+          </div>
+          <div className={`mt-2 text-[11px] ${theme.muted}`}>
+            현재 사유: {emergencyState.emergencyReason || "-"} · ETA: {emergencyState.emergencyEta || "-"} · updatedBy: {emergencyState.updatedByUserId || "-"} · {emergencyState.updatedAt || "-"}
+          </div>
+        </div>
+
+        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">운영 리스크 센터</div>
+              <div className={`text-xs ${theme.muted}`}>장애/지연/승인 병목을 실시간으로 점검합니다.</div>
+            </div>
+            <button onClick={loadOpsRiskSummary} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              {opsRiskLoading ? "점검중..." : "리스크 점검"}
+            </button>
+          </div>
+          <div className="mb-2 flex items-center gap-2 text-xs">
+            <span className={`rounded-full px-2 py-1 font-black ${
+              opsRiskSummary.overallLevel === "high"
+                ? "bg-red-600 text-white"
+                : opsRiskSummary.overallLevel === "medium"
+                  ? "bg-amber-500 text-white"
+                  : "bg-emerald-600 text-white"
+            }`}>
+              overall: {opsRiskSummary.overallLevel}
+            </span>
+            <span className={`rounded-full border px-2 py-1 font-black ${theme.input}`}>score: {opsRiskSummary.score}</span>
+            <span className={theme.muted}>generated: {opsRiskSummary.generatedAt || "-"}</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {(opsRiskSummary.risks || []).map((risk) => (
+              <div key={risk.key} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-black">{risk.message}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${
+                    risk.level === "high"
+                      ? "bg-red-600 text-white"
+                      : risk.level === "medium"
+                        ? "bg-amber-500 text-white"
+                        : "bg-emerald-600 text-white"
+                  }`}>
+                    {risk.level}
+                  </span>
+                </div>
+                <div className={theme.muted}>count: {risk.count}</div>
+                <div className="mt-2">
+                  <button
+                    onClick={() => runOpsAction(risk.key)}
+                    disabled={opsActionLoading === risk.key}
+                    className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
+                  >
+                    {opsActionLoading === risk.key ? "조치중..." : "즉시 조치"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">복구 스냅샷 · 롤백 센터</div>
+              <div className={`text-xs ${theme.muted}`}>문제 발생 시 스냅샷 생성, 분석 후 원점 복구를 실행합니다.</div>
+            </div>
+            <button onClick={loadOpsSnapshots} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              {opsSnapshotLoading ? "동기화중..." : "스냅샷 새로고침"}
+            </button>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-3">
+            <input
+              value={opsSnapshotLabel}
+              onChange={(e) => setOpsSnapshotLabel(e.target.value)}
+              placeholder="스냅샷 라벨 (예: pre-release-v2)"
+              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
+            <input
+              value={opsSnapshotReason}
+              onChange={(e) => setOpsSnapshotReason(e.target.value)}
+              placeholder="스냅샷 사유 (5자 이상)"
+              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
+            <button onClick={createOpsSnapshot} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              운영 스냅샷 생성
+            </button>
+          </div>
+
+          <div className="mt-2 max-h-36 space-y-1 overflow-y-auto pr-1">
+            {opsSnapshots.length ? (
+              opsSnapshots.map((snapshot) => (
+                <div key={snapshot.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
+                  <div className="font-black">#{snapshot.id} · {snapshot.snapshot_type} · {snapshot.label || "-"}</div>
+                  <div className={theme.muted}>
+                    {snapshot.created_at} · by {snapshot.created_by_name || snapshot.created_by_user_id} · {number((snapshot.size_bytes || 0) / 1024)}KB
+                  </div>
+                  <div className="mt-1 break-all text-[11px]">{snapshot.sha256_hash}</div>
+                </div>
+              ))
+            ) : (
+              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>생성된 운영 스냅샷이 없습니다.</div>
+            )}
+          </div>
+
+          <div className="mt-3 rounded-xl border p-3">
+            <div className="mb-2 text-xs font-black">롤백 실행 (슈퍼관리자)</div>
+            <div className="grid gap-2 md:grid-cols-4">
+              <select
+                value={rollbackSnapshotId}
+                onChange={(e) => setRollbackSnapshotId(e.target.value)}
+                className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
+              >
+                <option value="">롤백 대상 스냅샷 선택</option>
+                {opsSnapshots.map((snapshot) => (
+                  <option key={snapshot.id} value={snapshot.id}>
+                    #{snapshot.id} · {snapshot.label || snapshot.snapshot_type}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={rollbackReason}
+                onChange={(e) => setRollbackReason(e.target.value)}
+                placeholder="롤백 사유 (5자 이상)"
+                className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+              />
+              <input
+                value={rollbackConfirmText}
+                onChange={(e) => setRollbackConfirmText(e.target.value)}
+                placeholder="확인문구: ROLLBACK"
+                className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+              />
+              <button onClick={executeRollback} className="rounded-xl border border-red-500/60 px-3 py-2 text-xs font-black text-red-400">
+                원점 롤백 실행
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">리포트 해시 서버 기록</div>
+              <div className={`text-xs ${theme.muted}`}>PDF 해시를 서버에 저장해 위변조 검증 기준으로 사용합니다.</div>
+            </div>
+            <button onClick={loadRecentReportHashes} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              해시 이력 새로고침
+            </button>
+          </div>
+          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+            {recentReportHashes.length ? (
+              recentReportHashes.map((row) => (
+                <div key={row.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
+                  <div className="font-black">{row.report_type} · {row.created_at}</div>
+                  <div className={theme.muted}>
+                    actor {row.actor_name || row.actor_user_id} · rows {row.row_count} · {row.from_date || "all"} ~ {row.to_date || "all"}
+                  </div>
+                  <div className="mt-1 break-all text-[11px]">{row.sha256_hash}</div>
+                </div>
+              ))
+            ) : (
+              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>저장된 리포트 해시 이력이 없습니다.</div>
+            )}
+          </div>
+          <div className="mt-2 rounded-xl border p-2">
+            <div className="mb-1 text-xs font-black">해시 대조 검증</div>
+            <div className="flex flex-col gap-2 md:flex-row">
+              <select
+                value={verifyHashType}
+                onChange={(e) => setVerifyHashType(e.target.value)}
+                className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
+              >
+                <option value="approval_audit_pdf">PDF 리포트</option>
+                <option value="approval_audit_csv">CSV 리포트</option>
+              </select>
+              <input
+                value={verifyHashInput}
+                onChange={(e) => setVerifyHashInput(e.target.value)}
+                placeholder="SHA-256 해시 64자 입력"
+                className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+              />
+              <button onClick={verifyReportHash} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                서버 대조
+              </button>
+            </div>
+            {!!verifyHashResult && <div className={`mt-2 text-[11px] ${theme.muted}`}>{verifyHashResult}</div>}
+          </div>
+        </div>
+
+        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">Webhook 전송 상태</div>
+              <div className={`text-xs ${theme.muted}`}>최근 관리자 이벤트 전송 결과 (성공/실패/비활성)</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={webhookStatusFilter}
+                onChange={(e) => setWebhookStatusFilter(e.target.value)}
+                className={`rounded-xl border px-2 py-2 text-xs font-black outline-none ${theme.input}`}
+              >
+                <option value="all">전체</option>
+                <option value="success">성공</option>
+                <option value="failed">실패</option>
+                <option value="disabled">비활성</option>
+              </select>
+              <label className={`flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
+                <input
+                  type="checkbox"
+                  checked={webhookAutoRefresh}
+                  onChange={(e) => setWebhookAutoRefresh(e.target.checked)}
+                />
+                15초 자동
+              </label>
+              <button onClick={loadWebhookEvents} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                {webhookLoading ? "조회중..." : "새로고침"}
+              </button>
+            </div>
+          </div>
+          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+            {filteredWebhookEvents.length ? (
+              filteredWebhookEvents.map((event) => {
+                const badgeClass =
+                  event.status === "success"
+                    ? "bg-emerald-600 text-white"
+                    : event.status === "failed"
+                      ? "bg-red-600 text-white"
+                      : "bg-amber-500 text-white";
+                return (
+                  <div key={event.id} className={`flex items-center justify-between rounded-xl border p-2 text-xs ${theme.input}`}>
+                    <div>
+                      <div className="font-black">{event.event_type}</div>
+                      <div className={theme.muted}>
+                        {event.occurred_at}
+                        {event.status_code ? ` · HTTP ${event.status_code}` : ""}
+                      </div>
+                      {!!event.error_message && <div className="text-[11px] text-red-400">{event.error_message}</div>}
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-[11px] font-black ${badgeClass}`}>{event.status}</span>
+                  </div>
+                );
+              })
+            ) : (
+              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>조건에 맞는 웹훅 이벤트가 없습니다.</div>
+            )}
+          </div>
+        </div>
+
+        <div className={`mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-sm font-black">권한 감사 리포트</div>
+              <div className={`text-xs ${theme.muted}`}>누가 언제 무엇을 승인/반려/열람했는지 추적합니다.</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={auditFromDate}
+                onChange={(e) => setAuditFromDate(e.target.value)}
+                className={`rounded-xl border px-2 py-2 text-xs font-black outline-none ${theme.input}`}
+              />
+              <input
+                type="date"
+                value={auditToDate}
+                onChange={(e) => setAuditToDate(e.target.value)}
+                className={`rounded-xl border px-2 py-2 text-xs font-black outline-none ${theme.input}`}
+              />
+              <button
+                onClick={loadApprovalAuditReport}
+                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+              >
+                {auditLoading ? "조회중..." : "리포트 조회"}
+              </button>
+              <button
+                onClick={exportApprovalAuditCsv}
+                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+              >
+                CSV 내보내기
+              </button>
+              <button
+                onClick={exportApprovalAuditPdf}
+                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+              >
+                PDF 출력
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-3 grid gap-2 md:grid-cols-6">
+            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>전체 이벤트 <b>{approvalAuditSummary.totalEvents || 0}</b></div>
+            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 요청 <b>{approvalAuditSummary.kycRequestCount || 0}</b></div>
+            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 승인 <b>{approvalAuditSummary.kycApprovalCount || 0}</b></div>
+            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 반려 <b>{approvalAuditSummary.kycRejectedCount || 0}</b></div>
+            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 열람 <b>{approvalAuditSummary.kycViewCount || 0}</b></div>
+            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>분쟁 결재 <b>{approvalAuditSummary.disputeApprovalCount || 0}</b></div>
+          </div>
+
+          <div className="max-h-52 space-y-1 overflow-y-auto pr-1">
+            {approvalAuditEvents.length ? (
+              approvalAuditEvents.map((event, idx) => (
+                <div key={`${event.kind}-${event.target}-${idx}`} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
+                  <div className="font-black">{event.action}</div>
+                  <div className={theme.muted}>
+                    {event.createdAt} · {event.actorName} ({event.actorUserId}) · {event.target}
+                  </div>
+                  {!!event.detail && <div className="mt-1 text-[11px]">{event.detail}</div>}
+                </div>
+              ))
+            ) : (
+              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>조회된 감사 이벤트가 없습니다.</div>
+            )}
+          </div>
+        </div>
+
+        <div className={`mb-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-xl font-black">{lang.adminStorage}</div>
+              <div className={`text-sm ${theme.subtext}`}>내 하부 기준 총거래량 · 레퍼럴 수익 · 기간별 수익 · 출금가능액</div>
+            </div>
+            <button onClick={() => notify("withdraw")} className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>{lang.withdrawRequest}</button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className={theme.muted}>{lang.totalVolume}</div>
+              <div className="mt-2 text-2xl font-black">${number(myTotalVolume)}</div>
+              <div className={`mt-1 text-xs ${theme.muted}`}>직접 레퍼럴 거래량 기준</div>
+            </div>
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className={theme.muted}>{lang.referralProfit}</div>
+              <div className="mt-2 text-2xl font-black">${number(myReferralProfit)}</div>
+              <div className={`mt-1 text-xs ${theme.muted}`}>직접 하부 거래 수익 합산</div>
+            </div>
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className={theme.muted}>{lang.withdrawable}</div>
+              <div className="mt-2 text-2xl font-black text-emerald-500">${number(myWithdrawable)}</div>
+              <div className={`mt-1 text-xs ${theme.muted}`}>정산 가능 금액</div>
+            </div>
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className={theme.muted}>{lang.pendingSettlement}</div>
+              <div className="mt-2 text-2xl font-black text-amber-500">${number(myPendingProfit)}</div>
+              <div className={`mt-1 text-xs ${theme.muted}`}>검증/락업 대기</div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className={theme.muted}>{lang.weeklyProfit}</div>
+              <div className="mt-2 text-xl font-black">${number(myWeeklyProfit)}</div>
+            </div>
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className={theme.muted}>{lang.monthlyProfit}</div>
+              <div className="mt-2 text-xl font-black">${number(myMonthlyProfit)}</div>
+            </div>
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className={theme.muted}>{lang.managedChildren}</div>
+              <div className="mt-2 text-xl font-black">{myDirectUsers.length}명</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-black">{lang.childList}</div>
+                <div className={`text-xs ${theme.muted}`}>가상 유저 100명 · 클릭하면 상세 정보 반영</div>
+              </div>
+              <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{visibleUsers.length}명</span>
+            </div>
+
+            <input
+              value={adminUserSearch}
+              onChange={(e) => setAdminUserSearch(e.target.value)}
+              className={`mb-3 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
+              placeholder="닉네임, ID, 이메일, 지갑 검색"
+            />
+
+            <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
+              {visibleUsers.map((user) => (
+                <button
+                  key={user.id}
+                  onClick={() => selectUser(user)}
+                  className={`w-full rounded-2xl border p-3 text-left transition ${selectedAdminUser?.id === user.id ? theme.main : theme.input}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-black">{user.nickname}</div>
+                    <div className={`rounded-full px-2 py-1 text-xs font-black ${user.status === "주의" ? "bg-red-600 text-white" : "bg-emerald-600 text-white"}`}>{user.status}</div>
+                  </div>
+                  <div className="mt-1 text-xs opacity-80">{user.id} · 상위: {user.parent}</div>
+                  <div className="mt-1 text-xs opacity-80">배분 {user.childRate}% · 거래 {number(user.trades)}건 · 하부 {user.children}명</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className="text-lg font-black">{lang.selectedUser}</div>
+
+              {selectedAdminUser ? (
+                <>
+                  <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                    <DetailBox label="닉네임" value={selectedAdminUser.nickname} theme={theme} />
+                    <DetailBox label="회원 ID" value={selectedAdminUser.id} theme={theme} />
+                    <DetailBox label="이메일" value={selectedAdminUser.email} theme={theme} />
+                    <DetailBox label="지갑" value={selectedAdminUser.wallet} theme={theme} />
+                    <DetailBox label="상위" value={selectedAdminUser.parent} theme={theme} />
+                    <DetailBox label="가입일" value={selectedAdminUser.joined} theme={theme} />
+                    <DetailBox label="누적 거래" value={`${number(selectedAdminUser.trades)}건`} theme={theme} />
+                    <DetailBox label="누적 거래액" value={`$${number(selectedAdminUser.volume)}`} theme={theme} />
+                  </div>
+
+                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                    <button
+                      onClick={() => selectedChildren.length ? notify(`${selectedAdminUser.nickname} 하부 ${selectedChildren.length}명 조회`) : notify("등록된 하부가 없습니다.")}
+                      className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+                    >
+                      하부 {selectedChildren.length}명 보기
+                    </button>
+                    <button
+                      onClick={() => notify(`${selectedAdminUser.nickname} 닉네임/정보 수정 화면`)}
+                      className={`rounded-2xl border px-4 py-3 text-sm font-black ${theme.input}`}
+                    >
+                      정보 수정
+                    </button>
+                  </div>
+
+                  {selectedChildren.length > 0 && (
+                    <div className="mt-4 rounded-3xl bg-black/10 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="font-black">{selectedAdminUser.nickname}의 직접 하부</div>
+                        <div className={`text-xs ${theme.muted}`}>클릭하면 하부 상세 표시</div>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {selectedChildren.map((child) => (
+                          <button
+                            key={child.id}
+                            onClick={() => setSelectedChildUser(child)}
+                            className={`rounded-2xl border p-3 text-left text-sm ${selectedChildUser?.id === child.id ? theme.main : theme.input}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <b>{child.nickname}</b>
+                              <span className="text-xs opacity-80">하부 {child.children}명</span>
+                            </div>
+                            <div className="mt-1 text-xs opacity-80">가입일: {child.joined}</div>
+                            <div className="mt-1 text-xs opacity-80">배분 {child.childRate}% · 거래 {number(child.trades)}건</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedChildUser && (
+                    <div className="mt-4 rounded-3xl bg-black/10 p-4">
+                      <div className="text-lg font-black">선택한 하부 상세 정보</div>
+                      <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
+                        <DetailBox label="닉네임" value={selectedChildUser.nickname} theme={theme} />
+                        <DetailBox label="회원 ID" value={selectedChildUser.id} theme={theme} />
+                        <DetailBox label="가입일" value={selectedChildUser.joined} theme={theme} />
+                        <DetailBox label="상위" value={selectedChildUser.parent} theme={theme} />
+                        <DetailBox label="이메일" value={selectedChildUser.email} theme={theme} />
+                        <DetailBox label="지갑" value={selectedChildUser.wallet} theme={theme} />
+                        <DetailBox label="누적 거래" value={`${number(selectedChildUser.trades)}건`} theme={theme} />
+                        <DetailBox label="누적 거래액" value={`$${number(selectedChildUser.volume)}`} theme={theme} />
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className={`mt-3 text-sm ${theme.subtext}`}>왼쪽에서 하부 회원을 선택하세요.</div>
+              )}
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="대상 회원 ID / 지갑 / 이메일" theme={theme}>
+                <input value={adminMember} onChange={(e) => setAdminMember(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: TG-MEMBER-001" />
+              </Field>
+              <Field label="상위 회원 / 추천인 / 파트너 ID" theme={theme}>
+                <input value={adminParent} onChange={(e) => setAdminParent(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: TG777" />
+              </Field>
+              <Field label="상위자가 받은 배분율 (%)" theme={theme}>
+                <input value={adminReceivedRate} onChange={(e) => setAdminReceivedRate(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: 50" />
+              </Field>
+              <Field label="하위에게 내려줄 배분율 (%)" theme={theme}>
+                <input value={adminRate} onChange={(e) => setAdminRate(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: 45" />
+              </Field>
+            </div>
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-3xl p-4 text-sm ${invalidRate ? "bg-red-600 text-white" : theme.cardSoft}`}>
+          <div className="flex justify-between py-1"><span>대상 회원</span><b>{adminMember || "미입력"}</b></div>
+          <div className="flex justify-between py-1"><span>상위 회원</span><b>{adminParent || "미입력"}</b></div>
+          <div className="flex justify-between py-1"><span>상위자 받은 배분율</span><b>{received}%</b></div>
+          <div className="flex justify-between py-1"><span>하위에게 내려줄 배분율</span><b>{childRate}%</b></div>
+          <div className="flex justify-between py-1"><span>상위자 차액 수익</span><b>{invalidRate ? "오류" : `${marginRate}%`}</b></div>
+          {invalidRate && <div className="mt-2 font-black">하위 배분율은 상위자가 받은 배분율보다 클 수 없습니다.</div>}
+        </div>
+
+        <div className={`mt-5 rounded-3xl p-4 ${theme.cardSoft}`}>
+          <div className="text-sm font-black">하부트리 예시</div>
+          <div className="mt-3 grid gap-2 text-sm">
+            <div className="rounded-2xl bg-black/10 p-3">본사: 전체 수수료 100% 권한</div>
+            <div className="rounded-2xl bg-black/10 p-3">└ {adminParent || "상위 회원"}: 본사로부터 {received}% 배분권 보유</div>
+            <div className="rounded-2xl bg-black/10 p-3">&nbsp;&nbsp;&nbsp;└ {adminMember || "하위 회원"}: {childRate}% 배분율 적용</div>
+            <div className="rounded-2xl bg-black/10 p-3">상위자 수익: {received}% - {childRate}% = {invalidRate ? "설정 오류" : `${marginRate}%`}</div>
+          </div>
+        </div>
+
+        <Field label="관리 메모" theme={theme}>
+          <textarea value={adminMemo} onChange={(e) => setAdminMemo(e.target.value)} className={`min-h-24 rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="관리자 메모" />
+        </Field>
+
+        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-xl font-black">{lang.securityCenter}</div>
+              <div className={`text-sm ${theme.subtext}`}>IP · 기기 · 신고 · 블랙리스트 · 다중계정 위험 분석</div>
+            </div>
+
+            <select
+              value={securityFilter}
+              onChange={(e) => setSecurityFilter(e.target.value)}
+              className={`rounded-2xl border px-4 py-3 text-sm font-black outline-none ${theme.input}`}
+            >
+              <option>전체</option>
+              <option>주의</option>
+              <option>신고</option>
+              <option>블랙</option>
+            </select>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-4">
+            <Admin title="전체 회원" value="100" sub="가상 회원 데이터" />
+            <Admin title="위험 감지" value={securityUsers.filter((u) => u.riskScore >= 70).length} sub="위험점수 70 이상" />
+            <Admin title="사고 신고" value={securityUsers.filter((u) => u.reports > 0).length} sub="신고 접수 회원" />
+            <Admin title="블랙리스트" value={securityUsers.filter((u) => u.blacklist).length} sub="차단된 계정" />
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="font-black">{lang.riskMonitor}</div>
+                <div className={`text-xs ${theme.muted}`}>실시간 감시 대상</div>
+              </div>
+
+              <div className="space-y-2">
+                {securityUsers.map((user) => (
+                  <div key={user.id} className={`rounded-2xl border p-3 ${theme.input}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-black">{user.nickname}</div>
+                        <div className="mt-1 text-xs opacity-70">{user.id} · {user.country} · {user.device}</div>
+                      </div>
+
+                      <div className={`rounded-full px-3 py-1 text-xs font-black ${user.blacklist ? "bg-red-600 text-white" : user.riskScore >= 70 ? "bg-amber-500 text-white" : "bg-emerald-600 text-white"}`}>
+                        위험 {user.riskScore}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
+                      <div>IP: <b>{user.ip}</b></div>
+                      <div>전화번호: <b>{user.phone}</b></div>
+                      <div>신고건수: <b>{user.reports}건</b></div>
+                      <div>최근접속: <b>{user.lastLogin}</b></div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button onClick={() => notify(`${user.nickname} 거래 일시정지`)} className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-white">거래정지</button>
+                      <button onClick={() => notify(`${user.nickname} 블랙리스트 등록`)} className="rounded-xl bg-red-600 px-3 py-2 text-xs font-black text-white">블랙등록</button>
+                      <button onClick={() => notify(`${user.nickname} IP 추적 조회`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>IP분석</button>
+                      <button onClick={() => notify(`${user.nickname} 다중계정 분석`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>다중계정</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+              <div className="font-black">{lang.blockPolicy}</div>
+
+              <div className="mt-4 space-y-3 text-sm">
+                <div className="rounded-2xl bg-black/10 p-3">✔ 동일 IP 다중계정 감지</div>
+                <div className="rounded-2xl bg-black/10 p-3">✔ VPN / 해외 우회 접속 탐지</div>
+                <div className="rounded-2xl bg-black/10 p-3">✔ 반복 신고 회원 자동 감시</div>
+                <div className="rounded-2xl bg-black/10 p-3">✔ 블랙 지갑 주소 공유</div>
+                <div className="rounded-2xl bg-black/10 p-3">✔ 위험 거래 자동 알림</div>
+                <div className="rounded-2xl bg-black/10 p-3">✔ 관리자 승인 전 대량거래 제한</div>
+                <div className="rounded-2xl bg-black/10 p-3">✔ 기기 변경 반복 회원 추적</div>
+              </div>
+
+              <Field label="차단 사유 메모" theme={theme}>
+                <textarea
+                  value={blockReason}
+                  onChange={(e) => setBlockReason(e.target.value)}
+                  className={`min-h-28 rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
+                />
+              </Field>
+
+              <button
+                onClick={() => notify(`전체 보안 정책 저장 완료`)}
+                className={`mt-4 w-full rounded-2xl px-5 py-4 font-black ${theme.main}`}
+              >
+                보안 정책 저장
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-xl font-black">실계정 권한 관리</div>
+              <div className={`text-sm ${theme.subtext}`}>실전형 이메일 계정의 관리자 권한을 통제합니다.</div>
+            </div>
+            <span className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-black text-white">{authUsers.length}명</span>
+          </div>
+          <div className="space-y-2">
+            {authUsers.map((user) => (
+              <div key={user.id} className={`flex flex-col gap-2 rounded-2xl border p-3 md:flex-row md:items-center md:justify-between ${theme.input}`}>
+                <div className="text-sm">
+                  <div className="font-black">{user.nickname} ({user.id})</div>
+                  <div className={theme.muted}>{user.email}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-black/20 px-3 py-1 text-xs font-black">{user.role}</span>
+                  <select
+                    value={user.role}
+                    onChange={(e) => updateAuthRole(user.id, e.target.value)}
+                    disabled={!isSuperAdmin}
+                    className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
+                  >
+                    <option>일반회원</option>
+                    <option>운영관리자</option>
+                    <option>본사 슈퍼관리자</option>
+                  </select>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-xl font-black">판매자 입금자명 확인 공지 관리</div>
+              <div className={`text-sm ${theme.subtext}`}>판매자에게 노출되는 입금자명 일치 안내 문구를 운영자가 직접 설정합니다.</div>
+            </div>
+            <span className="rounded-full bg-amber-500 px-3 py-1 text-xs font-black text-white">필수 공지</span>
+          </div>
+          <textarea
+            value={sellerDepositNotice}
+            onChange={(e) => setSellerDepositNotice(e.target.value)}
+            className={`min-h-24 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
+          />
+          <button
+            onClick={() => {
+              appendAdminAction?.("판매자 입금자명 확인 공지 수정");
+              notify("판매자 공지 문구가 업데이트되었습니다.");
+            }}
+            className={`mt-3 rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+          >
+            공지 저장
+          </button>
+        </div>
+
+        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-xl font-black">회사 KYC 승인 센터</div>
+              <div className={`text-sm ${theme.subtext}`}>KYC는 회사만 승인하며, 문서는 분쟁 대응 목적으로 비공개 보관됩니다.</div>
+            </div>
+            <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-black text-white">{buyerKyc.companyApprovalStatus}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Box label="실명" value={buyerKyc.realName || "미입력"} theme={theme} />
+            <Box label="서류 제출 여부" value={buyerKyc.idImageUploaded && buyerKyc.bankAccountUploaded ? "제출됨" : "미제출"} theme={theme} />
+          </div>
+          <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-6">
+            KYC 문서는 회사 내부 보관 정책에 따라 접근 통제되며, 법적 분쟁/수사 협조를 제외하고 누구에게도 공개되지 않습니다.
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  const data = await apiClient.request(`/api/admin/kyc/${buyerKyc.userId || currentAdminActorId}/review`, {
+                    method: "POST",
+                    auth: true,
+                    body: JSON.stringify({ approve: true }),
+                  });
+                  if (data?.profile) setBuyerKyc(data.profile);
+                  appendAdminAction?.("KYC 회사 승인 처리");
+                  notify("회사 KYC 승인 완료");
+                } catch (error) {
+                  notify(error.message || "KYC 승인 처리에 실패했습니다.");
+                }
+              }}
+              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+            >
+              회사 승인
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const data = await apiClient.request(`/api/admin/kyc/${buyerKyc.userId || currentAdminActorId}/review`, {
+                    method: "POST",
+                    auth: true,
+                    body: JSON.stringify({ approve: false }),
+                  });
+                  if (data?.profile) setBuyerKyc(data.profile);
+                  appendAdminAction?.("KYC 회사 반려 처리");
+                  notify("KYC 반려 처리 완료");
+                } catch (error) {
+                  notify(error.message || "KYC 반려 처리에 실패했습니다.");
+                }
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white"
+            >
+              반려
+            </button>
+          </div>
+          <div className="mt-3 rounded-2xl border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-black">KYC 문서 열람 (사유 필수)</div>
+              <button onClick={loadKycDocuments} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                문서 목록 새로고침
+              </button>
+            </div>
+            <input
+              value={kycViewReason}
+              onChange={(e) => setKycViewReason(e.target.value)}
+              placeholder="열람 사유 입력 (5자 이상)"
+              className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
+            <div className="mt-2 space-y-2">
+              {kycDocs.length ? (
+                kycDocs.map((doc) => (
+                  <div key={doc.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
+                    <div className="font-black">{doc.file_name}</div>
+                    <div className={theme.muted}>{doc.doc_type} · {doc.mime_type} · {number((doc.size_bytes || 0) / 1024)}KB</div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <button
+                        onClick={() => createKycViewRequest(doc.id)}
+                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
+                      >
+                        열람요청 생성
+                      </button>
+                      <button
+                        onClick={() => loadKycViewRequests(doc.id)}
+                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
+                      >
+                        요청목록 조회
+                      </button>
+                      <button
+                        onClick={() => viewKycDocument(doc.id, doc.mime_type)}
+                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
+                      >
+                        사유 입력 후 열람
+                      </button>
+                      <button
+                        onClick={() => verifyKycAccessLogs(doc.id)}
+                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
+                      >
+                        로그 무결성 검증
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>등록된 KYC 문서가 없습니다.</div>
+              )}
+            </div>
+            {!!selectedKycDocId && (
+              <div className="mt-3 rounded-xl border p-3 text-xs">
+                <div className="mb-2 font-black">열람 요청 승인 워크플로우 (2인 승인)</div>
+                <input
+                  value={kycRejectReason}
+                  onChange={(e) => setKycRejectReason(e.target.value)}
+                  placeholder="반려 사유 입력 (5자 이상)"
+                  className={`mb-2 w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+                />
+                <select
+                  value={selectedKycRequestId}
+                  onChange={(e) => setSelectedKycRequestId(e.target.value)}
+                  className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+                >
+                  <option value="">열람 요청 선택</option>
+                  {kycViewRequests.map((reqItem) => (
+                    <option key={reqItem.id} value={reqItem.id}>
+                      #{reqItem.id} · {reqItem.status} · approvals {reqItem.approvals?.length || 0}/2
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-2 max-h-36 space-y-1 overflow-y-auto pr-1">
+                  {kycViewRequests.length ? (
+                    kycViewRequests.map((reqItem) => (
+                      <div key={reqItem.id} className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>
+                        <div>
+                          요청 #{reqItem.id} · {reqItem.status} · 승인 {(reqItem.approvals || []).length}/2
+                        </div>
+                        <div className={theme.muted}>{reqItem.reason}</div>
+                        {!!reqItem.rejected_reason && (
+                          <div className="text-red-400">
+                            반려사유: {reqItem.rejected_reason} (by {reqItem.rejected_by_user_id || "-"} · {reqItem.rejected_at || "-"})
+                          </div>
+                        )}
+                        <div className={theme.muted}>요청자 {reqItem.requester_user_id} · {reqItem.created_at}</div>
+                        <div className="mt-1 flex gap-1">
+                          <button
+                            onClick={() => approveKycViewRequest(reqItem.id, Number(selectedKycDocId))}
+                            className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
+                          >
+                            이 요청 승인
+                          </button>
+                          <button
+                            onClick={() => rejectKycViewRequest(reqItem.id, Number(selectedKycDocId))}
+                            className="rounded-lg border border-red-500/60 px-2 py-1 text-xs font-black text-red-400"
+                          >
+                            이 요청 반려
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>조회된 열람 요청이 없습니다.</div>
+                  )}
+                </div>
+              </div>
+            )}
+            {kycDocPreview && (
+              <div className="mt-3 rounded-xl border p-3 text-xs">
+                <div className="font-black">문서 미리보기</div>
+                <div
+                  className="relative mt-2 overflow-hidden rounded-lg border"
+                  onContextMenu={(e) => e.preventDefault()}
+                  onDragStart={(e) => e.preventDefault()}
+                  onCopy={(e) => e.preventDefault()}
+                  style={{ userSelect: "none", WebkitUserSelect: "none" }}
+                >
+                  {kycDocPreview.startsWith("data:image/") ? (
+                    <img src={kycDocPreview} alt="kyc-preview" className="max-h-56 w-full object-contain" />
+                  ) : (
+                    <pre className="whitespace-pre-wrap p-2">{kycDocPreview}</pre>
+                  )}
+                  <div className="pointer-events-none absolute inset-0 grid place-items-center bg-transparent p-2 text-[10px] font-black tracking-wider text-red-500/30">
+                    {kycWatermarkText || "CONFIDENTIAL"}
+                  </div>
+                </div>
+                <div className={`mt-1 text-[11px] ${theme.muted}`}>
+                  보안뷰어 모드: 다운로드/우클릭/드래그/복사 제한 + 워터마크 적용
+                </div>
+              </div>
+            )}
+            {!!kycLogVerifyResult && (
+              <div className={`mt-2 rounded-lg border p-2 text-[11px] ${theme.input}`}>{kycLogVerifyResult}</div>
+            )}
+            <div className="mt-3">
+              <div className="text-xs font-black">문서 열람 로그</div>
+              <div className="mt-1 max-h-28 space-y-1 overflow-y-auto pr-1">
+                {kycDocLogs.length ? (
+                  kycDocLogs.map((log) => (
+                    <div key={log.id} className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>
+                      actor {log.actor_user_id} · {log.created_at}
+                      <div className={theme.muted}>{log.reason}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>아직 열람 로그가 없습니다.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-xl font-black">분쟁 다중승인 / 메인 관리자 보관계좌 정책</div>
+              <div className={`text-sm ${theme.subtext}`}>분쟁 시 지정 승인자 3~5인 결재가 모여야 반환 처리됩니다.</div>
+            </div>
+            <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">고신뢰 정책</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="회사 지정 보관 계좌" theme={theme}>
+              <input
+                value={escrowPolicy.mainCustodyAccount}
+                onChange={(e) => setEscrowPolicy((prev) => ({ ...prev, mainCustodyAccount: e.target.value }))}
+                className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
+              />
+            </Field>
+            <Field label="필요 승인 인원(3~5)" theme={theme}>
+              <select
+                value={escrowPolicy.requiredApprovals}
+                onChange={(e) => setEscrowPolicy((prev) => ({ ...prev, requiredApprovals: Number(e.target.value) }))}
+                className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
+              >
+                <option value={3}>3인 승인</option>
+                <option value={4}>4인 승인</option>
+                <option value={5}>5인 승인</option>
+              </select>
+            </Field>
+            <Field label="최종 승인 메인 관리자 ID (1인 고정)" theme={theme}>
+              <select
+                value={escrowPolicy.mainFinalApproverId}
+                onChange={(e) => setEscrowPolicy((prev) => ({ ...prev, mainFinalApproverId: e.target.value }))}
+                className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
+              >
+                {authUsers.filter((u) => u.role.includes("관리자")).map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.nickname} ({user.id})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="mt-3 rounded-2xl border p-3">
+            <div className="text-sm font-black">지정 승인자 선택</div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {authUsers.filter((u) => u.role.includes("관리자")).map((user) => (
+                <label key={user.id} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${theme.input}`}>
+                  <input
+                    type="checkbox"
+                    checked={escrowPolicy.approverIds.includes(user.id)}
+                    onChange={(e) => {
+                      if (!isSuperAdmin) {
+                        notify("슈퍼관리자만 승인자를 지정할 수 있습니다.");
+                        return;
+                      }
+                      setEscrowPolicy((prev) => ({
+                        ...prev,
+                        approverIds: e.target.checked
+                          ? [...prev.approverIds, user.id]
+                          : prev.approverIds.filter((id) => id !== user.id),
+                      }));
+                    }}
+                  />
+                  <span className="font-black">{user.nickname}</span>
+                  <span className={theme.muted}>({user.id})</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={async () => {
+              try {
+                const data = await apiClient.request("/api/admin/escrow-policy", {
+                  method: "PUT",
+                  auth: true,
+                  body: JSON.stringify(escrowPolicy),
+                });
+                if (data?.policy) setEscrowPolicy(data.policy);
+                appendAdminAction?.("보관계좌/분쟁승인 정책 저장");
+                notify("분쟁 다중승인 정책이 저장되었습니다.");
+              } catch (error) {
+                notify(error.message || "정책 저장에 실패했습니다.");
+              }
+            }}
+            className={`mt-3 rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+          >
+            정책 저장
+          </button>
+          <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+            <input
+              value={newPolicyPinInput}
+              onChange={(e) => setNewPolicyPinInput(e.target.value)}
+              placeholder="최종승인 PIN 변경 (숫자 6~10자리)"
+              className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
+            />
+            <button
+              onClick={async () => {
+                try {
+                  await apiClient.request("/api/admin/escrow-policy/pin", {
+                    method: "PUT",
+                    auth: true,
+                    body: JSON.stringify({ pin: newPolicyPinInput }),
+                  });
+                  appendAdminAction?.("최종승인 PIN 변경");
+                  setNewPolicyPinInput("");
+                  notify("최종승인 PIN이 업데이트되었습니다.");
+                } catch (error) {
+                  notify(error.message || "PIN 변경에 실패했습니다.");
+                }
+              }}
+              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
+            >
+              PIN 저장
+            </button>
+          </div>
+          <input
+            value={finalApprovalPinInput}
+            onChange={(e) => setFinalApprovalPinInput(e.target.value)}
+            placeholder="메인 관리자 최종승인 PIN 입력"
+            className={`mt-3 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
+          />
+          <input
+            value={finalApprovalOtpInput}
+            onChange={(e) => setFinalApprovalOtpInput(e.target.value)}
+            placeholder="메인 관리자 최종승인 OTP 입력"
+            className={`mt-2 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
+          />
+          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+            {disputeCases.length ? (
+              disputeCases.map((item) => (
+                <div key={item.id} className={`rounded-2xl border p-3 text-sm ${theme.input}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="font-black">{item.id} · {item.orderSeller}</div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-black ${item.status === "반환완료" ? "bg-emerald-600 text-white" : "bg-amber-500 text-white"}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <div className={`mt-1 text-xs ${theme.muted}`}>{item.coin} {number(item.amount)} · 입금자 {item.senderName} · 계좌 {item.senderAccount}</div>
+                  <div className={`mt-1 text-xs ${theme.muted}`}>승인 {item.approvals.length} / {escrowPolicy.requiredApprovals} · 최종승인자 {escrowPolicy.mainFinalApproverId}</div>
+                  {item.releaseMessage && <div className="mt-1 text-xs font-black text-emerald-500">{item.releaseMessage}</div>}
+                  <button
+                    onClick={() => approveDisputeCase(item.id, currentAdminActorId)}
+                    disabled={!escrowPolicy.approverIds.includes(currentAdminActorId) || item.status === "반환완료" || item.status === "최종승인대기"}
+                    className={`mt-2 rounded-xl px-3 py-2 text-xs font-black ${item.status === "반환완료" ? "bg-slate-500 text-white" : theme.main}`}
+                  >
+                    내가 승인하기
+                  </button>
+                  <button
+                    onClick={() => loadDisputeEvents(item.id)}
+                    className={`mt-2 ml-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                  >
+                    이벤트 타임라인
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await apiClient.request(`/api/admin/disputes/${item.id}/request-otp`, {
+                          method: "POST",
+                          auth: true,
+                          body: JSON.stringify({}),
+                        });
+                        notify("OTP 발급 완료 (5분 유효). 등록된 관리자 보안 채널로 전송되었습니다.");
+                      } catch (error) {
+                        notify(error.message || "OTP 발급에 실패했습니다.");
+                      }
+                    }}
+                    disabled={item.status !== "최종승인대기" || currentAdminActorId !== escrowPolicy.mainFinalApproverId}
+                    className={`mt-2 ml-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                  >
+                    OTP 발급
+                  </button>
+                  <button
+                    onClick={() => finalizeDisputeByMain(item.id, currentAdminActorId, finalApprovalPinInput, finalApprovalOtpInput)}
+                    disabled={item.status !== "최종승인대기" || currentAdminActorId !== escrowPolicy.mainFinalApproverId}
+                    className={`mt-2 ml-2 rounded-xl px-3 py-2 text-xs font-black ${item.status === "최종승인대기" ? "bg-red-600 text-white" : "bg-slate-500 text-white"}`}
+                  >
+                    메인 관리자 최종승인
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className={`rounded-2xl border p-3 text-sm ${theme.input}`}>접수된 분쟁이 없습니다.</div>
+            )}
+          </div>
+          <div className="mt-3 rounded-2xl border p-3">
+            <div className="text-sm font-black">분쟁 이벤트 타임라인 {selectedDisputeIdForTimeline ? `(${selectedDisputeIdForTimeline})` : ""}</div>
+            <div className="mt-2 grid gap-2 md:grid-cols-3">
+              <select value={timelineActionFilter} onChange={(e) => setTimelineActionFilter(e.target.value)} className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}>
+                <option>전체</option>
+                <option>분쟁접수</option>
+                <option>다중승인</option>
+                <option>OTP발급</option>
+                <option>최종승인</option>
+              </select>
+              <input type="date" value={timelineFromDate} onChange={(e) => setTimelineFromDate(e.target.value)} className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`} />
+              <input type="date" value={timelineToDate} onChange={(e) => setTimelineToDate(e.target.value)} className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`} />
+            </div>
+            <div className="mt-2 max-h-44 space-y-2 overflow-y-auto pr-1">
+              {filteredTimelineEvents.length ? (
+                filteredTimelineEvents.map((event) => (
+                  <div key={event.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
+                    <div className="font-black">{event.action}</div>
+                    <div className={theme.muted}>actor: {actorNameMap[event.actor_user_id] || event.actor_user_id} · {event.created_at}</div>
+                    <div className={theme.muted}>{event.detail}</div>
+                  </div>
+                ))
+              ) : (
+                <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>조회된 이벤트가 없습니다. 분쟁 카드에서 `이벤트 타임라인`을 누르세요.</div>
+              )}
+            </div>
+            <button onClick={exportTimelineCsv} className={`mt-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              타임라인 CSV 내보내기
+            </button>
+            <button onClick={verifyTimelineIntegrity} className={`mt-2 ml-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              타임라인 무결성 검증
+            </button>
+            {timelineVerifyResult && <div className={`mt-2 text-xs font-black ${theme.muted}`}>{timelineVerifyResult}</div>}
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-xl font-black">첨부/음성 메시지 모니터링</div>
+              <div className={`text-sm ${theme.subtext}`}>친구 채팅방에서 오간 첨부파일과 음성 메시지를 관리자에서 추적합니다.</div>
+            </div>
+            <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{totalMediaCount}건</span>
+          </div>
+          <div className="mb-3 grid gap-2 md:grid-cols-2">
+            <select
+              value={adminMediaTypeFilter}
+              onChange={(e) => {
+                setAdminMediaTypeFilter(e.target.value);
+                appendAdminAction?.(`미디어 타입 필터 변경: ${e.target.value}`);
+              }}
+              className={`rounded-2xl border px-3 py-2 text-sm font-black outline-none ${theme.input}`}
+            >
+              <option>전체</option>
+              <option>첨부파일</option>
+              <option>음성</option>
+            </select>
+            <select
+              value={adminMediaFriendFilter}
+              onChange={(e) => {
+                setAdminMediaFriendFilter(e.target.value);
+                appendAdminAction?.(`친구 필터 변경: ${e.target.value}`);
+              }}
+              className={`rounded-2xl border px-3 py-2 text-sm font-black outline-none ${theme.input}`}
+            >
+              <option value="전체">전체 친구</option>
+              {(friends || []).map((friend) => (
+                <option key={friend.id} value={friend.id}>
+                  {friend.nickname} ({friend.id})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className={`rounded-2xl p-3 ${theme.cardSoft}`}>
+              <div className={theme.muted}>전체 첨부</div>
+              <div className="mt-1 text-xl font-black">{totalMediaCount}</div>
+            </div>
+            <div className={`rounded-2xl p-3 ${theme.cardSoft}`}>
+              <div className={theme.muted}>일반 첨부</div>
+              <div className="mt-1 text-xl font-black">{fileMediaCount}</div>
+            </div>
+            <div className={`rounded-2xl p-3 ${theme.cardSoft}`}>
+              <div className={theme.muted}>음성 메시지</div>
+              <div className="mt-1 text-xl font-black">{voiceMediaCount}</div>
+            </div>
+          </div>
+          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+            {filteredMediaEvents.length ? (
+              filteredMediaEvents.slice().reverse().map((item) => (
+                <div key={item.id} className={`rounded-2xl border p-3 text-sm ${theme.input}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-black">{item.friendName} ({item.friendId})</div>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-black ${item.isVoice ? "bg-violet-600 text-white" : "bg-blue-600 text-white"}`}>
+                      {item.isVoice ? "음성" : "첨부"}
+                    </span>
+                  </div>
+                  <div className={`mt-1 text-xs ${isRiskyFileName(item.fileName) ? "font-black text-red-500" : theme.muted}`}>
+                    {item.fileName}
+                    {isRiskyFileName(item.fileName) ? " · 위험 파일명 의심" : ""}
+                  </div>
+                  <div className={`mt-1 text-xs ${theme.muted}`}>{item.fileType} · {item.sender === "me" ? "내 전송" : "상대 전송"} · {item.createdAt}</div>
+                </div>
+              ))
+            ) : (
+              <div className={`rounded-2xl border p-3 text-sm ${theme.input}`}>아직 수집된 첨부/음성 이벤트가 없습니다.</div>
+            )}
+          </div>
+        </div>
+
+        <div className={`mt-5 rounded-3xl border p-5 ${theme.card}`}>
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-xl font-black">관리자 액션 로그</div>
+              <div className={`text-sm ${theme.subtext}`}>필터/권한 변경 등 관리자 행동 기록</div>
+            </div>
+            <span className="rounded-full bg-slate-700 px-3 py-1 text-xs font-black text-white">{adminActionLogs.length}건</span>
+          </div>
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {adminActionLogs.length ? (
+              adminActionLogs.map((log) => (
+                <div key={log.id} className={`rounded-2xl border p-3 text-sm ${theme.input}`}>
+                  <div className="font-black">{log.action}</div>
+                  <div className={`mt-1 text-xs ${theme.muted}`}>{log.role} · {log.time}</div>
+                </div>
+              ))
+            ) : (
+              <div className={`rounded-2xl border p-3 text-sm ${theme.input}`}>아직 기록된 관리자 액션이 없습니다.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-3">
+          <button onClick={() => !isSuperAdmin ? notify("슈퍼관리자 권한이 필요합니다.") : (invalidRate ? notify("배분율 오류: 하위 배분율이 상위 배분율보다 큽니다.") : notify(`${adminMember} 회원을 ${adminParent} 하부로 연결했습니다.`))} className={`rounded-2xl px-5 py-4 font-black ${invalidRate ? "bg-red-600 text-white" : theme.main}`}>하부 연결 저장</button>
+          <button onClick={() => notify("전체 하부 트리 조회 실행")} className={`rounded-2xl border px-5 py-4 font-black ${theme.input}`}>하부 트리 조회</button>
+          <button onClick={() => !isSuperAdmin ? notify("슈퍼관리자 권한이 필요합니다.") : notify("상위-하위 차액 수익 검증 실행")} className={`rounded-2xl border px-5 py-4 font-black ${theme.input}`}>차액 수익 검증</button>
+        </div>
+        <div className={`mt-3 rounded-2xl border p-3 text-xs ${theme.cardSoft}`}>
+          권한 레벨: {isSuperAdmin ? "슈퍼관리자 (전체 제어)" : "일반 관리자 (조회/모니터링 중심)"}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FriendListItem({ friend, selected, lastMessage, onClick, onOpenTrade, onOpenChat, theme }) {
+  const canInstant = (friend.status === "완전매칭" || friend.status === "거래매칭") && friend.instantRelease;
+  const statusClass =
+    friend.status === "완전매칭"
+      ? "bg-emerald-600 text-white"
+      : friend.status === "거래매칭"
+        ? "bg-blue-600 text-white"
+        : "bg-amber-500 text-white";
+
+  return (
+    <div className={`rounded-2xl border px-3 py-2 ${selected ? "ring-2 ring-emerald-500/70" : ""} ${theme.input}`}>
+      <button onClick={onClick} className="w-full text-left">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${friend.online ? "bg-emerald-400" : "bg-slate-500"}`} />
+            <span className="text-sm font-black">{friend.nickname}</span>
+          </div>
+          {friend.unread > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-black text-white">{friend.unread}</span>}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px]">
+          <span className="rounded-full bg-black/20 px-2 py-0.5 font-black">{friend.level}</span>
+          <span className={`rounded-full px-2 py-0.5 font-black ${statusClass}`}>{friend.status}</span>
+          <span className={`rounded-full px-2 py-0.5 font-black ${canInstant ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"}`}>
+            {canInstant ? "즉시송금" : "지연송금"}
+          </span>
+          <span className={`rounded-full px-2 py-0.5 font-black ${friend.selling ? "bg-indigo-600 text-white" : "bg-slate-500 text-white"}`}>
+            {friend.selling ? "판매중" : "판매대기"}
+          </span>
+        </div>
+        <div className="mt-1 text-[11px] font-bold opacity-80">
+          {friend.selling
+            ? `판매금액 ${number(friend.sellAmount)} ${friend.sellCoin} · ${number(friend.sellPrice)} ${friend.sellCurrency}`
+            : "현재 판매글 없음"}
+        </div>
+        <div className="mt-1 truncate text-xs opacity-75">{lastMessage || "대화 없음"}</div>
+      </button>
+      <div className="mt-2 grid grid-cols-2 gap-1">
+        <button onClick={onOpenTrade} className="rounded-xl bg-blue-600 px-2 py-1 text-xs font-black text-white">거래</button>
+        <button onClick={onOpenChat} className="rounded-xl bg-emerald-600 px-2 py-1 text-xs font-black text-white">채팅</button>
+      </div>
+    </div>
+  );
+}
+
+function FriendsPage({ theme, friends, selectedFriendId, selectedFriend, friendLastMessages, roomPreview, onSelectFriend, onOpenTrade, onOpenChat }) {
+  const selectedPreview = (roomPreview || []).slice(-2);
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-8">
+      <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-4 text-2xl font-black">친구</div>
+        <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+          <div className="space-y-2">
+            {friends.map((friend) => {
+              return (
+                <FriendListItem
+                  key={friend.id}
+                  friend={friend}
+                  selected={selectedFriendId === friend.id}
+                  lastMessage={friendLastMessages[friend.id]}
+                  onClick={() => onSelectFriend(friend.id)}
+                  onOpenTrade={() => onOpenTrade(friend.id)}
+                  onOpenChat={() => onOpenChat(friend.id)}
+                  theme={theme}
+                />
+              );
+            })}
+          </div>
+          <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+            <div className="text-lg font-black">친구등록 화면 미리보기</div>
+            <div className={`mt-1 text-sm ${theme.subtext}`}>친구 등록 전 최근 채팅 미리보기와 바로가기 버튼을 제공합니다.</div>
+            <div className="mt-3 rounded-2xl bg-black/10 p-4">
+              <div className="font-black">{selectedFriend?.nickname || "선택된 친구 없음"}</div>
+              <div className={`text-xs ${theme.muted}`}>{selectedFriend?.id || "-"}</div>
+              <div className="mt-3 space-y-2 text-sm">
+                {selectedPreview.length ? (
+                  selectedPreview.map((message) => (
+                    <div key={message.id} className="rounded-xl bg-white/10 px-3 py-2">
+                      {message.deleted ? "삭제된 메시지입니다." : message.text}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl bg-white/10 px-3 py-2">미리보기 메시지가 없습니다.</div>
+                )}
+              </div>
+              <button onClick={() => onOpenChat(selectedFriend?.id)} className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white">
+                채팅 바로가기
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FriendMessenger({
+  theme,
+  friends,
+  selectedFriendId,
+  selectedFriend,
+  friendLastMessages,
+  messages,
+  chatInput,
+  setChatInput,
+  friendSearch,
+  setFriendSearch,
+  pinnedFriendIds,
+  setPinnedFriendIds,
+  mutedFriendIds,
+  setMutedFriendIds,
+  onSelectFriend,
+  onSendMessage,
+  onDeleteMessage,
+  onClearMessages,
+  onOpenTrade,
+  notify,
+  onSendAttachment,
+}) {
+  const endRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordedChunksRef = useRef([]);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [pendingVoiceBlob, setPendingVoiceBlob] = useState(null);
+  const [pendingVoiceUrl, setPendingVoiceUrl] = useState("");
+  const [voiceFileSizeLimitMb] = useState(5);
+  const [uploadingInfo, setUploadingInfo] = useState({ name: "", progress: 0, active: false });
+  const filteredFriends = useMemo(
+    () =>
+      friends
+        .filter((friend) => `${friend.nickname} ${friend.id}`.toLowerCase().includes((friendSearch || "").toLowerCase()))
+        .sort((a, b) => Number(pinnedFriendIds.includes(b.id)) - Number(pinnedFriendIds.includes(a.id))),
+    [friends, friendSearch, pinnedFriendIds]
+  );
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, selectedFriendId]);
+
+  useEffect(() => {
+    if (!isRecordingVoice) return undefined;
+    const timer = setInterval(() => {
+      setRecordingSeconds((prev) => {
+        const next = prev + 1;
+        if (next >= 60) {
+          mediaRecorderRef.current?.stop();
+          setIsRecordingVoice(false);
+        }
+        return next;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isRecordingVoice]);
+
+  function handleKeyDown(event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      onSendMessage();
+    }
+  }
+
+  function togglePinned(friendId) {
+    if (!friendId) return;
+    setPinnedFriendIds((prev) => (prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId]));
+  }
+
+  function toggleMuted(friendId) {
+    if (!friendId) return;
+    setMutedFriendIds((prev) => (prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId]));
+  }
+
+  function openFilePicker() {
+    fileInputRef.current?.click();
+  }
+
+  function simulateUploadAndSend(file, doneMessage) {
+    return new Promise((resolve) => {
+      let progress = 0;
+      setUploadingInfo({ name: file.name, progress: 0, active: true });
+      const timer = setInterval(() => {
+        progress += 20;
+        if (progress >= 100) {
+          clearInterval(timer);
+          setUploadingInfo({ name: file.name, progress: 100, active: true });
+          onSendAttachment?.(file);
+          notify(doneMessage);
+          setTimeout(() => setUploadingInfo({ name: "", progress: 0, active: false }), 350);
+          resolve();
+          return;
+        }
+        setUploadingInfo({ name: file.name, progress, active: true });
+      }, 120);
+    });
+  }
+
+  function handleAttachmentChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    simulateUploadAndSend(file, `${file.name} 첨부 전송 완료`);
+    event.target.value = "";
+  }
+
+  async function toggleVoiceRecording() {
+    if (isRecordingVoice) {
+      mediaRecorderRef.current?.stop();
+      setIsRecordingVoice(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recordedChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size > 0) recordedChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
+        if ((blob.size || 0) > voiceFileSizeLimitMb * 1024 * 1024) {
+          notify(`음성 파일은 ${voiceFileSizeLimitMb}MB 이하로 전송 가능합니다.`);
+          stream.getTracks().forEach((track) => track.stop());
+          setRecordingSeconds(0);
+          return;
+        }
+        setPendingVoiceBlob(blob);
+        setPendingVoiceUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((track) => track.stop());
+        setRecordingSeconds(0);
+        notify("녹음 완료. 미리듣기 후 전송하세요.");
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecordingVoice(true);
+      setRecordingSeconds(0);
+      notify("녹음을 시작했습니다. 다시 누르면 전송됩니다.");
+    } catch {
+      notify("마이크 권한이 필요합니다.");
+    }
+  }
+
+  function confirmPendingVoice() {
+    if (!pendingVoiceBlob) return;
+    const voiceFile = new File([pendingVoiceBlob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
+    simulateUploadAndSend(voiceFile, "음성 메시지 전송 완료");
+    setPendingVoiceBlob(null);
+    setPendingVoiceUrl("");
+  }
+
+  function cancelPendingVoice() {
+    if (pendingVoiceUrl) URL.revokeObjectURL(pendingVoiceUrl);
+    setPendingVoiceBlob(null);
+    setPendingVoiceUrl("");
+    notify("음성 메시지를 취소했습니다.");
+  }
+
+  return (
+    <section className="mx-auto max-w-7xl px-4 py-8">
+      <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-4 text-2xl font-black">메신저</div>
+        <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+          <div className="space-y-2">
+            <input
+              value={friendSearch}
+              onChange={(event) => setFriendSearch(event.target.value)}
+              placeholder="친구 검색 (이름/ID)"
+              className={`w-full rounded-2xl border px-4 py-2 text-sm font-bold outline-none ${theme.input}`}
+            />
+            {filteredFriends.map((friend) => {
+              return (
+                <div key={friend.id}>
+                  <FriendListItem
+                    friend={friend}
+                    selected={selectedFriendId === friend.id}
+                    lastMessage={friendLastMessages[friend.id]}
+                    onClick={() => onSelectFriend(friend.id)}
+                    onOpenTrade={() => onOpenTrade(friend.id)}
+                    onOpenChat={() => onSelectFriend(friend.id)}
+                    theme={theme}
+                  />
+                  <div className="mt-1 flex gap-1">
+                    <button onClick={() => togglePinned(friend.id)} className={`rounded-lg px-2 py-1 text-[10px] font-black ${pinnedFriendIds.includes(friend.id) ? "bg-amber-500 text-white" : theme.input}`}>
+                      {pinnedFriendIds.includes(friend.id) ? "고정됨" : "고정"}
+                    </button>
+                    <button onClick={() => toggleMuted(friend.id)} className={`rounded-lg px-2 py-1 text-[10px] font-black ${mutedFriendIds.includes(friend.id) ? "bg-slate-600 text-white" : theme.input}`}>
+                      {mutedFriendIds.includes(friend.id) ? "음소거중" : "음소거"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <div className="text-lg font-black">{selectedFriend?.nickname || "친구를 선택하세요."}</div>
+                <div className={`text-xs ${theme.muted}`}>{selectedFriend?.id || "-"}</div>
+                <div className={`text-xs ${theme.muted}`}>
+                  {mutedFriendIds.includes(selectedFriend?.id) ? "알림 상태: 음소거" : "알림 상태: 활성"}
+                </div>
+              </div>
+              <button onClick={() => onClearMessages(selectedFriend?.id)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                대화 전체삭제
+              </button>
+            </div>
+
+            <div className="h-[360px] space-y-2 overflow-y-auto rounded-2xl bg-black/10 p-3">
+              {messages.length ? (
+                messages.map((message) => (
+                  <div key={message.id} className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm ${message.sender === "me" ? "ml-auto bg-emerald-600 text-white" : "bg-slate-700 text-white"}`}>
+                    {message.attachment?.previewUrl && (
+                      <img src={message.attachment.previewUrl} alt={message.attachment.name} className="mb-2 max-h-44 w-full rounded-xl object-cover" />
+                    )}
+                    {message.attachment && !message.attachment.previewUrl && (
+                      <div className="mb-2 rounded-xl bg-black/20 p-2 text-xs font-black">
+                        첨부파일: {message.attachment.name} ({number((message.attachment.size || 0) / 1024)}KB)
+                      </div>
+                    )}
+                    {message.attachment?.audioUrl && (
+                      <audio controls src={message.attachment.audioUrl} className="mb-2 w-full" />
+                    )}
+                    <div>{message.deleted ? "삭제된 메시지입니다." : message.text}</div>
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[10px] opacity-80">
+                      <span>{message.createdAt} · {message.sender === "me" ? "전달됨" : "수신"}</span>
+                      {!message.deleted && (
+                        <button onClick={() => onDeleteMessage(selectedFriend?.id, message.id)} className="rounded bg-black/20 px-2 py-0.5 font-black">
+                          삭제
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm opacity-70">대화가 없습니다.</div>
+              )}
+              <div ref={endRef} />
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={openFilePicker}
+                className={`rounded-2xl border px-3 py-3 text-sm font-black ${theme.input}`}
+              >
+                첨부
+              </button>
+              <input ref={fileInputRef} type="file" onChange={handleAttachmentChange} className="hidden" />
+              <button
+                onClick={toggleVoiceRecording}
+                className={`rounded-2xl border px-3 py-3 text-sm font-black ${isRecordingVoice ? "bg-red-600 text-white" : theme.input}`}
+              >
+                {isRecordingVoice ? `녹음중 ${recordingSeconds}s` : "음성"}
+              </button>
+              <input
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="메시지를 입력하세요. Enter로 전송"
+                className={`flex-1 rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
+              />
+              <button onClick={onSendMessage} className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>
+                전송
+              </button>
+            </div>
+            {uploadingInfo.active && (
+              <div className="mt-3 rounded-2xl border border-blue-500/40 bg-blue-500/10 p-3">
+                <div className="flex items-center justify-between text-xs font-black">
+                  <span>업로드 중: {uploadingInfo.name}</span>
+                  <span>{uploadingInfo.progress}%</span>
+                </div>
+                <div className="mt-2 h-2 w-full rounded-full bg-black/20">
+                  <div className="h-2 rounded-full bg-blue-500 transition-all" style={{ width: `${uploadingInfo.progress}%` }} />
+                </div>
+              </div>
+            )}
+            {isRecordingVoice && (
+              <div className="mt-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-3">
+                <div className="text-xs font-black">녹음 파형</div>
+                <div className="mt-2 flex items-end gap-1">
+                  {Array.from({ length: 12 }).map((_, index) => {
+                    const h = 6 + ((recordingSeconds + index * 3) % 14);
+                    return <span key={index} className="w-1 rounded-full bg-red-500/80 animate-pulse" style={{ height: `${h}px` }} />;
+                  })}
+                </div>
+              </div>
+            )}
+            {pendingVoiceUrl && (
+              <div className="mt-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3">
+                <div className="text-sm font-black">음성 미리듣기</div>
+                <audio controls src={pendingVoiceUrl} className="mt-2 w-full" />
+                <div className="mt-2 flex gap-2">
+                  <button onClick={confirmPendingVoice} className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white">전송 확정</button>
+                  <button onClick={cancelPendingVoice} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>취소</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Support({ theme, notify }) {
+  return <section className="mx-auto max-w-7xl px-4 py-8"><div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}><h2 className="text-2xl font-black">고객센터 / 사고신고</h2><p className={`mt-2 ${theme.subtext}`}>피싱, 사기, 송금오류, 증빙문제 발생 시 신고 접수 후 필요한 범위의 정보를 제공합니다.</p><textarea className={`mt-5 h-32 w-full rounded-2xl border p-4 outline-none ${theme.input}`} placeholder="신고 내용 입력" /><button onClick={() => notify("사고신고가 접수되었습니다.")} className={`mt-3 rounded-2xl px-5 py-3 font-black ${theme.main}`}>사고신고 접수</button></div></section>;
+}
+
+function Stat({ title, text, theme }) {
+  return <div className={`rounded-3xl p-4 shadow-sm ${theme.card}`}><div className="text-2xl font-black">{title}</div><div className={`text-sm ${theme.subtext}`}>{text}</div></div>;
+}
+
+function Info({ title, text, theme }) {
+  return <div className={`rounded-3xl border p-5 shadow-sm ${theme.card}`}><div className="font-black">{title}</div><div className={`mt-2 text-sm leading-6 ${theme.subtext}`}>{text}</div></div>;
+}
+
+function DetailBox({ label, value, theme }) {
+  return <div className="rounded-2xl bg-black/10 p-3"><div className={theme.muted}>{label}</div><b>{value}</b></div>;
+}
+
+function Box({ label, value, theme }) {
+  return <div className={`rounded-2xl p-4 ${theme.cardSoft}`}><div className={`text-xs ${theme.muted}`}>{label}</div><div className="mt-1 font-black">{value}</div></div>;
+}
+
+function Admin({ title, value, sub }) {
+  return <div className="rounded-3xl bg-white/10 p-4"><div className="text-sm text-slate-300">{title}</div><div className="mt-2 text-2xl font-black">{value}</div><div className="mt-1 text-xs text-slate-400">{sub}</div></div>;
+}
