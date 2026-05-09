@@ -4898,6 +4898,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     setMarketSaveConfirmOpen(true);
   }
 
+  function resetMarketCatalogDraft() {
+    setMarketAssets(originalMarketAssets);
+    setMarketCatalog(originalMarketCatalog);
+    setMarketSaveConfirmOpen(false);
+    notify("카탈로그 편집 내용을 마지막 조회 기준으로 되돌렸습니다.");
+  }
+
   async function createOpsSnapshot() {
     if (!opsSnapshotReason || opsSnapshotReason.length < 5) {
       notify("스냅샷 사유를 5자 이상 입력하세요.");
@@ -5494,6 +5501,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <div className="flex gap-2">
               <button onClick={loadMarketCatalog} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
                 {marketCatalogLoading ? "조회중..." : "카탈로그 새로고침"}
+              </button>
+              <button
+                onClick={resetMarketCatalogDraft}
+                disabled={marketCatalogSaving || !marketCatalogDiff.hasChanges}
+                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+              >
+                편집 원복
               </button>
               <button
                 onClick={openMarketSaveConfirm}
