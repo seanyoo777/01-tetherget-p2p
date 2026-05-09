@@ -3633,6 +3633,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [marketCatalogLogs, setMarketCatalogLogs] = useState([]);
   const [marketAuditActorFilter, setMarketAuditActorFilter] = useState("");
   const [marketAuditQuery, setMarketAuditQuery] = useState("");
+  const [marketAuditFromDate, setMarketAuditFromDate] = useState("");
+  const [marketAuditToDate, setMarketAuditToDate] = useState("");
   const [originalMarketAssets, setOriginalMarketAssets] = useState([]);
   const [originalMarketCatalog, setOriginalMarketCatalog] = useState([]);
   const [marketAssetTypeFilter, setMarketAssetTypeFilter] = useState("all");
@@ -4716,12 +4718,51 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         limit: "12",
         ...(marketAuditActorFilter ? { actorUserId: String(marketAuditActorFilter) } : {}),
         ...(marketAuditQuery.trim() ? { q: marketAuditQuery.trim() } : {}),
+        ...(marketAuditFromDate ? { fromDate: marketAuditFromDate } : {}),
+        ...(marketAuditToDate ? { toDate: marketAuditToDate } : {}),
       });
       const data = await apiClient.request(`/api/admin/markets/catalog/audit?${qs.toString()}`, { auth: true });
       setMarketCatalogLogs(Array.isArray(data?.logs) ? data.logs : []);
     } catch (error) {
       notify(error.message || "카탈로그 변경 이력 조회에 실패했습니다.");
     }
+  }
+
+  function exportMarketCatalogAuditCsv() {
+    if (!marketCatalogLogs.length) {
+      notify("내보낼 카탈로그 이력이 없습니다.");
+      return;
+    }
+    const header = [
+      "id", "createdAt", "actorUserId", "actorName", "assetsCount", "marketsCount",
+      "assetAdded", "assetRemoved", "assetUpdated", "marketAdded", "marketRemoved", "marketUpdated",
+    ];
+    const rows = marketCatalogLogs.map((log) => ({
+      id: log.id || "",
+      createdAt: log.createdAt || "",
+      actorUserId: log.actorUserId || "",
+      actorName: log.actorName || "",
+      assetsCount: log.assetsCount || 0,
+      marketsCount: log.marketsCount || 0,
+      assetAdded: log.summary?.assetDiff?.added?.join("|") || "",
+      assetRemoved: log.summary?.assetDiff?.removed?.join("|") || "",
+      assetUpdated: log.summary?.assetDiff?.updated?.join("|") || "",
+      marketAdded: log.summary?.marketDiff?.added?.join("|") || "",
+      marketRemoved: log.summary?.marketDiff?.removed?.join("|") || "",
+      marketUpdated: log.summary?.marketDiff?.updated?.join("|") || "",
+    }));
+    const csvBody = [
+      header.join(","),
+      ...rows.map((row) => header.map((key) => `"${String(row[key] ?? "").replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+    const blob = new Blob([csvBody], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `market-catalog-audit-${marketAuditFromDate || "all"}-to-${marketAuditToDate || "all"}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    notify("마켓 카탈로그 이력 CSV를 내보냈습니다.");
   }
 
   async function saveMarketCatalog() {
@@ -5244,7 +5285,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
 
   useEffect(() => {
     loadMarketCatalogAudit();
-  }, [marketAuditActorFilter, marketAuditQuery]);
+  }, [marketAuditActorFilter, marketAuditQuery, marketAuditFromDate, marketAuditToDate]);
 
   const filteredWebhookEvents = (webhookEvents || []).filter((event) =>
     webhookStatusFilter === "all" ? true : event.status === webhookStatusFilter
@@ -5468,9 +5509,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               <div className="text-sm font-black">마켓 카탈로그 변경 이력</div>
               <div className={`text-xs ${theme.muted}`}>최근 변경 내역(작업자/시각/대상)을 추적합니다.</div>
             </div>
-            <button onClick={loadMarketCatalogAudit} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              이력 새로고침
-            </button>
+            <div className="flex items-center gap-1">
+              <button onClick={loadMarketCatalogAudit} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                이력 새로고침
+              </button>
+              <button onClick={exportMarketCatalogAuditCsv} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                CSV 내보내기
+              </button>
+            </div>
           </div>
           <div className="mb-2 grid gap-2 md:grid-cols-2">
             <select
@@ -5489,6 +5535,20 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               value={marketAuditQuery}
               onChange={(e) => setMarketAuditQuery(e.target.value)}
               placeholder="키워드 검색 (assetCode/marketKey/작업자)"
+              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
+          </div>
+          <div className="mb-2 grid gap-2 md:grid-cols-2">
+            <input
+              type="date"
+              value={marketAuditFromDate}
+              onChange={(e) => setMarketAuditFromDate(e.target.value)}
+              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
+            <input
+              type="date"
+              value={marketAuditToDate}
+              onChange={(e) => setMarketAuditToDate(e.target.value)}
               className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
             />
           </div>

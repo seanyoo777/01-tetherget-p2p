@@ -2046,6 +2046,11 @@ app.get("/api/admin/markets/catalog/audit", authRequired, adminRequired, (req, r
   const limit = Math.min(Math.max(Number(req.query?.limit || 20), 1), 100);
   const actorUserId = Number(req.query?.actorUserId || 0);
   const q = String(req.query?.q || "").trim().toLowerCase();
+  const fromDate = String(req.query?.fromDate || "").trim();
+  const toDate = String(req.query?.toDate || "").trim();
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (fromDate && !datePattern.test(fromDate)) return res.status(400).json({ message: "fromDate 형식이 잘못되었습니다. (YYYY-MM-DD)" });
+  if (toDate && !datePattern.test(toDate)) return res.status(400).json({ message: "toDate 형식이 잘못되었습니다. (YYYY-MM-DD)" });
   const params = [];
   let sql = `
       SELECT l.id, l.actor_user_id, u.nickname AS actor_name, l.assets_count, l.markets_count, l.summary_json, l.created_at
@@ -2060,6 +2065,14 @@ app.get("/api/admin/markets/catalog/audit", authRequired, adminRequired, (req, r
   if (q) {
     where.push("(LOWER(COALESCE(l.summary_json, '')) LIKE ? OR LOWER(COALESCE(u.nickname, '')) LIKE ?)");
     params.push(`%${q}%`, `%${q}%`);
+  }
+  if (fromDate) {
+    where.push("l.created_at >= ?");
+    params.push(`${fromDate} 00:00:00`);
+  }
+  if (toDate) {
+    where.push("l.created_at <= ?");
+    params.push(`${toDate} 23:59:59`);
   }
   if (where.length) sql += ` WHERE ${where.join(" AND ")} `;
   sql += " ORDER BY l.id DESC LIMIT ?";
