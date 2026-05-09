@@ -3630,8 +3630,11 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [marketCatalogSaving, setMarketCatalogSaving] = useState(false);
   const [marketAssets, setMarketAssets] = useState([]);
   const [marketCatalog, setMarketCatalog] = useState([]);
+  const [originalMarketAssets, setOriginalMarketAssets] = useState([]);
+  const [originalMarketCatalog, setOriginalMarketCatalog] = useState([]);
   const [marketAssetTypeFilter, setMarketAssetTypeFilter] = useState("all");
   const [marketStatusFilter, setMarketStatusFilter] = useState("all");
+  const [marketSaveConfirmOpen, setMarketSaveConfirmOpen] = useState(false);
   const [emergencyState, setEmergencyState] = useState({
     emergencyMode: false,
     emergencyReason: "",
@@ -4695,6 +4698,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       }));
       setMarketAssets(assets);
       setMarketCatalog(markets);
+      setOriginalMarketAssets(assets);
+      setOriginalMarketCatalog(markets);
     } catch (error) {
       notify(error.message || "마켓 카탈로그 조회에 실패했습니다.");
     } finally {
@@ -4845,6 +4850,53 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       .filter(({ market }) => marketStatusFilter === "all" || String(market.status || "") === marketStatusFilter),
     [marketCatalog, marketStatusFilter]
   );
+
+  const marketCatalogDiff = useMemo(() => {
+    const assetKey = (row) => String(row?.assetCode || "").trim().toUpperCase();
+    const marketKey = (row) => String(row?.marketKey || "").trim();
+    const assetSnapshot = (row) => JSON.stringify({
+      assetCode: assetKey(row),
+      displayName: String(row?.displayName || "").trim(),
+      assetType: String(row?.assetType || "").trim(),
+      network: String(row?.network || "").trim(),
+      settlementEnabled: Boolean(row?.settlementEnabled),
+      isActive: row?.isActive !== false,
+      metadataText: String(row?.metadataText || "").trim(),
+    });
+    const marketSnapshot = (row) => JSON.stringify({
+      marketKey: marketKey(row),
+      marketType: String(row?.marketType || "").trim(),
+      offeredAssetCode: String(row?.offeredAssetCode || "").trim().toUpperCase(),
+      requestedAssetCode: String(row?.requestedAssetCode || "").trim().toUpperCase(),
+      settlementAssetCode: String(row?.settlementAssetCode || "").trim().toUpperCase(),
+      escrowAdapter: String(row?.escrowAdapter || "").trim(),
+      status: String(row?.status || "").trim(),
+      metadataText: String(row?.metadataText || "").trim(),
+    });
+
+    const origAssetMap = new Map(originalMarketAssets.map((row) => [assetKey(row), assetSnapshot(row)]));
+    const currAssetMap = new Map(marketAssets.map((row) => [assetKey(row), assetSnapshot(row)]));
+    const addedAssets = [...currAssetMap.keys()].filter((key) => key && !origAssetMap.has(key)).length;
+    const removedAssets = [...origAssetMap.keys()].filter((key) => key && !currAssetMap.has(key)).length;
+    const updatedAssets = [...currAssetMap.keys()].filter((key) => key && origAssetMap.has(key) && origAssetMap.get(key) !== currAssetMap.get(key)).length;
+
+    const origMarketMap = new Map(originalMarketCatalog.map((row) => [marketKey(row), marketSnapshot(row)]));
+    const currMarketMap = new Map(marketCatalog.map((row) => [marketKey(row), marketSnapshot(row)]));
+    const addedMarkets = [...currMarketMap.keys()].filter((key) => key && !origMarketMap.has(key)).length;
+    const removedMarkets = [...origMarketMap.keys()].filter((key) => key && !currMarketMap.has(key)).length;
+    const updatedMarkets = [...currMarketMap.keys()].filter((key) => key && origMarketMap.has(key) && origMarketMap.get(key) !== currMarketMap.get(key)).length;
+
+    const hasChanges = Boolean(addedAssets || removedAssets || updatedAssets || addedMarkets || removedMarkets || updatedMarkets);
+    return { hasChanges, addedAssets, removedAssets, updatedAssets, addedMarkets, removedMarkets, updatedMarkets };
+  }, [marketAssets, marketCatalog, originalMarketAssets, originalMarketCatalog]);
+
+  function openMarketSaveConfirm() {
+    if (!marketCatalogDiff.hasChanges) {
+      notify("변경된 내용이 없습니다.");
+      return;
+    }
+    setMarketSaveConfirmOpen(true);
+  }
 
   async function createOpsSnapshot() {
     if (!opsSnapshotReason || opsSnapshotReason.length < 5) {
@@ -5444,7 +5496,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 {marketCatalogLoading ? "조회중..." : "카탈로그 새로고침"}
               </button>
               <button
-                onClick={saveMarketCatalog}
+                onClick={openMarketSaveConfirm}
                 disabled={!isSuperAdmin || marketCatalogSaving}
                 className={`rounded-xl border px-3 py-2 text-xs font-black ${isSuperAdmin ? theme.main : theme.input}`}
               >
@@ -5453,6 +5505,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             </div>
           </div>
           <div className={`mb-2 text-[11px] ${theme.muted}`}>자산/마켓을 행 단위로 수정한 뒤 저장하세요. (코인 active, NFT planned 권장)</div>
+          <div className={`mb-2 rounded-xl border px-2 py-1 text-[11px] ${theme.input}`}>
+            변경 요약 ·
+            assets +{marketCatalogDiff.addedAssets} / -{marketCatalogDiff.removedAssets} / ~{marketCatalogDiff.updatedAssets}
+            {"  "}· markets +{marketCatalogDiff.addedMarkets} / -{marketCatalogDiff.removedMarkets} / ~{marketCatalogDiff.updatedMarkets}
+            {!marketCatalogDiff.hasChanges && " (변경 없음)"}
+          </div>
           <div className="grid gap-2 md:grid-cols-2">
             <div className={`rounded-xl border p-2 ${theme.input}`}>
               <div className="mb-2 flex items-center justify-between">
@@ -5545,6 +5603,30 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               </div>
             </div>
           </div>
+          {marketSaveConfirmOpen && (
+            <div className={`mt-2 rounded-xl border p-2 text-xs ${theme.input}`}>
+              <div className="font-black">카탈로그 저장 확인</div>
+              <div className="mt-1">
+                assets +{marketCatalogDiff.addedAssets} / -{marketCatalogDiff.removedAssets} / ~{marketCatalogDiff.updatedAssets}
+                {" · "}
+                markets +{marketCatalogDiff.addedMarkets} / -{marketCatalogDiff.removedMarkets} / ~{marketCatalogDiff.updatedMarkets}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={async () => {
+                    setMarketSaveConfirmOpen(false);
+                    await saveMarketCatalog();
+                  }}
+                  className={`rounded-lg px-3 py-1.5 font-black ${theme.main}`}
+                >
+                  저장 실행
+                </button>
+                <button onClick={() => setMarketSaveConfirmOpen(false)} className={`rounded-lg border px-3 py-1.5 font-black ${theme.input}`}>
+                  취소
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
