@@ -10,7 +10,8 @@
     "build": "vite build",
     "verify:admin-stage": "node server/scripts/verify-admin-stage-consistency.mjs",
     "verify:admin-downline": "node server/scripts/verify-admin-downline-consistency.mjs",
-    "verify:admin-smoke": "node server/scripts/verify-admin-stage-consistency.mjs && node server/scripts/verify-admin-downline-consistency.mjs",
+    "verify:referral-engine": "node server/scripts/verify-referral-tree-engine.mjs",
+    "verify:admin-smoke": "node server/scripts/verify-admin-stage-consistency.mjs && node server/scripts/verify-admin-downline-consistency.mjs && node server/scripts/verify-referral-tree-engine.mjs",
     "backup:db": "node server/scripts/backup-db.js",
     "restore:db": "node server/scripts/restore-db.js"
   },

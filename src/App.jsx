@@ -3606,6 +3606,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [pendingStageFrom, setPendingStageFrom] = useState("");
   const [stageConfirmOpen, setStageConfirmOpen] = useState(false);
   const [stageConfirmTarget, setStageConfirmTarget] = useState("");
+  const [showAdminDebug, setShowAdminDebug] = useState(false);
   const memberTreeSectionRef = useRef(null);
   const rateValidationSectionRef = useRef(null);
   const adminActionLogSectionRef = useRef(null);
@@ -3691,15 +3692,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       })
       .slice(0, 14);
   }, [summaryScopeUsers, hierarchyQuickSearch]);
-  const downlineStageSummary = useMemo(() => {
-    const summary = { 본사: 0, 총판: 0, 파트너: 0, 팀장: 0, 일반회원: 0 };
-    for (const user of summaryScopeUsers) {
-      const stage = String(user.stageLabel || user.stage_label || "일반회원");
-      if (!Object.prototype.hasOwnProperty.call(summary, stage)) summary[stage] = 0;
-      summary[stage] += 1;
-    }
-    return summary;
-  }, [summaryScopeUsers]);
+  const engineUsers = useMemo(
+    () => summaryScopeUsers.map((u) => ({ ...u, level: getEffectiveStage(u), parentId: getEffectiveParent(u) })),
+    [summaryScopeUsers, stageByUserId, userParentOverrides]
+  );
+  const referralTree = useMemo(() => buildReferralTree(engineUsers), [engineUsers]);
+  const downlineStageSummary = useMemo(() => getLevelCounts(engineUsers), [engineUsers]);
+  const adminStats = useMemo(() => recalculateAdminStats(engineUsers), [engineUsers]);
+  const treeIntegrity = useMemo(() => validateTreeIntegrity(engineUsers), [engineUsers]);
   const stageSummaryHealth = useMemo(() => {
     const total = Object.values(downlineStageSummary).reduce((acc, count) => acc + Number(count || 0), 0);
     const expected = summaryScopeUsers.length;
@@ -3758,10 +3758,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   /** 반드시 memberUsers 안에서만 해석 — fakeUsers 등 풀 밖 객체를 쓰면 단계/집계가 영구히 어긋남 */
   const monitorCurrentUser = monitorCurrentId ? memberUsers.find((u) => String(u.id) === String(monitorCurrentId)) ?? null : null;
   const isSelfTargetMember = Boolean(monitorCurrentUser) && String(monitorCurrentUser.id) === String(currentAdminActorId);
-  const monitorChildren = monitorCurrentUser ? memberUsers.filter((u) => String(getEffectiveParent(u)) === String(monitorCurrentUser.id)) : [];
-  const selectedChildren = monitorCurrentUser
-    ? memberUsers.filter((u) => String(getEffectiveParent(u)) === String(monitorCurrentUser.id))
-    : [];
+  const monitorChildren = monitorCurrentUser ? getDirectDownlines(monitorCurrentUser.id, memberUsers) : [];
+  const selectedChildren = monitorCurrentUser ? getDirectDownlines(monitorCurrentUser.id, memberUsers) : [];
   const MEMBER_USERS_PER_PAGE = 6;
   const MEMBER_CHILDREN_PER_PAGE = 6;
   const memberUserTotalPages = Math.max(1, Math.ceil(visibleUsers.length / MEMBER_USERS_PER_PAGE));
@@ -3769,7 +3767,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const pagedVisibleUsers = visibleUsers.slice((memberUserPage - 1) * MEMBER_USERS_PER_PAGE, memberUserPage * MEMBER_USERS_PER_PAGE);
   const pagedSelectedChildren = selectedChildren.slice((memberChildPage - 1) * MEMBER_CHILDREN_PER_PAGE, memberChildPage * MEMBER_CHILDREN_PER_PAGE);
   const monitorDirectChildrenCount = monitorChildren.length;
-  const monitorDescendantCount = monitorCurrentUser ? countDescendants(monitorCurrentUser.id) : 0;
+  const monitorDescendantCount = monitorCurrentUser ? getAllDownlines(monitorCurrentUser.id, memberUsers).length : 0;
 
   const securityUsers = memberUsers.filter((u) => {
     if (securityFilter === "전체") return true;
@@ -3980,9 +3978,65 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     });
   }, [monitorCurrentUser?.id, userParentOverrides, memberUsers]);
 
-  function countDescendants(userId) {
-    const children = memberUsers.filter((u) => String(getEffectiveParent(u)) === String(userId));
-    return children.reduce((acc, child) => acc + 1 + countDescendants(child.id), 0);
+  async function handleChangeUserLevel(userId, newLevel, options = {}) {
+    const targetId = String(userId || "");
+    const nextLevel = String(newLevel || "").trim();
+    if (!targetId || !nextLevel) return false;
+    const nextUsers = updateUserLevel(targetId, nextLevel, memberUsers);
+    const nextStats = recalculateAdminStats(nextUsers);
+    const nextIntegrity = validateTreeIntegrity(nextUsers);
+    const nextTree = buildReferralTree(nextUsers);
+    const targetUser = nextUsers.find((u) => String(u.id) === targetId);
+    if (!targetUser) return false;
+
+    const nextStageMap = {};
+    for (const user of nextUsers) {
+      const level = String(user.level || user.stageLabel || user.stage_label || "일반회원").trim() || "일반회원";
+      nextStageMap[String(user.id)] = level;
+    }
+    setUserStageOverrides(nextStageMap);
+    setStageByUserId(nextStageMap);
+
+    setVirtualDownlineUsers((prev) =>
+      prev.map((u) => {
+        const mapped = nextStageMap[String(u.id)];
+        if (!mapped) return u;
+        return { ...u, level: mapped, stageLabel: mapped, stage_label: mapped };
+      })
+    );
+
+    setSelectedAdminUser((prev) => {
+      if (!prev || String(prev.id) !== targetId) return prev;
+      return { ...prev, level: nextLevel, stageLabel: nextLevel, stage_label: nextLevel };
+    });
+
+    setPendingStageValue(nextLevel);
+    setStageSelectionValue(nextLevel);
+    setStageConfirmOpen(false);
+    setStageConfirmTarget("");
+
+    const shouldPersist = options.persist !== false && !targetId.startsWith("VD-");
+    if (!shouldPersist) {
+      appendAdminAction?.(`단계 변경(로컬): ${targetId} -> ${nextLevel}`);
+      notify(`단계 적용됨: ${targetUser.nickname} -> ${nextLevel}`);
+      return true;
+    }
+
+    const parentNode = nextTree.byId.get(targetId);
+    const ok = await updateAuthProfile(targetId, {
+      stageLabel: nextLevel,
+      parentUserRef: String(parentNode?.parentId || getEffectiveParent(targetUser) || ""),
+      adminAssigned: isAdminAssignedUser(targetUser),
+    });
+    if (!ok) {
+      notify("단계 저장 실패: 다시 시도하세요.");
+      return false;
+    }
+    appendAdminAction?.(
+      `단계 변경: ${targetId} -> ${nextLevel} (합계 ${nextStats.levelCountSum}/${nextStats.totalUsers}, 무결성 ${nextIntegrity.ok ? "OK" : "FAIL"})`
+    );
+    notify(`단계 저장됨: ${targetUser.nickname} -> ${nextLevel}`);
+    return true;
   }
 
   async function applyMonitorAdminAssignment(nextAssigned) {
@@ -4072,42 +4126,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       notify("적용할 단계를 선택하세요.");
       return;
     }
+    const targetId = String(monitorCurrentUser.id);
     const currentStage = getEffectiveStage(monitorCurrentUser);
     setPendingStageFrom(currentStage);
-    const targetId = String(monitorCurrentUser.id);
-    setUserStageOverrides((prev) => ({ ...prev, [targetId]: nextStage }));
-    setStageByUserId((prev) => ({ ...prev, [targetId]: nextStage }));
-    if (String(targetId).startsWith("VD-")) {
-      setVirtualDownlineUsers((prev) => prev.map((u) => (String(u.id) === targetId ? { ...u, stageLabel: nextStage, stage_label: nextStage } : u)));
-    }
-    setSelectedAdminUser((prev) => {
-      if (!prev || String(prev.id) !== targetId) return prev;
-      return { ...prev, stageLabel: nextStage, stage_label: nextStage };
-    });
-    setPendingStageValue(nextStage);
-    setStageSelectionValue(nextStage);
-    setStageConfirmOpen(false);
-    setStageConfirmTarget("");
-    if (isVirtualUser) {
-      setPendingStageValue("");
-      setPendingStageFrom("");
-      appendAdminAction?.(`단계 변경(로컬): ${targetId} ${currentStage} -> ${nextStage}`);
-      notify(`단계 적용됨: ${monitorCurrentUser.nickname} ${currentStage} -> ${nextStage} (로컬 확정)`);
-      return;
-    }
-    const ok = await updateAuthProfile(monitorCurrentUser.id, {
-      stageLabel: nextStage,
-      parentUserRef: getEffectiveParent(monitorCurrentUser),
-      adminAssigned: isAdminAssignedUser(monitorCurrentUser),
-    });
-    if (ok) {
-      setPendingStageValue("");
-      setPendingStageFrom("");
-      appendAdminAction?.(`단계 변경: ${targetId} ${currentStage} -> ${nextStage}`);
-      notify(`단계 저장됨: ${monitorCurrentUser.nickname} ${currentStage} -> ${nextStage}`);
-    } else {
-      notify("단계 저장 실패: 로컬 반영 상태를 확인한 뒤 다시 시도하세요.");
-    }
+    await handleChangeUserLevel(targetId, nextStage, { persist: !isVirtualUser });
+    setPendingStageValue("");
+    setPendingStageFrom("");
   }
 
   function confirmApplySelectedStage() {
@@ -4117,17 +4141,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       setStageConfirmOpen(false);
       return;
     }
-    const currentStage = getEffectiveStage(monitorCurrentUser);
-    setPendingStageFrom(currentStage);
-    const targetId = String(monitorCurrentUser.id);
-    setUserStageOverrides((prev) => ({ ...prev, [targetId]: nextStage }));
-    setStageByUserId((prev) => ({ ...prev, [targetId]: nextStage }));
-    if (String(targetId).startsWith("VD-")) {
-      setVirtualDownlineUsers((prev) => prev.map((u) => (String(u.id) === targetId ? { ...u, stageLabel: nextStage, stage_label: nextStage } : u)));
-    }
     setPendingStageValue(nextStage);
     setStageConfirmOpen(false);
-    notify(`변경 확인됨: ${monitorCurrentUser.nickname} ${currentStage} -> ${nextStage}. 저장 버튼으로 확정하세요.`);
+    notify(`변경 확인됨: ${monitorCurrentUser.nickname} -> ${nextStage}. 저장 버튼으로 확정하세요.`);
   }
 
   async function saveSelectedStage() {
@@ -5481,6 +5497,26 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             {stageSummaryHealth.mismatch && (
               <div className="mb-2 rounded-xl border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] font-black text-red-300">
                 단계 집계 점검 필요: 합계 {stageSummaryHealth.total} / 기대 {stageSummaryHealth.expected}
+              </div>
+            )}
+            <label className={`mb-2 flex items-center gap-2 text-[11px] font-black ${theme.muted}`}>
+              <input
+                type="checkbox"
+                checked={showAdminDebug}
+                onChange={(e) => setShowAdminDebug(e.target.checked)}
+              />
+              관리자 디버그 체크
+            </label>
+            {showAdminDebug && (
+              <div className={`mb-2 rounded-xl border p-2 text-[11px] ${theme.input}`}>
+                <div>전체 회원 수(엔진): {adminStats.totalUsers}</div>
+                <div>레벨별 회원 수 합계: {adminStats.levelCountSum}</div>
+                <div>실제 users.length: {engineUsers.length}</div>
+                <div>불일치 여부: {adminStats.levelCountMismatch ? "불일치" : "정상"}</div>
+                <div>트리 무결성 검사: {treeIntegrity.ok ? "통과" : `실패 (${treeIntegrity.errors.length})`}</div>
+                <div>직접 하부(선택): {monitorCurrentUser ? getDirectDownlines(monitorCurrentUser.id, engineUsers).length : 0}</div>
+                <div>전체 하부(선택): {monitorCurrentUser ? getAllDownlines(monitorCurrentUser.id, engineUsers).length : 0}</div>
+                <div>1레벨 회원 수: {getUsersByLevel("본사", engineUsers).length}</div>
               </div>
             )}
 
