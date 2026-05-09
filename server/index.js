@@ -2456,6 +2456,12 @@ app.put("/api/admin/markets/catalog", authRequired, superAdminRequired, (req, re
   const validAssetTypes = new Set(["coin", "nft", "tokenized_asset", "point"]);
   const validMarketTypes = new Set(["p2p", "mock", "spot"]);
   const validStatuses = new Set(["active", "planned", "disabled"]);
+  const beforeAssets = db
+    .prepare("SELECT asset_code, display_name, asset_type, network, settlement_enabled, is_active, metadata_json FROM market_assets")
+    .all();
+  const beforeMarkets = db
+    .prepare("SELECT market_key, market_type, offered_asset_code, requested_asset_code, settlement_asset_code, escrow_adapter, status, metadata_json FROM market_catalog")
+    .all();
 
   try {
     db.exec("BEGIN IMMEDIATE");
@@ -2532,6 +2538,42 @@ app.put("/api/admin/markets/catalog", authRequired, superAdminRequired, (req, re
     assetsCount: assets.length,
     marketsCount: markets.length,
   });
+  const extractMetadata = (row) => {
+    const meta = row?.metadata ?? row?.metadata_json;
+    if (meta && typeof meta === "object") return meta;
+    return parseJsonSafe(meta, {});
+  };
+  const normalizeAsset = (row) =>
+    JSON.stringify({
+      assetCode: String((row?.assetCode ?? row?.asset_code) || "").trim().toUpperCase(),
+      displayName: String((row?.displayName ?? row?.display_name) || "").trim(),
+      assetType: String((row?.assetType ?? row?.asset_type) || "").trim(),
+      network: String(row?.network || "").trim(),
+      settlementEnabled: Boolean(row?.settlementEnabled ?? row?.settlement_enabled),
+      isActive: row?.isActive === false ? false : Boolean(row?.is_active ?? true),
+      metadata: extractMetadata(row),
+    });
+  const normalizeMarket = (row) =>
+    JSON.stringify({
+      marketKey: String((row?.marketKey ?? row?.market_key) || "").trim(),
+      marketType: String((row?.marketType ?? row?.market_type) || "").trim(),
+      offeredAssetCode: String((row?.offeredAssetCode ?? row?.offered_asset_code) || "").trim().toUpperCase(),
+      requestedAssetCode: String((row?.requestedAssetCode ?? row?.requested_asset_code) || "").trim().toUpperCase(),
+      settlementAssetCode: String((row?.settlementAssetCode ?? row?.settlement_asset_code) || "").trim().toUpperCase(),
+      escrowAdapter: String((row?.escrowAdapter ?? row?.escrow_adapter) || "").trim(),
+      status: String(row?.status || "").trim(),
+      metadata: extractMetadata(row),
+    });
+  const beforeAssetMap = new Map(beforeAssets.map((row) => [String(row.asset_code || "").trim().toUpperCase(), normalizeAsset(row)]));
+  const afterAssetMap = new Map(assets.map((row) => [String(row?.assetCode || "").trim().toUpperCase(), normalizeAsset(row)]));
+  const beforeMarketMap = new Map(beforeMarkets.map((row) => [String(row.market_key || "").trim(), normalizeMarket(row)]));
+  const afterMarketMap = new Map(markets.map((row) => [String(row?.marketKey || "").trim(), normalizeMarket(row)]));
+  const assetAdded = [...afterAssetMap.keys()].filter((key) => key && !beforeAssetMap.has(key));
+  const assetRemoved = [...beforeAssetMap.keys()].filter((key) => key && !afterAssetMap.has(key));
+  const assetUpdated = [...afterAssetMap.keys()].filter((key) => key && beforeAssetMap.has(key) && beforeAssetMap.get(key) !== afterAssetMap.get(key));
+  const marketAdded = [...afterMarketMap.keys()].filter((key) => key && !beforeMarketMap.has(key));
+  const marketRemoved = [...beforeMarketMap.keys()].filter((key) => key && !afterMarketMap.has(key));
+  const marketUpdated = [...afterMarketMap.keys()].filter((key) => key && beforeMarketMap.has(key) && beforeMarketMap.get(key) !== afterMarketMap.get(key));
   db.prepare(`
     INSERT INTO market_catalog_audit_logs (
       actor_user_id, assets_count, markets_count, summary_json, created_at
@@ -2541,6 +2583,16 @@ app.put("/api/admin/markets/catalog", authRequired, superAdminRequired, (req, re
     assets.length,
     markets.length,
     JSON.stringify({
+      assetDiff: {
+        added: assetAdded,
+        removed: assetRemoved,
+        updated: assetUpdated,
+      },
+      marketDiff: {
+        added: marketAdded,
+        removed: marketRemoved,
+        updated: marketUpdated,
+      },
       assetCodes: assets.map((a) => String(a?.assetCode || "").trim().toUpperCase()).filter(Boolean),
       marketKeys: markets.map((m) => String(m?.marketKey || "").trim()).filter(Boolean),
     })

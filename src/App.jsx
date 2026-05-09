@@ -5470,6 +5470,25 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     actor: {log.actorName || log.actorUserId} · assets {log.assetsCount} · markets {log.marketsCount}
                   </div>
                   <div className="mt-1 text-[11px]">
+                    a(+{log.summary?.assetDiff?.added?.length || 0}/-{log.summary?.assetDiff?.removed?.length || 0}/~{log.summary?.assetDiff?.updated?.length || 0})
+                    {" · "}
+                    m(+{log.summary?.marketDiff?.added?.length || 0}/-{log.summary?.marketDiff?.removed?.length || 0}/~{log.summary?.marketDiff?.updated?.length || 0})
+                  </div>
+                  <div className="mt-1 text-[11px]">
+                    +asset: {Array.isArray(log.summary?.assetDiff?.added) && log.summary.assetDiff.added.length ? log.summary.assetDiff.added.slice(0, 5).join(", ") : "-"}
+                    {" · "}
+                    -asset: {Array.isArray(log.summary?.assetDiff?.removed) && log.summary.assetDiff.removed.length ? log.summary.assetDiff.removed.slice(0, 5).join(", ") : "-"}
+                    {" · "}
+                    ~asset: {Array.isArray(log.summary?.assetDiff?.updated) && log.summary.assetDiff.updated.length ? log.summary.assetDiff.updated.slice(0, 5).join(", ") : "-"}
+                  </div>
+                  <div className="mt-1 text-[11px]">
+                    +market: {Array.isArray(log.summary?.marketDiff?.added) && log.summary.marketDiff.added.length ? log.summary.marketDiff.added.slice(0, 5).join(", ") : "-"}
+                    {" · "}
+                    -market: {Array.isArray(log.summary?.marketDiff?.removed) && log.summary.marketDiff.removed.length ? log.summary.marketDiff.removed.slice(0, 5).join(", ") : "-"}
+                    {" · "}
+                    ~market: {Array.isArray(log.summary?.marketDiff?.updated) && log.summary.marketDiff.updated.length ? log.summary.marketDiff.updated.slice(0, 5).join(", ") : "-"}
+                  </div>
+                  <div className="mt-1 text-[11px]">
                     {Array.isArray(log.summary?.assetCodes) ? `assets: ${log.summary.assetCodes.slice(0, 6).join(", ")}` : ""}
                     {Array.isArray(log.summary?.marketKeys) ? ` · markets: ${log.summary.marketKeys.slice(0, 6).join(", ")}` : ""}
                   </div>
