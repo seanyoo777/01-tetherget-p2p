@@ -6,6 +6,9 @@ import crypto from "node:crypto";
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
+import nacl from "tweetnacl";
+import bs58 from "bs58";
+import { hashMessage, recoverAddress } from "ethers";
 import { db } from "./db/sqlite.js";
 import { createUserRepository } from "./repositories/userRepository.js";
 import { createRefreshTokenRepository } from "./repositories/refreshTokenRepository.js";
@@ -36,6 +39,18 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
+ensureColumn("users", "referral_code", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "referred_by_user_id", "INTEGER");
+ensureColumn("users", "referred_by_code", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "stage_label", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "parent_user_ref", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("users", "admin_assigned", "INTEGER NOT NULL DEFAULT 0");
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code_unique ON users(referral_code)");
+try {
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nickname_unique ON users(nickname COLLATE NOCASE)");
+} catch (error) {
+  console.warn("[users] nickname unique index skipped:", error?.message || error);
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -45,6 +60,18 @@ db.exec(`
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wallet_login_nonces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_provider TEXT NOT NULL,
+    wallet_address TEXT NOT NULL,
+    nonce TEXT NOT NULL UNIQUE,
+    message TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
 
@@ -58,6 +85,11 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+try {
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_wallets_address_unique ON user_wallets(wallet_address COLLATE NOCASE) WHERE wallet_address <> ''");
+} catch (error) {
+  console.warn("[user_wallets] wallet address unique index skipped:", error?.message || error);
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_financial_accounts (
@@ -117,9 +149,19 @@ db.exec(`
     id INTEGER PRIMARY KEY CHECK (id = 1),
     main_custody_account TEXT NOT NULL,
     required_approvals INTEGER NOT NULL,
-    main_final_approver_id INTEGER NOT NULL
+    main_final_approver_id INTEGER NOT NULL,
+    level_delay_hours_lv1 INTEGER NOT NULL DEFAULT 48,
+    level_delay_hours_lv2 INTEGER NOT NULL DEFAULT 36,
+    level_delay_hours_lv3 INTEGER NOT NULL DEFAULT 24,
+    level_delay_hours_lv4 INTEGER NOT NULL DEFAULT 12,
+    level_delay_hours_lv5 INTEGER NOT NULL DEFAULT 0
   );
 `);
+ensureColumn("escrow_policy", "level_delay_hours_lv1", "INTEGER NOT NULL DEFAULT 48");
+ensureColumn("escrow_policy", "level_delay_hours_lv2", "INTEGER NOT NULL DEFAULT 36");
+ensureColumn("escrow_policy", "level_delay_hours_lv3", "INTEGER NOT NULL DEFAULT 24");
+ensureColumn("escrow_policy", "level_delay_hours_lv4", "INTEGER NOT NULL DEFAULT 12");
+ensureColumn("escrow_policy", "level_delay_hours_lv5", "INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS escrow_policy_approvers (
@@ -392,6 +434,10 @@ if (!seededAdmin) {
   userRepo.create({ email: adminEmail, passwordHash: hash, nickname: "본사관리자", role: "본사 슈퍼관리자" });
 }
 const ensuredAdmin = userRepo.findByEmail(adminEmail);
+if (!ensuredAdmin.referral_code) {
+  const adminReferralCode = generateDefaultReferralCode(ensuredAdmin.id);
+  db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(adminReferralCode, ensuredAdmin.id);
+}
 const policyRow = db.prepare("SELECT id FROM escrow_policy WHERE id = 1").get();
 if (!policyRow) {
   db.prepare("INSERT INTO escrow_policy (id, main_custody_account, required_approvals, main_final_approver_id) VALUES (1, ?, ?, ?)")
@@ -435,7 +481,15 @@ for (const featureKey of defaultFeatures) {
   db.prepare("INSERT OR IGNORE INTO platform_features (feature_key, enabled) VALUES (?, 1)").run(featureKey);
 }
 
-app.use(cors({ origin: ["http://localhost:5173"], credentials: false }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (/^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
+    if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return callback(null, true);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: false,
+}));
 app.use(express.json());
 app.use((req, res, next) => {
   if (!String(req.path || "").startsWith("/api/")) return next();
@@ -445,7 +499,12 @@ app.use((req, res, next) => {
   const opsState = getOpsRuntimeState();
   if (!opsState.emergencyMode) return next();
 
-  if (req.path === "/api/auth/login" || req.path === "/api/auth/refresh" || req.path === "/api/auth/logout") {
+  if (
+    req.path === "/api/auth/login"
+    || req.path === "/api/auth/test-login"
+    || req.path === "/api/auth/refresh"
+    || req.path === "/api/auth/logout"
+  ) {
     return next();
   }
   if (req.path === "/api/admin/ops/emergency-mode") {
@@ -534,6 +593,13 @@ function getEscrowPolicy() {
     requiredApprovals: policy.required_approvals,
     mainFinalApproverId: policy.main_final_approver_id,
     approverIds: approverRows.map((r) => r.user_id),
+    levelDelayHours: {
+      Lv1: Number(policy.level_delay_hours_lv1 ?? 48),
+      Lv2: Number(policy.level_delay_hours_lv2 ?? 36),
+      Lv3: Number(policy.level_delay_hours_lv3 ?? 24),
+      Lv4: Number(policy.level_delay_hours_lv4 ?? 12),
+      Lv5: Number(policy.level_delay_hours_lv5 ?? 0),
+    },
   };
 }
 
@@ -626,6 +692,148 @@ function getKycProfile(userId) {
   };
 }
 
+function normalizeReferralCode(input) {
+  return String(input || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function normalizeNickname(input) {
+  return String(input || "").trim();
+}
+
+function isValidReferralCode(code) {
+  return /^[A-Z0-9-]{1,20}$/.test(String(code || ""));
+}
+
+function generateDefaultReferralCode(userId) {
+  return `TG-${String(userId).padStart(6, "0")}`;
+}
+
+function normalizeWalletAddress(input) {
+  return String(input || "").trim();
+}
+
+function normalizeEvmAddress(input) {
+  return String(input || "").trim().toLowerCase();
+}
+
+function normalizeProvider(input) {
+  return String(input || "").trim();
+}
+
+function isEvmProvider(provider) {
+  const normalized = String(provider || "").toLowerCase();
+  return normalized.includes("metamask")
+    || normalized.includes("okx")
+    || normalized.includes("trust")
+    || normalized.includes("coinbase");
+}
+
+function normalizeSignature(input) {
+  return String(input || "").trim();
+}
+
+function buildWalletSignMessage({ provider, walletAddress, nonce }) {
+  return [
+    "TetherGet Wallet Login",
+    `Provider: ${provider}`,
+    `Address: ${walletAddress}`,
+    `Nonce: ${nonce}`,
+    "By signing this message, you confirm wallet ownership.",
+  ].join("\n");
+}
+
+function isPlaceholderWalletEmail(email) {
+  return String(email || "").includes("@wallet.tetherget.local");
+}
+
+function makeWalletPlaceholderEmail(provider, walletAddress) {
+  const seed = `${normalizeProvider(provider)}:${normalizeWalletAddress(walletAddress)}`;
+  const hash = crypto.createHash("sha256").update(seed).digest("hex").slice(0, 16);
+  return `wallet-${hash}@wallet.tetherget.local`;
+}
+
+function findUserByWalletAddress(walletAddress, provider = "") {
+  const normalized = normalizeWalletAddress(walletAddress);
+  if (!normalized) return null;
+  if (isEvmProvider(provider)) {
+    return db.prepare(`
+      SELECT u.*
+      FROM user_wallets w
+      JOIN users u ON u.id = w.user_id
+      WHERE LOWER(w.wallet_address) = LOWER(?)
+      LIMIT 1
+    `).get(normalizeEvmAddress(normalized));
+  }
+  return db.prepare(`
+    SELECT u.*
+    FROM user_wallets w
+    JOIN users u ON u.id = w.user_id
+    WHERE w.wallet_address = ?
+    LIMIT 1
+  `).get(normalized);
+}
+
+function createWalletNonce({ provider, walletAddress }) {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const message = buildWalletSignMessage({ provider, walletAddress, nonce });
+  db.prepare(`
+    INSERT INTO wallet_login_nonces (wallet_provider, wallet_address, nonce, message, expires_at, used)
+    VALUES (?, ?, ?, ?, ?, 0)
+  `).run(provider, walletAddress, nonce, message, expiresAt);
+  return { nonce, message, expiresAt };
+}
+
+function consumeWalletNonce({ provider, walletAddress, nonce }) {
+  const row = db.prepare(`
+    SELECT *
+    FROM wallet_login_nonces
+    WHERE wallet_provider = ?
+      AND LOWER(wallet_address) = LOWER(?)
+      AND nonce = ?
+    ORDER BY id DESC
+    LIMIT 1
+  `).get(provider, walletAddress, nonce);
+  if (!row) return { ok: false, reason: "nonce_not_found" };
+  if (Number(row.used) === 1) return { ok: false, reason: "nonce_used" };
+  if (new Date(row.expires_at).getTime() < Date.now()) return { ok: false, reason: "nonce_expired" };
+  db.prepare("UPDATE wallet_login_nonces SET used = 1 WHERE id = ?").run(row.id);
+  return { ok: true, row };
+}
+
+function verifyWalletSignature({ provider, walletAddress, signature, message }) {
+  try {
+    if (isEvmProvider(provider)) {
+      const digest = hashMessage(message);
+      const recovered = recoverAddress(digest, signature);
+      return normalizeEvmAddress(recovered) === normalizeEvmAddress(walletAddress);
+    }
+    const publicKey = bs58.decode(walletAddress);
+    const sigBytes = bs58.decode(signature);
+    const msgBytes = new TextEncoder().encode(message);
+    return nacl.sign.detached.verify(msgBytes, sigBytes, publicKey);
+  } catch {
+    return false;
+  }
+}
+
+function toPublicUser(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    nickname: user.nickname,
+    role: user.role,
+    referral_code: user.referral_code || "",
+    referred_by_user_id: user.referred_by_user_id || null,
+    referred_by_code: user.referred_by_code || "",
+    stage_label: user.stage_label || "",
+    parent_user_ref: user.parent_user_ref || "",
+    admin_assigned: Number(user.admin_assigned || 0),
+    created_at: user.created_at,
+  };
+}
+
 function getOrCreateFinancialAccount(userId) {
   let row = db.prepare("SELECT * FROM user_financial_accounts WHERE user_id = ?").get(userId);
   if (!row) {
@@ -667,19 +875,50 @@ app.get("/api/runtime-state", (_req, res) => {
 app.post("/api/auth/signup", (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "").trim();
-  const nickname = String(req.body?.nickname || "").trim();
+  const nickname = normalizeNickname(req.body?.nickname || "");
+  const referralCodeInput = normalizeReferralCode(req.body?.referralCode || "");
+  const myReferralCodeInput = normalizeReferralCode(req.body?.myReferralCode || "");
   if (!/\S+@\S+\.\S+/.test(email)) return res.status(400).json({ message: "이메일 형식이 올바르지 않습니다." });
   if (password.length < 6) return res.status(400).json({ message: "비밀번호는 6자 이상이어야 합니다." });
   if (!nickname) return res.status(400).json({ message: "닉네임을 입력하세요." });
   const exists = userRepo.findByEmail(email);
   if (exists) return res.status(409).json({ message: "이미 가입된 이메일입니다." });
+  const existsNickname = userRepo.findByNickname(nickname);
+  if (existsNickname) return res.status(409).json({ message: "이미 사용 중인 닉네임입니다." });
+  let referredByUserId = null;
+  let referredByCode = "";
+  if (referralCodeInput) {
+    if (!isValidReferralCode(referralCodeInput)) {
+      return res.status(400).json({ message: "추천인 코드 형식이 올바르지 않습니다." });
+    }
+    const refOwner = userRepo.findByReferralCode(referralCodeInput);
+    if (!refOwner) return res.status(400).json({ message: "유효하지 않은 추천인 코드입니다." });
+    referredByUserId = refOwner.id;
+    referredByCode = referralCodeInput;
+  }
+  if (myReferralCodeInput) {
+    if (!isValidReferralCode(myReferralCodeInput)) {
+      return res.status(400).json({ message: "내 추천 코드 형식이 올바르지 않습니다." });
+    }
+    const existingMyCode = userRepo.findByReferralCode(myReferralCodeInput);
+    if (existingMyCode) return res.status(409).json({ message: "이미 사용 중인 내 추천 코드입니다." });
+  }
 
   const passwordHash = bcrypt.hashSync(password, 10);
   const user = userRepo.create({ email, passwordHash, nickname, role: "일반회원" });
+  const finalMyReferralCode = myReferralCodeInput || generateDefaultReferralCode(user.id);
+  db.prepare(`
+    UPDATE users
+    SET referral_code = ?,
+        referred_by_user_id = ?,
+        referred_by_code = ?
+    WHERE id = ?
+  `).run(finalMyReferralCode, referredByUserId, referredByCode, user.id);
+  const updatedUser = userRepo.findPublicById(user.id);
   getOrCreateFinancialAccount(user.id);
   getUserWallet(user.id);
-  const tokens = issueTokens(user);
-  res.status(201).json({ ...tokens, user });
+  const tokens = issueTokens(updatedUser);
+  res.status(201).json({ ...tokens, user: updatedUser });
 });
 
 app.post("/api/auth/login", (req, res) => {
@@ -698,6 +937,148 @@ app.post("/api/auth/login", (req, res) => {
   };
   const tokens = issueTokens(publicUser);
   res.json({ ...tokens, user: publicUser });
+});
+
+app.post("/api/auth/test-login", (req, res) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  if (!/\S+@\S+\.\S+/.test(email)) {
+    return res.status(400).json({ message: "테스트 로그인 이메일 형식이 올바르지 않습니다." });
+  }
+  const user = userRepo.findByEmail(email);
+  if (!user) return res.status(404).json({ message: "테스트 로그인 대상 계정을 찾을 수 없습니다." });
+  const publicUser = {
+    id: user.id,
+    email: user.email,
+    nickname: user.nickname,
+    role: user.role,
+    created_at: user.created_at,
+    referral_code: user.referral_code || "",
+    referred_by_code: user.referred_by_code || "",
+  };
+  const tokens = issueTokens(publicUser);
+  return res.json({ ...tokens, user: publicUser, testLogin: true });
+});
+
+app.post("/api/auth/wallet/nonce", (req, res) => {
+  const provider = normalizeProvider(req.body?.provider || "");
+  const walletAddress = normalizeWalletAddress(req.body?.address || "");
+  if (!provider) return res.status(400).json({ message: "지갑 제공자를 입력하세요." });
+  if (walletAddress.length < 6) return res.status(400).json({ message: "유효한 지갑 주소를 입력하세요." });
+  const challenge = createWalletNonce({ provider, walletAddress });
+  return res.json(challenge);
+});
+
+app.post("/api/auth/wallet", (req, res) => {
+  const provider = normalizeProvider(req.body?.provider || "");
+  const walletAddress = normalizeWalletAddress(req.body?.address || "");
+  const nonce = String(req.body?.nonce || "").trim();
+  const signature = normalizeSignature(req.body?.signature || "");
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "").trim();
+  const nickname = normalizeNickname(req.body?.nickname || "");
+  const referralCodeInput = normalizeReferralCode(req.body?.referralCode || "");
+  const myReferralCodeInput = normalizeReferralCode(req.body?.myReferralCode || "");
+
+  if (!provider) return res.status(400).json({ message: "지갑 제공자를 입력하세요." });
+  if (walletAddress.length < 6) return res.status(400).json({ message: "유효한 지갑 주소를 입력하세요." });
+  if (!nonce) return res.status(400).json({ message: "서명 nonce가 필요합니다." });
+  if (!signature) return res.status(400).json({ message: "지갑 서명이 필요합니다." });
+  const nonceResult = consumeWalletNonce({ provider, walletAddress, nonce });
+  if (!nonceResult.ok) {
+    const reasonMap = {
+      nonce_not_found: "유효하지 않은 nonce입니다. 다시 시도하세요.",
+      nonce_used: "이미 사용된 nonce입니다. 다시 시도하세요.",
+      nonce_expired: "nonce가 만료되었습니다. 다시 시도하세요.",
+    };
+    return res.status(400).json({ message: reasonMap[nonceResult.reason] || "nonce 검증에 실패했습니다." });
+  }
+  const validSignature = verifyWalletSignature({
+    provider,
+    walletAddress,
+    signature,
+    message: nonceResult.row.message,
+  });
+  if (!validSignature) {
+    return res.status(401).json({ message: "지갑 서명 검증에 실패했습니다." });
+  }
+
+  const walletOwner = findUserByWalletAddress(walletAddress, provider);
+  if (walletOwner) {
+    const tokens = issueTokens(toPublicUser(walletOwner));
+    return res.json({ ...tokens, user: toPublicUser(walletOwner), linkedBy: "wallet" });
+  }
+
+  let targetUser = null;
+  let linkedBy = "wallet";
+  if (email) {
+    if (!/\S+@\S+\.\S+/.test(email)) return res.status(400).json({ message: "이메일 형식이 올바르지 않습니다." });
+    targetUser = userRepo.findByEmail(email);
+    if (targetUser) linkedBy = "email";
+    if (!targetUser) {
+      if (password.length < 6) return res.status(400).json({ message: "비밀번호는 6자 이상이어야 합니다." });
+      if (!nickname) return res.status(400).json({ message: "닉네임을 입력하세요." });
+    }
+  } else {
+    if (password.length < 6) return res.status(400).json({ message: "비밀번호는 6자 이상이어야 합니다." });
+    if (!nickname) return res.status(400).json({ message: "닉네임을 입력하세요." });
+  }
+
+  if (!targetUser) {
+    if (myReferralCodeInput) {
+      if (!isValidReferralCode(myReferralCodeInput)) {
+        return res.status(400).json({ message: "내 추천 코드 형식이 올바르지 않습니다." });
+      }
+      const existingMyCode = userRepo.findByReferralCode(myReferralCodeInput);
+      if (existingMyCode) return res.status(409).json({ message: "이미 사용 중인 내 추천 코드입니다." });
+    }
+    if (referralCodeInput) {
+      if (!isValidReferralCode(referralCodeInput)) {
+        return res.status(400).json({ message: "추천인 코드 형식이 올바르지 않습니다." });
+      }
+      const refOwner = userRepo.findByReferralCode(referralCodeInput);
+      if (!refOwner) return res.status(400).json({ message: "유효하지 않은 추천인 코드입니다." });
+    }
+    const existsNickname = userRepo.findByNickname(nickname);
+    if (existsNickname) return res.status(409).json({ message: "이미 사용 중인 닉네임입니다." });
+
+    const finalEmail = email || makeWalletPlaceholderEmail(provider, walletAddress);
+    const exists = userRepo.findByEmail(finalEmail);
+    if (exists) return res.status(409).json({ message: "이미 가입된 이메일입니다." });
+    const passwordHash = bcrypt.hashSync(password, 10);
+    const user = userRepo.create({ email: finalEmail, passwordHash, nickname, role: "일반회원" });
+    let referredByUserId = null;
+    let referredByCode = "";
+    if (referralCodeInput) {
+      const refOwner = userRepo.findByReferralCode(referralCodeInput);
+      referredByUserId = refOwner?.id || null;
+      referredByCode = referralCodeInput;
+    }
+    const finalMyReferralCode = myReferralCodeInput || generateDefaultReferralCode(user.id);
+    db.prepare(`
+      UPDATE users
+      SET referral_code = ?,
+          referred_by_user_id = ?,
+          referred_by_code = ?
+      WHERE id = ?
+    `).run(finalMyReferralCode, referredByUserId, referredByCode, user.id);
+    targetUser = db.prepare("SELECT * FROM users WHERE id = ?").get(user.id);
+    getOrCreateFinancialAccount(user.id);
+  }
+
+  if (!targetUser) return res.status(500).json({ message: "지갑 계정을 생성할 수 없습니다." });
+  db.prepare(`
+    INSERT INTO user_wallets (user_id, wallet_provider, wallet_address, connected_at, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(user_id) DO UPDATE SET
+      wallet_provider = excluded.wallet_provider,
+      wallet_address = excluded.wallet_address,
+      connected_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+  `).run(targetUser.id, provider, walletAddress);
+  getUserWallet(targetUser.id);
+  const publicUser = toPublicUser(db.prepare("SELECT * FROM users WHERE id = ?").get(targetUser.id));
+  const tokens = issueTokens(publicUser);
+  return res.json({ ...tokens, user: publicUser, linkedBy });
 });
 
 app.post("/api/auth/refresh", (req, res) => {
@@ -737,6 +1118,83 @@ app.post("/api/auth/logout", (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/api/referral/me", authRequired, (req, res) => {
+  const user = userRepo.findPublicById(req.user.id);
+  if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  if (!user.referral_code) {
+    const generated = generateDefaultReferralCode(user.id);
+    db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(generated, user.id);
+  }
+  const refreshed = userRepo.findPublicById(req.user.id);
+  res.json({
+    referral: {
+      myReferralCode: refreshed.referral_code || "",
+      referredByCode: refreshed.referred_by_code || "",
+      referredByUserId: refreshed.referred_by_user_id || null,
+    },
+  });
+});
+
+app.put("/api/me/nickname", authRequired, (req, res) => {
+  const nextNickname = normalizeNickname(req.body?.nickname || "");
+  if (!nextNickname) return res.status(400).json({ message: "닉네임을 입력하세요." });
+  if (nextNickname.length > 40) return res.status(400).json({ message: "닉네임은 40자 이하여야 합니다." });
+  const exists = userRepo.findByNickname(nextNickname);
+  if (exists && Number(exists.id) !== Number(req.user.id)) {
+    return res.status(409).json({ message: "이미 사용 중인 닉네임입니다." });
+  }
+  const updated = userRepo.updateNickname(req.user.id, nextNickname);
+  return res.json({ user: updated });
+});
+
+app.put("/api/auth/me/email-link", authRequired, (req, res) => {
+  const nextEmail = String(req.body?.email || "").trim().toLowerCase();
+  const nextPassword = String(req.body?.password || "").trim();
+  if (!/\S+@\S+\.\S+/.test(nextEmail)) {
+    return res.status(400).json({ message: "이메일 형식이 올바르지 않습니다." });
+  }
+  if (nextPassword.length < 6) {
+    return res.status(400).json({ message: "비밀번호는 6자 이상이어야 합니다." });
+  }
+  const current = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!current) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  const exists = userRepo.findByEmail(nextEmail);
+  if (exists && Number(exists.id) !== Number(req.user.id)) {
+    return res.status(409).json({ message: "이미 다른 계정에 연결된 이메일입니다." });
+  }
+  const passwordHash = bcrypt.hashSync(nextPassword, 10);
+  db.prepare("UPDATE users SET email = ?, password_hash = ? WHERE id = ?").run(nextEmail, passwordHash, req.user.id);
+  const updated = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  const publicUser = toPublicUser(updated);
+  const tokens = issueTokens(publicUser);
+  return res.json({
+    ...tokens,
+    user: publicUser,
+    linked: true,
+    upgradedFromWalletOnly: isPlaceholderWalletEmail(current.email),
+  });
+});
+
+app.put("/api/referral/me/code", authRequired, (req, res) => {
+  const nextCode = normalizeReferralCode(req.body?.myReferralCode || "");
+  if (!isValidReferralCode(nextCode)) {
+    return res.status(400).json({ message: "추천 코드는 영문 대문자/숫자/- 조합으로 1~20자여야 합니다." });
+  }
+  const exists = userRepo.findByReferralCode(nextCode);
+  if (exists && Number(exists.id) !== Number(req.user.id)) {
+    return res.status(409).json({ message: "이미 사용 중인 추천 코드입니다." });
+  }
+  userRepo.updateReferralCode(req.user.id, nextCode);
+  const user = userRepo.findPublicById(req.user.id);
+  res.json({
+    referral: {
+      myReferralCode: user.referral_code || "",
+      referredByCode: user.referred_by_code || "",
+      referredByUserId: user.referred_by_user_id || null,
+    },
+  });
+});
+
 app.get("/api/kyc/me", authRequired, (req, res) => {
   const profile = getKycProfile(req.user.id);
   res.json({ profile });
@@ -756,9 +1214,13 @@ app.get("/api/wallet/me", authRequired, (req, res) => {
 
 app.put("/api/wallet/me/connect", authRequired, (req, res) => {
   const provider = String(req.body?.provider || "").trim();
-  const address = String(req.body?.address || "").trim();
+  const address = normalizeWalletAddress(req.body?.address || "");
   if (!provider) return res.status(400).json({ message: "지갑 제공자를 입력하세요." });
   if (address.length < 6) return res.status(400).json({ message: "유효한 지갑 주소를 입력하세요." });
+  const owner = findUserByWalletAddress(address, provider);
+  if (owner && Number(owner.id) !== Number(req.user.id)) {
+    return res.status(409).json({ message: "이미 다른 계정에 연결된 지갑 주소입니다." });
+  }
   db.prepare(`
     INSERT INTO user_wallets (user_id, wallet_provider, wallet_address, connected_at, updated_at)
     VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
@@ -1635,6 +2097,17 @@ app.patch("/api/admin/users/:id/role", authRequired, superAdminRequired, (req, r
   res.json({ user });
 });
 
+app.patch("/api/admin/users/:id/profile", authRequired, superAdminRequired, (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ message: "유효한 사용자 ID가 필요합니다." });
+  const stageLabel = String(req.body?.stageLabel || "").trim();
+  const parentUserRef = String(req.body?.parentUserRef || "").trim();
+  const adminAssigned = Boolean(req.body?.adminAssigned);
+  const user = userRepo.updateAdminProfile(id, { stageLabel, parentUserRef, adminAssigned });
+  if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  res.json({ user });
+});
+
 app.post("/api/admin/kyc/:userId/review", authRequired, adminRequired, (req, res) => {
   const userId = Number(req.params.userId);
   const approve = Boolean(req.body?.approve);
@@ -1662,12 +2135,29 @@ app.put("/api/admin/escrow-policy", authRequired, superAdminRequired, (req, res)
   const requiredApprovals = Number(req.body?.requiredApprovals || 3);
   const mainFinalApproverId = Number(req.body?.mainFinalApproverId || 0);
   const approverIds = Array.isArray(req.body?.approverIds) ? req.body.approverIds.map((v) => Number(v)).filter(Boolean) : [];
+  const levelDelayHours = req.body?.levelDelayHours || {};
+  const lv1 = Math.max(0, Number(levelDelayHours?.Lv1 ?? 48));
+  const lv2 = Math.max(0, Number(levelDelayHours?.Lv2 ?? 36));
+  const lv3 = Math.max(0, Number(levelDelayHours?.Lv3 ?? 24));
+  const lv4 = Math.max(0, Number(levelDelayHours?.Lv4 ?? 12));
+  const lv5 = Math.max(0, Number(levelDelayHours?.Lv5 ?? 0));
   if (!mainCustodyAccount) return res.status(400).json({ message: "보관 계좌를 입력하세요." });
   if (requiredApprovals < 3 || requiredApprovals > 5) return res.status(400).json({ message: "승인 인원은 3~5명이어야 합니다." });
   if (!mainFinalApproverId) return res.status(400).json({ message: "메인 최종 승인자를 지정하세요." });
 
-  db.prepare("UPDATE escrow_policy SET main_custody_account = ?, required_approvals = ?, main_final_approver_id = ? WHERE id = 1")
-    .run(mainCustodyAccount, requiredApprovals, mainFinalApproverId);
+  db.prepare(`
+    UPDATE escrow_policy
+    SET
+      main_custody_account = ?,
+      required_approvals = ?,
+      main_final_approver_id = ?,
+      level_delay_hours_lv1 = ?,
+      level_delay_hours_lv2 = ?,
+      level_delay_hours_lv3 = ?,
+      level_delay_hours_lv4 = ?,
+      level_delay_hours_lv5 = ?
+    WHERE id = 1
+  `).run(mainCustodyAccount, requiredApprovals, mainFinalApproverId, lv1, lv2, lv3, lv4, lv5);
   db.prepare("DELETE FROM escrow_policy_approvers WHERE policy_id = 1").run();
   for (const approverId of approverIds) {
     db.prepare("INSERT INTO escrow_policy_approvers (policy_id, user_id) VALUES (1, ?)").run(approverId);
@@ -1681,6 +2171,7 @@ app.put("/api/admin/escrow-policy", authRequired, superAdminRequired, (req, res)
     requiredApprovals,
     mainFinalApproverId,
     approverIds,
+    levelDelayHours: { Lv1: lv1, Lv2: lv2, Lv3: lv3, Lv4: lv4, Lv5: lv5 },
   });
   res.json({ policy: getEscrowPolicy() });
 });
