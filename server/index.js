@@ -325,6 +325,16 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_catalog_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id INTEGER NOT NULL,
+    assets_count INTEGER NOT NULL DEFAULT 0,
+    markets_count INTEGER NOT NULL DEFAULT 0,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS admin_webhook_events (
@@ -2032,6 +2042,29 @@ app.get("/api/admin/markets/catalog", authRequired, adminRequired, (_req, res) =
   res.json(getMarketCatalog({ includeInactive: true }));
 });
 
+app.get("/api/admin/markets/catalog/audit", authRequired, adminRequired, (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query?.limit || 20), 1), 100);
+  const rows = db
+    .prepare(`
+      SELECT l.id, l.actor_user_id, u.nickname AS actor_name, l.assets_count, l.markets_count, l.summary_json, l.created_at
+      FROM market_catalog_audit_logs l
+      LEFT JOIN users u ON u.id = l.actor_user_id
+      ORDER BY l.id DESC
+      LIMIT ?
+    `)
+    .all(limit)
+    .map((row) => ({
+      id: row.id,
+      actorUserId: row.actor_user_id,
+      actorName: row.actor_name || "",
+      assetsCount: Number(row.assets_count || 0),
+      marketsCount: Number(row.markets_count || 0),
+      summary: parseJsonSafe(row.summary_json, {}),
+      createdAt: row.created_at,
+    }));
+  res.json({ logs: rows });
+});
+
 app.get("/api/admin/webhook-events", authRequired, adminRequired, (req, res) => {
   const limit = Math.min(Math.max(Number(req.query?.limit || 20), 1), 100);
   const events = db
@@ -2499,6 +2532,19 @@ app.put("/api/admin/markets/catalog", authRequired, superAdminRequired, (req, re
     assetsCount: assets.length,
     marketsCount: markets.length,
   });
+  db.prepare(`
+    INSERT INTO market_catalog_audit_logs (
+      actor_user_id, assets_count, markets_count, summary_json, created_at
+    ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(
+    req.user.id,
+    assets.length,
+    markets.length,
+    JSON.stringify({
+      assetCodes: assets.map((a) => String(a?.assetCode || "").trim().toUpperCase()).filter(Boolean),
+      marketKeys: markets.map((m) => String(m?.marketKey || "").trim()).filter(Boolean),
+    })
+  );
   res.json(getMarketCatalog({ includeInactive: true }));
 });
 

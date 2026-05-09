@@ -3630,6 +3630,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [marketCatalogSaving, setMarketCatalogSaving] = useState(false);
   const [marketAssets, setMarketAssets] = useState([]);
   const [marketCatalog, setMarketCatalog] = useState([]);
+  const [marketCatalogLogs, setMarketCatalogLogs] = useState([]);
   const [originalMarketAssets, setOriginalMarketAssets] = useState([]);
   const [originalMarketCatalog, setOriginalMarketCatalog] = useState([]);
   const [marketAssetTypeFilter, setMarketAssetTypeFilter] = useState("all");
@@ -4707,6 +4708,15 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
   }
 
+  async function loadMarketCatalogAudit() {
+    try {
+      const data = await apiClient.request("/api/admin/markets/catalog/audit?limit=12", { auth: true });
+      setMarketCatalogLogs(Array.isArray(data?.logs) ? data.logs : []);
+    } catch (error) {
+      notify(error.message || "카탈로그 변경 이력 조회에 실패했습니다.");
+    }
+  }
+
   async function saveMarketCatalog() {
     const assets = Array.isArray(marketAssets) ? marketAssets : [];
     const markets = Array.isArray(marketCatalog) ? marketCatalog : [];
@@ -4782,6 +4792,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       });
       notify("마켓 카탈로그가 저장되었습니다.");
       await loadMarketCatalog();
+      await loadMarketCatalogAudit();
     } catch (error) {
       notify(error.message || "마켓 카탈로그 저장에 실패했습니다.");
     } finally {
@@ -5212,6 +5223,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     loadOpsRiskSummary();
     loadOpsSnapshots();
     loadMarketCatalog();
+    loadMarketCatalogAudit();
     loadEmergencyState();
   }, []);
 
@@ -5436,6 +5448,36 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
           <div className={`mt-2 text-[11px] ${theme.muted}`}>
             현재 사유: {emergencyState.emergencyReason || "-"} · ETA: {emergencyState.emergencyEta || "-"} · updatedBy: {emergencyState.updatedByUserId || "-"} · {emergencyState.updatedAt || "-"}
+          </div>
+        </div>
+
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">마켓 카탈로그 변경 이력</div>
+              <div className={`text-xs ${theme.muted}`}>최근 변경 내역(작업자/시각/대상)을 추적합니다.</div>
+            </div>
+            <button onClick={loadMarketCatalogAudit} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              이력 새로고침
+            </button>
+          </div>
+          <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
+            {marketCatalogLogs.length ? (
+              marketCatalogLogs.map((log) => (
+                <div key={log.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
+                  <div className="font-black">#{log.id} · {log.createdAt}</div>
+                  <div className={theme.muted}>
+                    actor: {log.actorName || log.actorUserId} · assets {log.assetsCount} · markets {log.marketsCount}
+                  </div>
+                  <div className="mt-1 text-[11px]">
+                    {Array.isArray(log.summary?.assetCodes) ? `assets: ${log.summary.assetCodes.slice(0, 6).join(", ")}` : ""}
+                    {Array.isArray(log.summary?.marketKeys) ? ` · markets: ${log.summary.marketKeys.slice(0, 6).join(", ")}` : ""}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>카탈로그 변경 이력이 없습니다.</div>
+            )}
           </div>
         </div>
 
