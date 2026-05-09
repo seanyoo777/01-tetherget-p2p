@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, createContext, useContext } from "react";
 import { createApiClient } from "./lib/apiClient";
+import { deriveSessionProfile, isLoginTestAdminLike, SESSION_ROLE } from "./sessionRoles";
 
 const orders = [
   { id: 1, seller: "TG-Seller01", coin: "USDT", price: 1392, amount: 1200, limit: "100 ~ 1,200 USDT", method: "KRW", release: "구매확인 후 자동 릴리즈", level: "Lv.4", trust: 96, trades: 1280, featured: true, category: "코인↔통화" },
@@ -812,6 +813,7 @@ const AUTH_REFRESH_TOKEN_KEY = "tetherget_refresh_token_v1";
 const MY_REFERRAL_CODE_KEY = "tetherget_my_referral_code_v1";
 const LOGIN_RECENT_IDS_KEY = "tetherget_login_recent_ids_v1";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 const defaultAuthUsers = [
   {
@@ -820,7 +822,19 @@ const defaultAuthUsers = [
     password: "admin1234",
     nickname: "본사관리자",
     role: "본사 슈퍼관리자",
+    session_role: "hq_ops",
+    sales_level: null,
     createdAt: "2026-05-01",
+  },
+  {
+    id: "AUTH-SALES-001",
+    email: "sales@tetherget.com",
+    password: "sales1234",
+    nickname: "영업테스트",
+    role: "영업관리자",
+    session_role: "sales",
+    sales_level: 1,
+    createdAt: "2026-05-02",
   },
 ];
 
@@ -855,10 +869,12 @@ function mapAuthUserToMember(user, index) {
     stageLabel: String(user?.stage_label || user?.stageLabel || ""),
     adminAssigned: Boolean(user?.admin_assigned ?? user?.adminAssigned),
     role: String(user?.role || "일반회원"),
+    session_role: user?.session_role,
+    sales_level: user?.sales_level,
   };
 }
 
-function createVirtualDownlineUsers(ownerId, count = 100) {
+function createVirtualDownlineUsers(ownerId, count = 200) {
   const stageBuckets = [
     { stage: "본사", size: 5, receivedRate: 50, childRate: 45 },
     { stage: "총판", size: 15, receivedRate: 45, childRate: 40 },
@@ -1037,7 +1053,7 @@ export default function App() {
   const [linkedWallet, setLinkedWallet] = useState("");
   const [linkedReferral, setLinkedReferral] = useState("");
   const [mergeStatus, setMergeStatus] = useState("아직 연결된 계정 없음");
-  const [currentRole, setCurrentRole] = useState("본사 슈퍼관리자");
+  const [currentRole, setCurrentRole] = useState("일반회원");
   const [language, setLanguage] = useState("KR");
   const [friends, setFriends] = useState(initialFriends);
   const [selectedFriendId, setSelectedFriendId] = useState(initialFriends[0].id);
@@ -1147,7 +1163,20 @@ export default function App() {
       weeklyNew,
     };
   }, [authUsers, myReferralCode]);
-  const canAccessAdmin = currentRole.includes("관리자");
+  const meAuthUser = useMemo(() => {
+    if (!loggedIn || !linkedGoogle) return null;
+    const em = String(linkedGoogle).trim().toLowerCase();
+    return authUsers.find((user) => String(user.email || "").trim().toLowerCase() === em) || null;
+  }, [loggedIn, authUsers, linkedGoogle]);
+
+  const sessionProfile = useMemo(() => deriveSessionProfile({
+    legacyRole: currentRole,
+    email: linkedGoogle,
+    sessionRoleHint: meAuthUser?.session_role || null,
+    salesLevel: meAuthUser?.sales_level ?? null,
+  }), [currentRole, linkedGoogle, meAuthUser]);
+
+  const canAccessAdmin = sessionProfile.sessionRole === SESSION_ROLE.SALES;
   const isSuperAdmin = currentRole.includes("슈퍼관리자");
   const currentAdminActorId = useMemo(() => {
     const matched = authUsers.find((user) => user.email === linkedGoogle);
@@ -1160,11 +1189,37 @@ export default function App() {
     const nextRole = String(me.role || "");
     if (nextRole && nextRole !== currentRole) {
       setCurrentRole(nextRole);
+      const nextProfile = deriveSessionProfile({
+        legacyRole: nextRole,
+        email: me.email || linkedGoogle,
+        sessionRoleHint: me.session_role || null,
+        salesLevel: me.sales_level ?? null,
+      });
+      if (!nextProfile.sessionRole || nextProfile.sessionRole !== SESSION_ROLE.SALES) {
+        if (activePage === "admin") setActivePage("trade");
+      }
+      if (nextProfile.sessionRole === SESSION_ROLE.HQ_OPS) {
+        window.location.assign("/owner");
+        return;
+      }
       if (!nextRole.includes("관리자") && activePage === "admin") {
         setActivePage("trade");
       }
     }
-  }, [loggedIn, authUsers, currentAdminActorId, currentRole, activePage]);
+  }, [loggedIn, authUsers, currentAdminActorId, currentRole, activePage, linkedGoogle]);
+
+  const primaryNavItems = useMemo(() => {
+    return [
+      { key: "trade", label: lang.menuTrade, show: true },
+      { key: "sell", label: lang.sellRegister, show: true },
+      { key: "myinfo", label: lang.myInfo, show: true },
+      { key: "mytrades", label: lang.myTrades, show: true },
+      { key: "friends", label: "친구", show: true },
+      { key: "messenger", label: "메신저", show: true },
+      { key: "admin", label: lang.admin, show: canAccessAdmin },
+      { key: "support", label: lang.support, show: true },
+    ].filter((item) => item.show);
+  }, [lang, canAccessAdmin]);
   const apiClient = useMemo(
     () =>
       createApiClient({
@@ -1330,6 +1385,75 @@ export default function App() {
     return /\S+@\S+\.\S+/.test(email);
   }
 
+  async function loadGoogleIdentityScript() {
+    if (typeof window === "undefined") throw new Error("브라우저 환경이 필요합니다.");
+    if (window.google?.accounts?.id) return window.google;
+    await new Promise((resolve, reject) => {
+      const existing = document.querySelector('script[data-google-identity="true"]');
+      if (existing) {
+        existing.addEventListener("load", resolve, { once: true });
+        existing.addEventListener("error", reject, { once: true });
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.dataset.googleIdentity = "true";
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+    if (!window.google?.accounts?.id) throw new Error("Google SDK 로드에 실패했습니다.");
+    return window.google;
+  }
+
+  async function handleGoogleClickLogin() {
+    if (!GOOGLE_CLIENT_ID) {
+      notify("Google 로그인 설정이 비어 있습니다. VITE_GOOGLE_CLIENT_ID를 설정하세요.");
+      return;
+    }
+    try {
+      const google = await loadGoogleIdentityScript();
+      const credential = await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => reject(new Error("Google 로그인 응답 시간 초과")), 20000);
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: (response) => {
+            clearTimeout(timeoutId);
+            if (response?.credential) resolve(response.credential);
+            else reject(new Error("Google credential 응답이 없습니다."));
+          },
+        });
+        google.accounts.id.prompt((notification) => {
+          const n = notification;
+          if (
+            n?.isNotDisplayed?.()
+            || n?.isSkippedMoment?.()
+            || n?.isDismissedMoment?.()
+          ) {
+            clearTimeout(timeoutId);
+            reject(new Error("Google 로그인 창이 닫혔거나 표시되지 않았습니다."));
+          }
+        });
+      });
+      const authData = await apiClient.request("/api/auth/google", {
+        method: "POST",
+        body: JSON.stringify({
+          credential,
+          referralCode: referralInput,
+          myReferralCode,
+        }),
+      });
+      const user = applyAuthSuccess(authData, "");
+      if (!user) return;
+      setAccountType("구글 계정");
+      notify("구글 로그인 완료");
+    } catch (error) {
+      notify(error.message || "Google 로그인에 실패했습니다.");
+    }
+  }
+
   async function loginWithEmailPassword(emailValue, passwordValue) {
     const loginData = await apiClient.request("/api/auth/login", {
       method: "POST",
@@ -1411,6 +1535,16 @@ export default function App() {
 
   function applyAuthSuccess(authData, fallbackEmail = "") {
     const user = authData?.user || {};
+    const profile = deriveSessionProfile({
+      legacyRole: user.role || "일반회원",
+      email: user.email || fallbackEmail || "",
+      sessionRoleHint: user.session_role || null,
+      salesLevel: user.sales_level ?? null,
+    });
+    if (profile.sessionRole === SESSION_ROLE.HQ_OPS) {
+      window.location.assign("/owner");
+      return null;
+    }
     setAuthToken(authData?.accessToken || authData?.token || "");
     setAuthRefreshToken(authData?.refreshToken || "");
     setLoggedIn(true);
@@ -1884,7 +2018,7 @@ export default function App() {
   const walletAuthBusy = walletAuthStatus === "nonce" || walletAuthStatus === "signing" || walletAuthStatus === "verifying";
   const loginTestCandidates = (authUsers || [])
     .filter((user) => {
-      if (loginTestAdminsOnly && !String(user?.role || "").includes("관리자")) return false;
+      if (loginTestAdminsOnly && !isLoginTestAdminLike(user)) return false;
       const keyword = loginTestSearch.trim().toLowerCase();
       if (!keyword) return true;
       return `${user?.id || ""} ${user?.email || ""} ${user?.nickname || ""} ${user?.role || ""}`.toLowerCase().includes(keyword);
@@ -2081,6 +2215,12 @@ export default function App() {
 
           {loginMode === "google" && (
             <>
+              <button
+                onClick={handleGoogleClickLogin}
+                className={`rounded-2xl border px-5 py-4 font-black ${t.input}`}
+              >
+                Google 클릭 로그인
+              </button>
               <Field label="1) 아이디(지메일)" theme={t}>
                 <input
                   value={authEmail}
@@ -2433,16 +2573,7 @@ export default function App() {
           </button>
 
           <nav className="hidden flex-nowrap items-center gap-2 overflow-x-auto md:flex">
-            {[
-              { key: "trade", label: lang.menuTrade },
-              { key: "sell", label: lang.sellRegister },
-              { key: "myinfo", label: lang.myInfo },
-              { key: "mytrades", label: lang.myTrades },
-              { key: "friends", label: "친구" },
-              { key: "messenger", label: "메신저" },
-              { key: "admin", label: lang.admin },
-              { key: "support", label: lang.support },
-            ].map((item) => (
+            {primaryNavItems.map((item) => (
               <button key={item.key} onClick={() => openPage(item.key)} className={`whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-semibold ${activePage === item.key ? t.main : `${t.muted} hover:opacity-80`}`}>{item.label}</button>
             ))}
           </nav>
@@ -2487,16 +2618,7 @@ export default function App() {
 
         {menuOpen && (
           <div className={`border-t px-4 py-3 md:hidden ${t.header}`}>
-            {[
-              { key: "trade", label: lang.menuTrade },
-              { key: "sell", label: lang.sellRegister },
-              { key: "myinfo", label: lang.myInfo },
-              { key: "mytrades", label: lang.myTrades },
-              { key: "friends", label: "친구" },
-              { key: "messenger", label: "메신저" },
-              { key: "admin", label: lang.admin },
-              { key: "support", label: lang.support },
-            ].map((item) => (
+            {primaryNavItems.map((item) => (
               <button key={item.key} onClick={() => { setMenuOpen(false); openPage(item.key); }} className="block w-full rounded-xl px-4 py-3 text-left text-sm font-bold">{item.label}</button>
             ))}
             <select value={theme} onChange={(e) => setTheme(e.target.value)} className={`mt-2 w-full rounded-xl border px-4 py-3 text-sm font-bold outline-none ${t.input}`}>
@@ -3436,7 +3558,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [userRateOverrides, setUserRateOverrides] = useState({});
   const [userStageOverrides, setUserStageOverrides] = useState({});
   const [stageByUserId, setStageByUserId] = useState({});
-  const [virtualDownlineUsers, setVirtualDownlineUsers] = useState(() => createVirtualDownlineUsers(currentAdminActorId, 100));
+  const [virtualDownlineUsers, setVirtualDownlineUsers] = useState(() => createVirtualDownlineUsers(currentAdminActorId, 200));
   const [userParentOverrides, setUserParentOverrides] = useState({});
   const [userAdminAssignments, setUserAdminAssignments] = useState({});
   const [memberUserPage, setMemberUserPage] = useState(1);
@@ -3459,7 +3581,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const lang = useLang();
 
   useEffect(() => {
-    setVirtualDownlineUsers(createVirtualDownlineUsers(currentAdminActorId, 100));
+    setVirtualDownlineUsers(createVirtualDownlineUsers(currentAdminActorId, 200));
   }, [currentAdminActorId]);
 
   useEffect(() => {
@@ -3522,7 +3644,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       return hay.includes(q);
     });
     if (q.length >= 1) return filtered.slice(0, 400);
-    return filtered.slice(0, 100);
+    return filtered.slice(0, 200);
   }, [summaryScopeUsers, adminUserSearch]);
 
   const hierarchyQuickMatches = useMemo(() => {

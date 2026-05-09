@@ -1,16 +1,34 @@
-# React + Vite
+# TetherGet MVP
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Local setup
 
-Currently, two official plugins are available:
+1. Copy `.env.example` to `.env`.
+2. Fill required values:
+   - `JWT_SECRET`
+   - `GOOGLE_CLIENT_ID`
+   - `VITE_GOOGLE_CLIENT_ID` (same value as `GOOGLE_CLIENT_ID`)
+3. Install and run:
+   - `npm install`
+   - `npm run dev:full`
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Google click login (real)
 
-## React Compiler
+- Frontend button: `로그인 / 가입` modal -> `Google 클릭 로그인`
+- Backend endpoint: `POST /api/auth/google` (ID token verification with `google-auth-library`)
+- If `GOOGLE_CLIENT_ID` is missing, API returns `503` by design.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Referral downline validation flow
 
-## Expanding the ESLint configuration
+1. Open referral owner account and copy referral code.
+2. Open another browser profile/incognito with `/?ref=<CODE>`.
+3. Use `Google 클릭 로그인` (new email).
+4. Confirm DB fields are set:
+   - `users.referred_by_user_id`
+   - `users.referred_by_code`
+5. Confirm admin view reflects downline relation.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Admin consistency checks
+
+- `npm run verify:admin-smoke`
+  - stage summary consistency
+  - downline parent override consistency

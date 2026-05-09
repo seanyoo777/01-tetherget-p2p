@@ -7,19 +7,30 @@ export function createUserRepository(db) {
       return db.prepare("SELECT * FROM users WHERE nickname = ? COLLATE NOCASE").get(nickname);
     },
     findPublicById(id) {
-      return db.prepare("SELECT id, email, nickname, role, referral_code, referred_by_user_id, referred_by_code, stage_label, parent_user_ref, admin_assigned, created_at FROM users WHERE id = ?").get(id);
+      return db
+        .prepare(
+          "SELECT id, email, nickname, role, session_role, sales_level, referral_code, referred_by_user_id, referred_by_code, stage_label, parent_user_ref, admin_assigned, created_at FROM users WHERE id = ?"
+        )
+        .get(id);
     },
     findByReferralCode(referralCode) {
       return db.prepare("SELECT * FROM users WHERE referral_code = ?").get(referralCode);
     },
-    create({ email, passwordHash, nickname, role = "일반회원" }) {
-      const result = db.prepare(
-        "INSERT INTO users (email, password_hash, nickname, role) VALUES (?, ?, ?, ?)"
-      ).run(email, passwordHash, nickname, role);
+    create({ email, passwordHash, nickname, role = "일반회원", session_role = "user", sales_level = null } = {}) {
+      const sl = sales_level == null || sales_level === "" ? null : Number(sales_level);
+      const result = db
+        .prepare(
+          "INSERT INTO users (email, password_hash, nickname, role, session_role, sales_level) VALUES (?, ?, ?, ?, ?, ?)"
+        )
+        .run(email, passwordHash, nickname, role, session_role, Number.isFinite(sl) ? sl : null);
       return this.findPublicById(result.lastInsertRowid);
     },
     listPublic() {
-      return db.prepare("SELECT id, email, nickname, role, referral_code, referred_by_user_id, referred_by_code, stage_label, parent_user_ref, admin_assigned, created_at FROM users ORDER BY id DESC").all();
+      return db
+        .prepare(
+          "SELECT id, email, nickname, role, session_role, sales_level, referral_code, referred_by_user_id, referred_by_code, stage_label, parent_user_ref, admin_assigned, created_at FROM users ORDER BY id DESC"
+        )
+        .all();
     },
     updateRole(id, role) {
       db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, id);

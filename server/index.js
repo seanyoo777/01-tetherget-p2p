@@ -9,6 +9,7 @@ import path from "node:path";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { hashMessage, recoverAddress } from "ethers";
+import { OAuth2Client } from "google-auth-library";
 import { db } from "./db/sqlite.js";
 import { createUserRepository } from "./repositories/userRepository.js";
 import { createRefreshTokenRepository } from "./repositories/refreshTokenRepository.js";
@@ -18,6 +19,8 @@ const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || "tetherget-dev-secret-change-me";
 const ADMIN_WEBHOOK_URL = process.env.ADMIN_WEBHOOK_URL || "";
+const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || "").trim();
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const userRepo = createUserRepository(db);
 const refreshTokenRepo = createRefreshTokenRepository(db);
 
@@ -45,6 +48,8 @@ ensureColumn("users", "referred_by_code", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("users", "stage_label", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("users", "parent_user_ref", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("users", "admin_assigned", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("users", "session_role", "TEXT NOT NULL DEFAULT 'user'");
+ensureColumn("users", "sales_level", "INTEGER");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code_unique ON users(referral_code)");
 try {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nickname_unique ON users(nickname COLLATE NOCASE)");
@@ -431,9 +436,34 @@ const adminEmail = "admin@tetherget.com";
 const seededAdmin = userRepo.findByEmail(adminEmail);
 if (!seededAdmin) {
   const hash = bcrypt.hashSync("admin1234", 10);
-  userRepo.create({ email: adminEmail, passwordHash: hash, nickname: "본사관리자", role: "본사 슈퍼관리자" });
+  userRepo.create({
+    email: adminEmail,
+    passwordHash: hash,
+    nickname: "본사관리자",
+    role: "본사 슈퍼관리자",
+    session_role: "hq_ops",
+    sales_level: null,
+  });
 }
 const ensuredAdmin = userRepo.findByEmail(adminEmail);
+db.prepare("UPDATE users SET session_role = 'hq_ops', sales_level = NULL WHERE id = ?").run(ensuredAdmin.id);
+
+const salesSeedEmail = "sales@tetherget.com";
+if (!userRepo.findByEmail(salesSeedEmail)) {
+  const salesHash = bcrypt.hashSync("sales1234", 10);
+  userRepo.create({
+    email: salesSeedEmail,
+    passwordHash: salesHash,
+    nickname: "영업테스트",
+    role: "영업관리자",
+    session_role: "sales",
+    sales_level: 1,
+  });
+  const salesRow = userRepo.findByEmail(salesSeedEmail);
+  if (salesRow && !salesRow.referral_code) {
+    db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(generateDefaultReferralCode(salesRow.id), salesRow.id);
+  }
+}
 if (!ensuredAdmin.referral_code) {
   const adminReferralCode = generateDefaultReferralCode(ensuredAdmin.id);
   db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(adminReferralCode, ensuredAdmin.id);
@@ -501,6 +531,7 @@ app.use((req, res, next) => {
 
   if (
     req.path === "/api/auth/login"
+    || req.path === "/api/auth/google"
     || req.path === "/api/auth/test-login"
     || req.path === "/api/auth/refresh"
     || req.path === "/api/auth/logout"
@@ -535,7 +566,14 @@ if (!fs.existsSync(secureDocDir)) fs.mkdirSync(secureDocDir, { recursive: true }
 
 function makeToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role, nickname: user.nickname },
+    {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      nickname: user.nickname,
+      session_role: user.session_role || "user",
+      sales_level: user.sales_level ?? null,
+    },
     JWT_SECRET,
     { expiresIn: "2h" }
   );
@@ -570,10 +608,12 @@ function authRequired(req, res, next) {
 }
 
 function superAdminRequired(req, res, next) {
-  if (!req.user?.role?.includes("슈퍼관리자")) {
-    return res.status(403).json({ message: "슈퍼관리자 권한이 필요합니다." });
+  const sr = String(req.user?.session_role || "");
+  const legacySuper = String(req.user?.role || "").includes("슈퍼관리자");
+  if (sr === "hq_ops" || legacySuper) {
+    return next();
   }
-  next();
+  return res.status(403).json({ message: "본사 운영(hq_ops) 또는 슈퍼관리자 권한이 필요합니다." });
 }
 
 function adminRequired(req, res, next) {
@@ -700,6 +740,16 @@ function normalizeNickname(input) {
   return String(input || "").trim();
 }
 
+function pickUniqueNickname(seed) {
+  const base = normalizeNickname(seed) || `회원${Date.now() % 100000}`;
+  if (!userRepo.findByNickname(base)) return base;
+  for (let i = 1; i <= 9999; i += 1) {
+    const candidate = `${base}${i}`;
+    if (!userRepo.findByNickname(candidate)) return candidate;
+  }
+  return `${base}-${crypto.randomBytes(2).toString("hex")}`;
+}
+
 function isValidReferralCode(code) {
   return /^[A-Z0-9-]{1,20}$/.test(String(code || ""));
 }
@@ -824,6 +874,8 @@ function toPublicUser(user) {
     email: user.email,
     nickname: user.nickname,
     role: user.role,
+    session_role: user.session_role || "user",
+    sales_level: user.sales_level == null ? null : Number(user.sales_level),
     referral_code: user.referral_code || "",
     referred_by_user_id: user.referred_by_user_id || null,
     referred_by_code: user.referred_by_code || "",
@@ -905,7 +957,7 @@ app.post("/api/auth/signup", (req, res) => {
   }
 
   const passwordHash = bcrypt.hashSync(password, 10);
-  const user = userRepo.create({ email, passwordHash, nickname, role: "일반회원" });
+  const user = userRepo.create({ email, passwordHash, nickname, role: "일반회원", session_role: "user", sales_level: null });
   const finalMyReferralCode = myReferralCodeInput || generateDefaultReferralCode(user.id);
   db.prepare(`
     UPDATE users
@@ -921,6 +973,86 @@ app.post("/api/auth/signup", (req, res) => {
   res.status(201).json({ ...tokens, user: updatedUser });
 });
 
+app.post("/api/auth/google", async (req, res) => {
+  if (!googleClient || !GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ message: "Google 로그인 설정이 비어 있습니다. GOOGLE_CLIENT_ID를 설정하세요." });
+  }
+  const credential = String(req.body?.credential || "").trim();
+  const referralCodeInput = normalizeReferralCode(req.body?.referralCode || "");
+  const myReferralCodeInput = normalizeReferralCode(req.body?.myReferralCode || "");
+  if (!credential) {
+    return res.status(400).json({ message: "Google credential이 필요합니다." });
+  }
+
+  let payload;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID,
+    });
+    payload = ticket.getPayload();
+  } catch {
+    return res.status(401).json({ message: "Google 인증 토큰 검증에 실패했습니다." });
+  }
+
+  const email = String(payload?.email || "").trim().toLowerCase();
+  const emailVerified = Boolean(payload?.email_verified);
+  if (!email || !emailVerified) {
+    return res.status(401).json({ message: "Google 계정 이메일 검증이 필요합니다." });
+  }
+
+  const existing = userRepo.findByEmail(email);
+  if (existing) {
+    const publicUser = toPublicUser(existing);
+    const tokens = issueTokens(publicUser);
+    return res.json({ ...tokens, user: publicUser });
+  }
+
+  let referredByUserId = null;
+  let referredByCode = "";
+  if (referralCodeInput) {
+    if (!isValidReferralCode(referralCodeInput)) {
+      return res.status(400).json({ message: "추천인 코드 형식이 올바르지 않습니다." });
+    }
+    const refOwner = userRepo.findByReferralCode(referralCodeInput);
+    if (!refOwner) return res.status(400).json({ message: "유효하지 않은 추천인 코드입니다." });
+    referredByUserId = refOwner.id;
+    referredByCode = referralCodeInput;
+  }
+  if (myReferralCodeInput) {
+    if (!isValidReferralCode(myReferralCodeInput)) {
+      return res.status(400).json({ message: "내 추천 코드 형식이 올바르지 않습니다." });
+    }
+    const existingMyCode = userRepo.findByReferralCode(myReferralCodeInput);
+    if (existingMyCode) return res.status(409).json({ message: "이미 사용 중인 내 추천 코드입니다." });
+  }
+
+  const nameSeed = String(payload?.name || "").trim() || String(email.split("@")[0] || "회원");
+  const nickname = pickUniqueNickname(nameSeed);
+  const passwordHash = bcrypt.hashSync(crypto.randomBytes(24).toString("hex"), 10);
+  const user = userRepo.create({
+    email,
+    passwordHash,
+    nickname,
+    role: "일반회원",
+    session_role: "user",
+    sales_level: null,
+  });
+  const finalMyReferralCode = myReferralCodeInput || generateDefaultReferralCode(user.id);
+  db.prepare(`
+    UPDATE users
+    SET referral_code = ?,
+        referred_by_user_id = ?,
+        referred_by_code = ?
+    WHERE id = ?
+  `).run(finalMyReferralCode, referredByUserId, referredByCode, user.id);
+  const updatedUser = userRepo.findPublicById(user.id);
+  getOrCreateFinancialAccount(user.id);
+  getUserWallet(user.id);
+  const tokens = issueTokens(updatedUser);
+  return res.status(201).json({ ...tokens, user: updatedUser, oauth: "google" });
+});
+
 app.post("/api/auth/login", (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   const password = String(req.body?.password || "").trim();
@@ -928,13 +1060,7 @@ app.post("/api/auth/login", (req, res) => {
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ message: "이메일 또는 비밀번호가 올바르지 않습니다." });
   }
-  const publicUser = {
-    id: user.id,
-    email: user.email,
-    nickname: user.nickname,
-    role: user.role,
-    created_at: user.created_at,
-  };
+  const publicUser = toPublicUser(user);
   const tokens = issueTokens(publicUser);
   res.json({ ...tokens, user: publicUser });
 });
@@ -946,15 +1072,7 @@ app.post("/api/auth/test-login", (req, res) => {
   }
   const user = userRepo.findByEmail(email);
   if (!user) return res.status(404).json({ message: "테스트 로그인 대상 계정을 찾을 수 없습니다." });
-  const publicUser = {
-    id: user.id,
-    email: user.email,
-    nickname: user.nickname,
-    role: user.role,
-    created_at: user.created_at,
-    referral_code: user.referral_code || "",
-    referred_by_code: user.referred_by_code || "",
-  };
+  const publicUser = toPublicUser(user);
   const tokens = issueTokens(publicUser);
   return res.json({ ...tokens, user: publicUser, testLogin: true });
 });
@@ -1045,7 +1163,7 @@ app.post("/api/auth/wallet", (req, res) => {
     const exists = userRepo.findByEmail(finalEmail);
     if (exists) return res.status(409).json({ message: "이미 가입된 이메일입니다." });
     const passwordHash = bcrypt.hashSync(password, 10);
-    const user = userRepo.create({ email: finalEmail, passwordHash, nickname, role: "일반회원" });
+    const user = userRepo.create({ email: finalEmail, passwordHash, nickname, role: "일반회원", session_role: "user", sales_level: null });
     let referredByUserId = null;
     let referredByCode = "";
     if (referralCodeInput) {
