@@ -3630,6 +3630,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [marketCatalogSaving, setMarketCatalogSaving] = useState(false);
   const [marketAssets, setMarketAssets] = useState([]);
   const [marketCatalog, setMarketCatalog] = useState([]);
+  const [marketAssetTypeFilter, setMarketAssetTypeFilter] = useState("all");
+  const [marketStatusFilter, setMarketStatusFilter] = useState("all");
   const [emergencyState, setEmergencyState] = useState({
     emergencyMode: false,
     emergencyReason: "",
@@ -4683,8 +4685,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     try {
       setMarketCatalogLoading(true);
       const data = await apiClient.request("/api/admin/markets/catalog", { auth: true });
-      const assets = Array.isArray(data?.assets) ? data.assets : [];
-      const markets = Array.isArray(data?.markets) ? data.markets : [];
+      const assets = (Array.isArray(data?.assets) ? data.assets : []).map((asset) => ({
+        ...asset,
+        metadataText: JSON.stringify(asset?.metadata || {}, null, 2),
+      }));
+      const markets = (Array.isArray(data?.markets) ? data.markets : []).map((market) => ({
+        ...market,
+        metadataText: JSON.stringify(market?.metadata || {}, null, 2),
+      }));
       setMarketAssets(assets);
       setMarketCatalog(markets);
     } catch (error) {
@@ -4702,6 +4710,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       return;
     }
     const seenAssetCodes = new Set();
+    const sanitizedAssets = [];
     for (const asset of assets) {
       const code = String(asset?.assetCode || "").trim().toUpperCase();
       const name = String(asset?.displayName || "").trim();
@@ -4713,9 +4722,23 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         notify(`중복 assetCode: ${code}`);
         return;
       }
+      let metadata = {};
+      try {
+        metadata = asset?.metadataText ? JSON.parse(String(asset.metadataText || "{}")) : (asset?.metadata || {});
+      } catch {
+        notify(`asset metadata JSON 오류: ${code}`);
+        return;
+      }
+      sanitizedAssets.push({
+        ...asset,
+        assetCode: code,
+        displayName: name,
+        metadata,
+      });
       seenAssetCodes.add(code);
     }
     const seenMarketKeys = new Set();
+    const sanitizedMarkets = [];
     for (const market of markets) {
       const key = String(market?.marketKey || "").trim();
       const offered = String(market?.offeredAssetCode || "").trim().toUpperCase();
@@ -4728,6 +4751,21 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         notify(`중복 marketKey: ${key}`);
         return;
       }
+      let metadata = {};
+      try {
+        metadata = market?.metadataText ? JSON.parse(String(market.metadataText || "{}")) : (market?.metadata || {});
+      } catch {
+        notify(`market metadata JSON 오류: ${key}`);
+        return;
+      }
+      sanitizedMarkets.push({
+        ...market,
+        marketKey: key,
+        offeredAssetCode: offered,
+        requestedAssetCode: requested,
+        settlementAssetCode: String(market?.settlementAssetCode || "").trim().toUpperCase(),
+        metadata,
+      });
       seenMarketKeys.add(key);
     }
     try {
@@ -4735,7 +4773,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       await apiClient.request("/api/admin/markets/catalog", {
         method: "PUT",
         auth: true,
-        body: JSON.stringify({ assets, markets }),
+        body: JSON.stringify({ assets: sanitizedAssets, markets: sanitizedMarkets }),
       });
       notify("마켓 카탈로그가 저장되었습니다.");
       await loadMarketCatalog();
@@ -4765,6 +4803,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         settlementEnabled: false,
         isActive: true,
         metadata: {},
+        metadataText: "{}",
       },
     ]));
   }
@@ -4781,6 +4820,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         escrowAdapter: "coin_escrow",
         status: "planned",
         metadata: {},
+        metadataText: "{}",
       },
     ]));
   }
@@ -4792,6 +4832,19 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   function removeMarketRow(index) {
     setMarketCatalog((prev) => prev.filter((_, i) => i !== index));
   }
+
+  const filteredMarketAssets = useMemo(
+    () => marketAssets
+      .map((asset, index) => ({ asset, index }))
+      .filter(({ asset }) => marketAssetTypeFilter === "all" || String(asset.assetType || "") === marketAssetTypeFilter),
+    [marketAssets, marketAssetTypeFilter]
+  );
+  const filteredMarketCatalog = useMemo(
+    () => marketCatalog
+      .map((market, index) => ({ market, index }))
+      .filter(({ market }) => marketStatusFilter === "all" || String(market.status || "") === marketStatusFilter),
+    [marketCatalog, marketStatusFilter]
+  );
 
   async function createOpsSnapshot() {
     if (!opsSnapshotReason || opsSnapshotReason.length < 5) {
@@ -5404,10 +5457,23 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <div className={`rounded-xl border p-2 ${theme.input}`}>
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-xs font-black">Assets</div>
-                <button onClick={addAssetRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ asset</button>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={marketAssetTypeFilter}
+                    onChange={(e) => setMarketAssetTypeFilter(e.target.value)}
+                    className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
+                  >
+                    <option value="all">all type</option>
+                    <option value="coin">coin</option>
+                    <option value="nft">nft</option>
+                    <option value="tokenized_asset">tokenized</option>
+                    <option value="point">point</option>
+                  </select>
+                  <button onClick={addAssetRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ asset</button>
+                </div>
               </div>
               <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {marketAssets.map((asset, index) => (
+                {filteredMarketAssets.map(({ asset, index }) => (
                   <div key={`asset-${index}`} className={`rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
                     <div className="grid gap-1 md:grid-cols-2">
                       <input value={asset.assetCode || ""} onChange={(e) => updateAssetRow(index, "assetCode", e.target.value.toUpperCase())} placeholder="assetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
@@ -5417,6 +5483,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                       </select>
                       <input value={asset.network || ""} onChange={(e) => updateAssetRow(index, "network", e.target.value)} placeholder="network" className={`rounded border px-2 py-1 ${theme.input}`} />
                     </div>
+                    <textarea
+                      value={asset.metadataText || "{}"}
+                      onChange={(e) => updateAssetRow(index, "metadataText", e.target.value)}
+                      placeholder='metadata JSON (e.g. {"precision":6})'
+                      className={`mt-1 min-h-16 w-full rounded border px-2 py-1 font-mono text-[10px] ${theme.input}`}
+                    />
                     <div className="mt-1 flex items-center gap-3">
                       <label className="flex items-center gap-1"><input type="checkbox" checked={Boolean(asset.settlementEnabled)} onChange={(e) => updateAssetRow(index, "settlementEnabled", e.target.checked)} />settlement</label>
                       <label className="flex items-center gap-1"><input type="checkbox" checked={asset.isActive !== false} onChange={(e) => updateAssetRow(index, "isActive", e.target.checked)} />active</label>
@@ -5429,10 +5501,22 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <div className={`rounded-xl border p-2 ${theme.input}`}>
               <div className="mb-2 flex items-center justify-between">
                 <div className="text-xs font-black">Markets</div>
-                <button onClick={addMarketRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ market</button>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={marketStatusFilter}
+                    onChange={(e) => setMarketStatusFilter(e.target.value)}
+                    className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
+                  >
+                    <option value="all">all status</option>
+                    <option value="active">active</option>
+                    <option value="planned">planned</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                  <button onClick={addMarketRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ market</button>
+                </div>
               </div>
               <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {marketCatalog.map((market, index) => (
+                {filteredMarketCatalog.map(({ market, index }) => (
                   <div key={`market-${index}`} className={`rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
                     <div className="grid gap-1 md:grid-cols-2">
                       <input value={market.marketKey || ""} onChange={(e) => updateMarketRow(index, "marketKey", e.target.value)} placeholder="marketKey" className={`rounded border px-2 py-1 ${theme.input}`} />
@@ -5447,6 +5531,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                         <option value="active">active</option><option value="planned">planned</option><option value="disabled">disabled</option>
                       </select>
                     </div>
+                    <textarea
+                      value={market.metadataText || "{}"}
+                      onChange={(e) => updateMarketRow(index, "metadataText", e.target.value)}
+                      placeholder='metadata JSON (e.g. {"label":"BTC/USDT"})'
+                      className={`mt-1 min-h-16 w-full rounded border px-2 py-1 font-mono text-[10px] ${theme.input}`}
+                    />
                     <div className="mt-1">
                       <button onClick={() => removeMarketRow(index)} className="rounded border px-2 py-1 text-[11px] font-black text-red-400">삭제</button>
                     </div>
