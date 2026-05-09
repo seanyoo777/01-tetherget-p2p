@@ -1,6 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState, createContext, useContext } from "react";
 import { createApiClient } from "./lib/apiClient";
 import { deriveSessionProfile, isLoginTestAdminLike, SESSION_ROLE } from "./sessionRoles";
+import {
+  updateUserLevel,
+  buildReferralTree,
+  getDirectDownlines,
+  getAllDownlines,
+  getUsersByLevel,
+  getLevelCounts,
+  recalculateAdminStats,
+  validateTreeIntegrity,
+} from "./utils/referralTreeEngine";
 
 const orders = [
   { id: 1, seller: "TG-Seller01", coin: "USDT", price: 1392, amount: 1200, limit: "100 ~ 1,200 USDT", method: "KRW", release: "구매확인 후 자동 릴리즈", level: "Lv.4", trust: 96, trades: 1280, featured: true, category: "코인↔통화" },
@@ -2051,7 +2061,30 @@ export default function App() {
       applyEmailAuthSession(loginData, emailValue);
       notify("테스트 로그인 완료");
     } catch (error) {
-      notify(error.message || "테스트 로그인에 실패했습니다.");
+      const localUser = (authUsers || []).find(
+        (item) => String(item?.email || "").trim().toLowerCase() === emailValue
+      );
+      if (!localUser) {
+        notify(error.message || "테스트 로그인에 실패했습니다.");
+        return;
+      }
+      setAuthToken("");
+      setAuthRefreshToken("");
+      setLoggedIn(true);
+      setAccountType("테스트 로컬 계정");
+      setCurrentRole(localUser.role || "일반회원");
+      setNickname(localUser.nickname || "회원");
+      setLinkedGoogle(localUser.email || emailValue);
+      setLinkedReferral(localUser.referred_by_code || "");
+      setMyReferralCode(localUser.referral_code || myReferralCode);
+      setMergeStatus("API 미연결 - 로컬 테스트 로그인");
+      setLoginRecentIds((prev) => {
+        const nextId = String(localUser.id || "");
+        const filtered = prev.filter((id) => String(id) !== nextId);
+        return [nextId, ...filtered].slice(0, 12);
+      });
+      setLoginOpen(false);
+      notify("API 미연결 - 로컬 테스트 로그인 완료");
     }
   }
 
