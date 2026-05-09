@@ -32,3 +32,12 @@
 - `npm run verify:admin-smoke`
   - stage summary consistency
   - downline parent override consistency
+
+## GitHub push -> Vercel deploy
+
+This repository includes `.github/workflows/vercel-deploy.yml` for production deploys on `master` push.
+
+Set these GitHub repository secrets first:
+- `VERCEL_TOKEN`
+- `VERCEL_ORG_ID`
+- `VERCEL_PROJECT_ID`
