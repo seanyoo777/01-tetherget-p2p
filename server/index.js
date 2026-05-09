@@ -2044,15 +2044,29 @@ app.get("/api/admin/markets/catalog", authRequired, adminRequired, (_req, res) =
 
 app.get("/api/admin/markets/catalog/audit", authRequired, adminRequired, (req, res) => {
   const limit = Math.min(Math.max(Number(req.query?.limit || 20), 1), 100);
-  const rows = db
-    .prepare(`
+  const actorUserId = Number(req.query?.actorUserId || 0);
+  const q = String(req.query?.q || "").trim().toLowerCase();
+  const params = [];
+  let sql = `
       SELECT l.id, l.actor_user_id, u.nickname AS actor_name, l.assets_count, l.markets_count, l.summary_json, l.created_at
       FROM market_catalog_audit_logs l
       LEFT JOIN users u ON u.id = l.actor_user_id
-      ORDER BY l.id DESC
-      LIMIT ?
-    `)
-    .all(limit)
+  `;
+  const where = [];
+  if (actorUserId > 0) {
+    where.push("l.actor_user_id = ?");
+    params.push(actorUserId);
+  }
+  if (q) {
+    where.push("(LOWER(COALESCE(l.summary_json, '')) LIKE ? OR LOWER(COALESCE(u.nickname, '')) LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`);
+  }
+  if (where.length) sql += ` WHERE ${where.join(" AND ")} `;
+  sql += " ORDER BY l.id DESC LIMIT ?";
+  params.push(limit);
+  const rows = db
+    .prepare(sql)
+    .all(...params)
     .map((row) => ({
       id: row.id,
       actorUserId: row.actor_user_id,

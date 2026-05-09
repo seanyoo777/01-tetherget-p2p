@@ -3631,6 +3631,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [marketAssets, setMarketAssets] = useState([]);
   const [marketCatalog, setMarketCatalog] = useState([]);
   const [marketCatalogLogs, setMarketCatalogLogs] = useState([]);
+  const [marketAuditActorFilter, setMarketAuditActorFilter] = useState("");
+  const [marketAuditQuery, setMarketAuditQuery] = useState("");
   const [originalMarketAssets, setOriginalMarketAssets] = useState([]);
   const [originalMarketCatalog, setOriginalMarketCatalog] = useState([]);
   const [marketAssetTypeFilter, setMarketAssetTypeFilter] = useState("all");
@@ -4710,7 +4712,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
 
   async function loadMarketCatalogAudit() {
     try {
-      const data = await apiClient.request("/api/admin/markets/catalog/audit?limit=12", { auth: true });
+      const qs = new URLSearchParams({
+        limit: "12",
+        ...(marketAuditActorFilter ? { actorUserId: String(marketAuditActorFilter) } : {}),
+        ...(marketAuditQuery.trim() ? { q: marketAuditQuery.trim() } : {}),
+      });
+      const data = await apiClient.request(`/api/admin/markets/catalog/audit?${qs.toString()}`, { auth: true });
       setMarketCatalogLogs(Array.isArray(data?.logs) ? data.logs : []);
     } catch (error) {
       notify(error.message || "카탈로그 변경 이력 조회에 실패했습니다.");
@@ -5235,6 +5242,10 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     return () => clearInterval(timerId);
   }, [webhookAutoRefresh]);
 
+  useEffect(() => {
+    loadMarketCatalogAudit();
+  }, [marketAuditActorFilter, marketAuditQuery]);
+
   const filteredWebhookEvents = (webhookEvents || []).filter((event) =>
     webhookStatusFilter === "all" ? true : event.status === webhookStatusFilter
   );
@@ -5460,6 +5471,26 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <button onClick={loadMarketCatalogAudit} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
               이력 새로고침
             </button>
+          </div>
+          <div className="mb-2 grid gap-2 md:grid-cols-2">
+            <select
+              value={marketAuditActorFilter}
+              onChange={(e) => setMarketAuditActorFilter(e.target.value)}
+              className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
+            >
+              <option value="">전체 작업자</option>
+              {(authUsers || []).map((u) => (
+                <option key={`audit-actor-${u.id}`} value={u.id}>
+                  {u.nickname || u.email || u.id}
+                </option>
+              ))}
+            </select>
+            <input
+              value={marketAuditQuery}
+              onChange={(e) => setMarketAuditQuery(e.target.value)}
+              placeholder="키워드 검색 (assetCode/marketKey/작업자)"
+              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+            />
           </div>
           <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
             {marketCatalogLogs.length ? (
