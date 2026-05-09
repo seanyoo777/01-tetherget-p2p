@@ -16,7 +16,7 @@ export function createUserRepository(db) {
     findByReferralCode(referralCode) {
       return db.prepare("SELECT * FROM users WHERE referral_code = ?").get(referralCode);
     },
-    create({ email, passwordHash, nickname, role = "일반회원", session_role = "user", sales_level = null } = {}) {
+    create({ email, passwordHash, nickname, role = "회원", session_role = "user", sales_level = null } = {}) {
       const sl = sales_level == null || sales_level === "" ? null : Number(sales_level);
       const result = db
         .prepare(

@@ -6,10 +6,12 @@
 
 function createVirtualDownlineUsers(ownerId, count = 100) {
   const stageBuckets = [
-    { stage: "본사", size: 5 },
-    { stage: "총판", size: 15 },
-    { stage: "파트너", size: 30 },
-    { stage: "팀장", size: 50 },
+    { stage: "슈퍼페이지", size: 2 },
+    { stage: "본사 관리자", size: 3 },
+    { stage: "본사 관계자", size: 5 },
+    { stage: "LEVEL 1", size: 15 },
+    { stage: "LEVEL 2", size: 30 },
+    { stage: "LEVEL 3", size: 45 },
   ];
   const users = [];
   let cursor = 1;

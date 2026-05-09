@@ -19,6 +19,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET || "tetherget-dev-secret-change-me";
 const ADMIN_WEBHOOK_URL = process.env.ADMIN_WEBHOOK_URL || "";
+const ADMIN_SAFE_MODE = String(process.env.ADMIN_SAFE_MODE || "false").trim().toLowerCase() === "true";
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || "").trim();
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 const userRepo = createUserRepository(db);
@@ -38,7 +39,7 @@ db.exec(`
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     nickname TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT '일반회원',
+    role TEXT NOT NULL DEFAULT '회원',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
@@ -299,6 +300,31 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_assets (
+    asset_code TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    asset_type TEXT NOT NULL DEFAULT 'coin',
+    network TEXT NOT NULL DEFAULT '',
+    settlement_enabled INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_catalog (
+    market_key TEXT PRIMARY KEY,
+    market_type TEXT NOT NULL DEFAULT 'p2p',
+    offered_asset_code TEXT NOT NULL,
+    requested_asset_code TEXT NOT NULL,
+    settlement_asset_code TEXT NOT NULL DEFAULT '',
+    escrow_adapter TEXT NOT NULL DEFAULT 'coin_escrow',
+    status TEXT NOT NULL DEFAULT 'active',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS admin_webhook_events (
@@ -375,6 +401,8 @@ const OPS_SNAPSHOT_TABLES = [
   "kyc_document_view_requests",
   "kyc_document_view_approvals",
   "platform_features",
+  "market_assets",
+  "market_catalog",
   "admin_webhook_events",
   "audit_report_hashes",
 ];
@@ -439,8 +467,8 @@ if (!seededAdmin) {
   userRepo.create({
     email: adminEmail,
     passwordHash: hash,
-    nickname: "본사관리자",
-    role: "본사 슈퍼관리자",
+    nickname: "슈퍼페이지 관리자",
+    role: "슈퍼페이지 관리자",
     session_role: "hq_ops",
     sales_level: null,
   });
@@ -455,7 +483,7 @@ if (!userRepo.findByEmail(salesSeedEmail)) {
     email: salesSeedEmail,
     passwordHash: salesHash,
     nickname: "영업테스트",
-    role: "영업관리자",
+    role: "영업관리자 LEVEL 1",
     session_role: "sales",
     sales_level: 1,
   });
@@ -509,6 +537,75 @@ const defaultFeatures = [
 ];
 for (const featureKey of defaultFeatures) {
   db.prepare("INSERT OR IGNORE INTO platform_features (feature_key, enabled) VALUES (?, 1)").run(featureKey);
+}
+const defaultMarketAssets = [
+  { assetCode: "USDT", displayName: "Tether USD", assetType: "coin", network: "TRC20", settlementEnabled: 1, metadata: { precision: 6 } },
+  { assetCode: "BTC", displayName: "Bitcoin", assetType: "coin", network: "BTC", settlementEnabled: 1, metadata: { precision: 8 } },
+  { assetCode: "ETH", displayName: "Ethereum", assetType: "coin", network: "ERC20", settlementEnabled: 1, metadata: { precision: 18 } },
+  { assetCode: "NFT-PLACEHOLDER", displayName: "NFT Placeholder", assetType: "nft", network: "EVM", settlementEnabled: 0, metadata: { note: "future expansion" } },
+];
+for (const asset of defaultMarketAssets) {
+  db.prepare(`
+    INSERT OR IGNORE INTO market_assets (
+      asset_code, display_name, asset_type, network, settlement_enabled, is_active, metadata_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP)
+  `).run(
+    asset.assetCode,
+    asset.displayName,
+    asset.assetType,
+    asset.network,
+    asset.settlementEnabled ? 1 : 0,
+    JSON.stringify(asset.metadata || {})
+  );
+}
+const defaultMarketCatalog = [
+  {
+    marketKey: "p2p-usdt-krw",
+    marketType: "p2p",
+    offeredAssetCode: "USDT",
+    requestedAssetCode: "KRW",
+    settlementAssetCode: "USDT",
+    escrowAdapter: "coin_escrow",
+    status: "active",
+    metadata: { label: "USDT/KRW P2P", fiat: true },
+  },
+  {
+    marketKey: "p2p-btc-usdt",
+    marketType: "p2p",
+    offeredAssetCode: "BTC",
+    requestedAssetCode: "USDT",
+    settlementAssetCode: "USDT",
+    escrowAdapter: "coin_escrow",
+    status: "active",
+    metadata: { label: "BTC/USDT P2P", fiat: false },
+  },
+  {
+    marketKey: "p2p-nft-usdt-preview",
+    marketType: "p2p",
+    offeredAssetCode: "NFT-PLACEHOLDER",
+    requestedAssetCode: "USDT",
+    settlementAssetCode: "USDT",
+    escrowAdapter: "nft_escrow",
+    status: "planned",
+    metadata: { label: "NFT/USDT Preview", launchReady: false },
+  },
+];
+for (const row of defaultMarketCatalog) {
+  db.prepare(`
+    INSERT OR IGNORE INTO market_catalog (
+      market_key, market_type, offered_asset_code, requested_asset_code, settlement_asset_code,
+      escrow_adapter, status, metadata_json, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).run(
+    row.marketKey,
+    row.marketType,
+    row.offeredAssetCode,
+    row.requestedAssetCode,
+    row.settlementAssetCode,
+    row.escrowAdapter,
+    row.status,
+    JSON.stringify(row.metadata || {})
+  );
 }
 
 app.use(cors({
@@ -609,11 +706,11 @@ function authRequired(req, res, next) {
 
 function superAdminRequired(req, res, next) {
   const sr = String(req.user?.session_role || "");
-  const legacySuper = String(req.user?.role || "").includes("슈퍼관리자");
+  const legacySuper = String(req.user?.role || "").includes("슈퍼페이지");
   if (sr === "hq_ops" || legacySuper) {
     return next();
   }
-  return res.status(403).json({ message: "본사 운영(hq_ops) 또는 슈퍼관리자 권한이 필요합니다." });
+  return res.status(403).json({ message: "본사 운영(hq_ops) 또는 슈퍼페이지 권한이 필요합니다." });
 }
 
 function adminRequired(req, res, next) {
@@ -621,6 +718,62 @@ function adminRequired(req, res, next) {
     return res.status(403).json({ message: "관리자 권한이 필요합니다." });
   }
   next();
+}
+
+function normalizeStageLabelForAuth(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return "회원";
+  if (value === "일반회원") return "회원";
+  if (value === "총판") return "LEVEL 1";
+  if (value === "파트너") return "LEVEL 2";
+  if (value === "팀장") return "LEVEL 3";
+  if (value === "본사") return "슈퍼페이지";
+  return value;
+}
+
+function getStageRank(raw) {
+  const stage = normalizeStageLabelForAuth(raw);
+  if (stage === "슈퍼페이지") return 1000;
+  if (stage === "본사 관리자") return 900;
+  if (stage === "본사 관계자") return 800;
+  if (stage === "회원") return 0;
+  const levelMatch = stage.match(/^LEVEL\s+(\d{1,2})$/i);
+  if (levelMatch) {
+    const num = Number(levelMatch[1]);
+    if (Number.isFinite(num) && num >= 1 && num <= 10) return 700 - num;
+  }
+  return 0;
+}
+
+function isDescendantByParentChain(targetId, ancestorId) {
+  const targetKey = String(targetId || "");
+  const ancestorKey = String(ancestorId || "");
+  const byId = new Map(
+    db.prepare("SELECT id, parent_user_ref FROM users").all().map((row) => [String(row.id), String(row.parent_user_ref || "").trim()])
+  );
+  const visited = new Set([targetKey]);
+  let cursor = byId.get(targetKey) || "";
+  while (cursor) {
+    if (cursor === ancestorKey) return true;
+    if (visited.has(cursor)) return false;
+    visited.add(cursor);
+    cursor = byId.get(cursor) || "";
+  }
+  return false;
+}
+
+function canActorModifyTarget(actorUser, targetUser, nextStageLabel) {
+  const actorSessionRole = String(actorUser?.session_role || "");
+  if (actorSessionRole === "hq_ops") return true;
+  if (actorSessionRole !== "sales") return false;
+  const actorId = String(actorUser?.id || "");
+  const targetId = String(targetUser?.id || "");
+  if (!actorId || !targetId || actorId === targetId) return false;
+  if (!isDescendantByParentChain(targetId, actorId)) return false;
+  const actorRank = getStageRank(actorUser?.stage_label);
+  const targetCurrentRank = getStageRank(targetUser?.stage_label);
+  const targetNextRank = getStageRank(nextStageLabel);
+  return actorRank > targetCurrentRank && actorRank > targetNextRank;
 }
 
 function getEscrowPolicy() {
@@ -641,6 +794,56 @@ function getEscrowPolicy() {
       Lv5: Number(policy.level_delay_hours_lv5 ?? 0),
     },
   };
+}
+
+function parseJsonSafe(value, fallback = {}) {
+  try {
+    return JSON.parse(String(value || ""));
+  } catch {
+    return fallback;
+  }
+}
+
+function getMarketCatalog({ includeInactive = false } = {}) {
+  const assets = db
+    .prepare(`
+      SELECT asset_code, display_name, asset_type, network, settlement_enabled, is_active, metadata_json, updated_at
+      FROM market_assets
+      ${includeInactive ? "" : "WHERE is_active = 1"}
+      ORDER BY asset_type ASC, asset_code ASC
+    `)
+    .all()
+    .map((row) => ({
+      assetCode: row.asset_code,
+      displayName: row.display_name,
+      assetType: row.asset_type,
+      network: row.network,
+      settlementEnabled: Boolean(row.settlement_enabled),
+      isActive: Boolean(row.is_active),
+      metadata: parseJsonSafe(row.metadata_json, {}),
+      updatedAt: row.updated_at,
+    }));
+  const markets = db
+    .prepare(`
+      SELECT market_key, market_type, offered_asset_code, requested_asset_code, settlement_asset_code,
+             escrow_adapter, status, metadata_json, updated_at
+      FROM market_catalog
+      ${includeInactive ? "" : "WHERE status = 'active'"}
+      ORDER BY market_key ASC
+    `)
+    .all()
+    .map((row) => ({
+      marketKey: row.market_key,
+      marketType: row.market_type,
+      offeredAssetCode: row.offered_asset_code,
+      requestedAssetCode: row.requested_asset_code,
+      settlementAssetCode: row.settlement_asset_code,
+      escrowAdapter: row.escrow_adapter,
+      status: row.status,
+      metadata: parseJsonSafe(row.metadata_json, {}),
+      updatedAt: row.updated_at,
+    }));
+  return { assets, markets };
 }
 
 function getOpsRuntimeState() {
@@ -957,7 +1160,7 @@ app.post("/api/auth/signup", (req, res) => {
   }
 
   const passwordHash = bcrypt.hashSync(password, 10);
-  const user = userRepo.create({ email, passwordHash, nickname, role: "일반회원", session_role: "user", sales_level: null });
+  const user = userRepo.create({ email, passwordHash, nickname, role: "회원", session_role: "user", sales_level: null });
   const finalMyReferralCode = myReferralCodeInput || generateDefaultReferralCode(user.id);
   db.prepare(`
     UPDATE users
@@ -1034,7 +1237,7 @@ app.post("/api/auth/google", async (req, res) => {
     email,
     passwordHash,
     nickname,
-    role: "일반회원",
+    role: "회원",
     session_role: "user",
     sales_level: null,
   });
@@ -1163,7 +1366,7 @@ app.post("/api/auth/wallet", (req, res) => {
     const exists = userRepo.findByEmail(finalEmail);
     if (exists) return res.status(409).json({ message: "이미 가입된 이메일입니다." });
     const passwordHash = bcrypt.hashSync(password, 10);
-    const user = userRepo.create({ email: finalEmail, passwordHash, nickname, role: "일반회원", session_role: "user", sales_level: null });
+    const user = userRepo.create({ email: finalEmail, passwordHash, nickname, role: "회원", session_role: "user", sales_level: null });
     let referredByUserId = null;
     let referredByCode = "";
     if (referralCodeInput) {
@@ -1816,9 +2019,17 @@ app.get("/api/features", authRequired, (_req, res) => {
   });
 });
 
+app.get("/api/markets/catalog", authRequired, (_req, res) => {
+  res.json(getMarketCatalog({ includeInactive: false }));
+});
+
 app.get("/api/admin/features", authRequired, adminRequired, (_req, res) => {
   const features = db.prepare("SELECT feature_key, enabled, updated_at FROM platform_features ORDER BY feature_key ASC").all();
   res.json({ features });
+});
+
+app.get("/api/admin/markets/catalog", authRequired, adminRequired, (_req, res) => {
+  res.json(getMarketCatalog({ includeInactive: true }));
 });
 
 app.get("/api/admin/webhook-events", authRequired, adminRequired, (req, res) => {
@@ -2206,6 +2417,91 @@ app.put("/api/admin/features", authRequired, superAdminRequired, (req, res) => {
   res.json({ features });
 });
 
+app.put("/api/admin/markets/catalog", authRequired, superAdminRequired, (req, res) => {
+  const assets = Array.isArray(req.body?.assets) ? req.body.assets : [];
+  const markets = Array.isArray(req.body?.markets) ? req.body.markets : [];
+  const validAssetTypes = new Set(["coin", "nft", "tokenized_asset", "point"]);
+  const validMarketTypes = new Set(["p2p", "mock", "spot"]);
+  const validStatuses = new Set(["active", "planned", "disabled"]);
+
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    const upsertAsset = db.prepare(`
+      INSERT INTO market_assets (
+        asset_code, display_name, asset_type, network, settlement_enabled, is_active, metadata_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(asset_code) DO UPDATE SET
+        display_name = excluded.display_name,
+        asset_type = excluded.asset_type,
+        network = excluded.network,
+        settlement_enabled = excluded.settlement_enabled,
+        is_active = excluded.is_active,
+        metadata_json = excluded.metadata_json,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+    for (const asset of assets) {
+      const assetCode = String(asset?.assetCode || "").trim().toUpperCase();
+      const displayName = String(asset?.displayName || "").trim();
+      const assetType = String(asset?.assetType || "coin").trim();
+      const network = String(asset?.network || "").trim();
+      const settlementEnabled = asset?.settlementEnabled ? 1 : 0;
+      const isActive = asset?.isActive === false ? 0 : 1;
+      if (!assetCode || !displayName) throw new Error(`invalid_asset:${assetCode || "empty"}`);
+      if (!validAssetTypes.has(assetType)) throw new Error(`invalid_asset_type:${assetType}`);
+      upsertAsset.run(assetCode, displayName, assetType, network, settlementEnabled, isActive, JSON.stringify(asset?.metadata || {}));
+    }
+
+    const upsertMarket = db.prepare(`
+      INSERT INTO market_catalog (
+        market_key, market_type, offered_asset_code, requested_asset_code, settlement_asset_code,
+        escrow_adapter, status, metadata_json, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(market_key) DO UPDATE SET
+        market_type = excluded.market_type,
+        offered_asset_code = excluded.offered_asset_code,
+        requested_asset_code = excluded.requested_asset_code,
+        settlement_asset_code = excluded.settlement_asset_code,
+        escrow_adapter = excluded.escrow_adapter,
+        status = excluded.status,
+        metadata_json = excluded.metadata_json,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+    for (const market of markets) {
+      const marketKey = String(market?.marketKey || "").trim();
+      const marketType = String(market?.marketType || "p2p").trim();
+      const offeredAssetCode = String(market?.offeredAssetCode || "").trim().toUpperCase();
+      const requestedAssetCode = String(market?.requestedAssetCode || "").trim().toUpperCase();
+      const settlementAssetCode = String(market?.settlementAssetCode || "").trim().toUpperCase();
+      const escrowAdapter = String(market?.escrowAdapter || "coin_escrow").trim();
+      const status = String(market?.status || "active").trim();
+      if (!marketKey || !offeredAssetCode || !requestedAssetCode) throw new Error(`invalid_market:${marketKey || "empty"}`);
+      if (!validMarketTypes.has(marketType)) throw new Error(`invalid_market_type:${marketType}`);
+      if (!validStatuses.has(status)) throw new Error(`invalid_market_status:${status}`);
+      upsertMarket.run(
+        marketKey,
+        marketType,
+        offeredAssetCode,
+        requestedAssetCode,
+        settlementAssetCode,
+        escrowAdapter,
+        status,
+        JSON.stringify(market?.metadata || {})
+      );
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    return res.status(400).json({ message: error?.message || "market_catalog_update_failed" });
+  }
+
+  sendAdminWebhook("market_catalog_updated", {
+    actorUserId: req.user.id,
+    assetsCount: assets.length,
+    marketsCount: markets.length,
+  });
+  res.json(getMarketCatalog({ includeInactive: true }));
+});
+
 app.patch("/api/admin/users/:id/role", authRequired, superAdminRequired, (req, res) => {
   const id = Number(req.params.id);
   const role = String(req.body?.role || "").trim();
@@ -2215,14 +2511,61 @@ app.patch("/api/admin/users/:id/role", authRequired, superAdminRequired, (req, r
   res.json({ user });
 });
 
-app.patch("/api/admin/users/:id/profile", authRequired, superAdminRequired, (req, res) => {
+app.patch("/api/admin/users/:id/profile", authRequired, (req, res) => {
+  if (ADMIN_SAFE_MODE) {
+    return res.status(503).json({ message: "관리자 안전모드가 활성화되어 변경 작업이 잠시 차단되었습니다." });
+  }
+  const actorId = Number(req.user?.id || 0);
+  const actorUser = actorId ? db.prepare("SELECT id, session_role, stage_label FROM users WHERE id = ?").get(actorId) : null;
+  if (!actorUser) return res.status(401).json({ message: "세션 사용자를 찾을 수 없습니다. 다시 로그인해 주세요." });
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ message: "유효한 사용자 ID가 필요합니다." });
-  const stageLabel = String(req.body?.stageLabel || "").trim();
+  const stageLabel = normalizeStageLabelForAuth(String(req.body?.stageLabel || "").trim());
   const parentUserRef = String(req.body?.parentUserRef || "").trim();
   const adminAssigned = Boolean(req.body?.adminAssigned);
-  const user = userRepo.updateAdminProfile(id, { stageLabel, parentUserRef, adminAssigned });
-  if (!user) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  const targetUser = db.prepare("SELECT id, stage_label FROM users WHERE id = ?").get(id);
+  if (!targetUser) return res.status(404).json({ message: "사용자를 찾을 수 없습니다." });
+  if (String(actorUser.id) === String(targetUser.id)) {
+    return res.status(400).json({ message: "본인 계정은 관리자 단계를 변경할 수 없습니다." });
+  }
+  if (!canActorModifyTarget(actorUser, targetUser, stageLabel)) {
+    return res.status(403).json({ message: "상위 레벨 관리자만 하위 회원의 승급/강등을 변경할 수 있습니다." });
+  }
+
+  const normalizedParent = parentUserRef ? String(Number(parentUserRef) || "").trim() : "";
+  if (normalizedParent && normalizedParent === String(id)) {
+    return res.status(400).json({ message: "자기 자신을 상위로 지정할 수 없습니다." });
+  }
+  if (normalizedParent) {
+    const parentExists = db.prepare("SELECT id FROM users WHERE id = ?").get(Number(normalizedParent));
+    if (!parentExists) return res.status(400).json({ message: "상위 회원 ID가 존재하지 않습니다." });
+    const visited = new Set([String(id)]);
+    let cursor = normalizedParent;
+    while (cursor) {
+      if (visited.has(cursor)) {
+        return res.status(400).json({ message: "순환 참조가 발생하여 저장할 수 없습니다." });
+      }
+      visited.add(cursor);
+      const next = db.prepare("SELECT parent_user_ref FROM users WHERE id = ?").get(Number(cursor));
+      cursor = String(next?.parent_user_ref || "").trim();
+    }
+  }
+
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare("UPDATE users SET stage_label = ?, parent_user_ref = ?, admin_assigned = ? WHERE id = ?").run(
+      stageLabel,
+      normalizedParent,
+      adminAssigned ? 1 : 0,
+      id
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    return res.status(500).json({ message: `관리자 변경 저장 실패: ${error?.message || "unknown_error"}` });
+  }
+
+  const user = userRepo.findPublicById(id);
   res.json({ user });
 });
 

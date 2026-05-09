@@ -37,6 +37,7 @@ export function deriveSessionProfile({
       lr.includes("본사")
       || lr.includes("운영관리자")
       || lr.includes("슈퍼관리자")
+      || lr.includes("슈퍼페이지")
       || lr.includes("관리자")
     ) {
       sessionRole = SESSION_ROLE.HQ_OPS;

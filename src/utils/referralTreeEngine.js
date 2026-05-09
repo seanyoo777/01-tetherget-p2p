@@ -1,4 +1,4 @@
-const DEFAULT_LEVEL = "일반회원";
+const DEFAULT_LEVEL = "회원";
 
 function asId(value) {
   return String(value ?? "").trim();

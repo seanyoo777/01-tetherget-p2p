@@ -6,14 +6,16 @@
  * - Assert that list/detail effective stage and stage summary stay aligned
  */
 
-const DEFAULT_SUMMARY = { 본사: 0, 총판: 0, 파트너: 0, 팀장: 0, 일반회원: 0 };
+const DEFAULT_SUMMARY = { 슈퍼페이지: 0, "본사 관리자": 0, "본사 관계자": 0, "LEVEL 1": 0, "LEVEL 2": 0, "LEVEL 3": 0, 회원: 0 };
 
 function createVirtualDownlineUsers(ownerId, count = 100) {
   const stageBuckets = [
-    { stage: "본사", size: 5 },
-    { stage: "총판", size: 15 },
-    { stage: "파트너", size: 30 },
-    { stage: "팀장", size: 50 },
+    { stage: "슈퍼페이지", size: 2 },
+    { stage: "본사 관리자", size: 3 },
+    { stage: "본사 관계자", size: 5 },
+    { stage: "LEVEL 1", size: 15 },
+    { stage: "LEVEL 2", size: 30 },
+    { stage: "LEVEL 3", size: 45 },
   ];
   const users = [];
   let cursor = 1;
@@ -34,13 +36,13 @@ function createVirtualDownlineUsers(ownerId, count = 100) {
 
 function getEffectiveStage(user, stageByUserId) {
   const override = String(stageByUserId[user.id] || "").trim();
-  return override || user.stageLabel || user.stage_label || "일반회원";
+  return override || user.stageLabel || user.stage_label || "회원";
 }
 
 function buildSummary(users, stageByUserId) {
   const summary = { ...DEFAULT_SUMMARY };
   for (const user of users) {
-    const stage = String(getEffectiveStage(user, stageByUserId) || "일반회원");
+    const stage = String(getEffectiveStage(user, stageByUserId) || "회원");
     if (!Object.prototype.hasOwnProperty.call(summary, stage)) summary[stage] = 0;
     summary[stage] += 1;
   }
@@ -97,9 +99,9 @@ function main() {
   const users = createVirtualDownlineUsers(ownerId, 100);
 
   const reports = [
-    runScenario("본사->총판", users, "본사", "총판", "VD-004"),
-    runScenario("총판->파트너", users, "총판", "파트너", "VD-010"),
-    runScenario("파트너->총판(역변경)", users, "파트너", "총판", "VD-040"),
+    runScenario("LEVEL1->LEVEL2", users, "LEVEL 1", "LEVEL 2", "VD-012"),
+    runScenario("LEVEL2->LEVEL3", users, "LEVEL 2", "LEVEL 3", "VD-030"),
+    runScenario("LEVEL3->LEVEL1(역변경)", users, "LEVEL 3", "LEVEL 1", "VD-060"),
   ];
 
   for (const report of reports) {

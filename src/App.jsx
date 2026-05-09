@@ -12,6 +12,37 @@ import {
   validateTreeIntegrity,
 } from "./utils/referralTreeEngine";
 
+const ADMIN_STAGE_LABEL = Object.freeze({
+  SUPER_PAGE: "슈퍼페이지",
+  HQ_ADMIN: "본사 관리자",
+  HQ_STAFF: "본사 관계자",
+  MEMBER: "회원",
+});
+
+const SALES_LEVEL_STAGES = Object.freeze(Array.from({ length: 10 }, (_, i) => `LEVEL ${i + 1}`));
+
+const STAGE_ALIASES = Object.freeze({
+  "일반회원": ADMIN_STAGE_LABEL.MEMBER,
+  "본사": ADMIN_STAGE_LABEL.SUPER_PAGE,
+  "팀장": SALES_LEVEL_STAGES[2],
+  "파트너": SALES_LEVEL_STAGES[1],
+  "총판": SALES_LEVEL_STAGES[0],
+});
+
+const ADMIN_STAGE_OPTIONS = Object.freeze([
+  ADMIN_STAGE_LABEL.MEMBER,
+  ...SALES_LEVEL_STAGES,
+  ADMIN_STAGE_LABEL.HQ_STAFF,
+  ADMIN_STAGE_LABEL.HQ_ADMIN,
+  ADMIN_STAGE_LABEL.SUPER_PAGE,
+]);
+
+function normalizeStageLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return ADMIN_STAGE_LABEL.MEMBER;
+  return STAGE_ALIASES[raw] || raw;
+}
+
 const orders = [
   { id: 1, seller: "TG-Seller01", coin: "USDT", price: 1392, amount: 1200, limit: "100 ~ 1,200 USDT", method: "KRW", release: "구매확인 후 자동 릴리즈", level: "Lv.4", trust: 96, trades: 1280, featured: true, category: "코인↔통화" },
   { id: 2, seller: "SafeTrade88", coin: "USDT", price: 1395, amount: 5200, limit: "500 ~ 5,200 USDT", method: "USD", release: "24시간 지연 릴리즈", level: "Lv.3", trust: 91, trades: 760, featured: true, category: "코인↔통화" },
@@ -55,8 +86,8 @@ const fakeUsers = Array.from({ length: 100 }, (_, i) => {
 
 const currentAdminProfile = {
   id: "HQ-ADMIN-001",
-  nickname: "본사관리자",
-  role: "본사 슈퍼관리자",
+  nickname: "슈퍼페이지 관리자",
+  role: "슈퍼페이지 관리자",
   email: "hq@tetherget.com",
   wallet: "HQxA2...0001",
   permission: "전체 회원 · 전체 거래 · 전체 정산 · 전체 하부트리",
@@ -235,8 +266,8 @@ const KO_TO_EN_MAP = {
   "입금대기": "Awaiting deposit",
   "증빙확인": "Proof checking",
   "비로그인": "Logged out",
-  "슈퍼관리자": "Super Admin",
-  "본사 슈퍼관리자": "HQ Super Admin",
+  "슈퍼관리자": "Super Page Admin",
+  "본사 슈퍼관리자": "Super Page Admin",
   "아직 연결된 계정 없음": "No linked account yet",
   "거래 대시보드": "Trading Dashboard",
   "판매등록": "Register Sale",
@@ -262,7 +293,7 @@ const KO_TO_EN_MAP = {
   "로그 보기": "View Logs",
   "오류": "Error",
   "안전거래 회원": "Safe-trade member",
-  "일반회원": "General member",
+  "일반회원": "Member",
   "이메일 계정": "Email account",
   "구글 계정": "Google account",
   "팬텀 지갑": "Phantom wallet",
@@ -339,7 +370,7 @@ const KO_TO_EN_MAP = {
   "신분증 파일과 계좌증빙 파일을 모두 선택하세요.": "Select both ID file and bank proof file.",
   "KYC 서류 제출 완료 · 회사 심사대기": "KYC document submitted · waiting for company review.",
   "기간 필터를 초기화했습니다.": "Date filter has been reset.",
-  "슈퍼관리자 권한이 필요합니다.": "Super Admin permission is required.",
+  "슈퍼관리자 권한이 필요합니다.": "Super Page permission is required.",
   "유효한 배분율을 입력하세요.": "Enter a valid distribution rate.",
   "인증 토큰이 없습니다. 다시 로그인하세요.": "No auth token found. Please log in again.",
   "열람 사유를 5자 이상 입력하세요.": "Enter a viewing reason of at least 5 characters.",
@@ -830,8 +861,8 @@ const defaultAuthUsers = [
     id: "AUTH-ADMIN-001",
     email: "admin@tetherget.com",
     password: "admin1234",
-    nickname: "본사관리자",
-    role: "본사 슈퍼관리자",
+    nickname: "슈퍼페이지 관리자",
+    role: "슈퍼페이지 관리자",
     session_role: "hq_ops",
     sales_level: null,
     createdAt: "2026-05-01",
@@ -840,8 +871,8 @@ const defaultAuthUsers = [
     id: "AUTH-SALES-001",
     email: "sales@tetherget.com",
     password: "sales1234",
-    nickname: "영업테스트",
-    role: "영업관리자",
+    nickname: "LEVEL1 영업관리자",
+    role: "영업관리자 LEVEL 1",
     session_role: "sales",
     sales_level: 1,
     createdAt: "2026-05-02",
@@ -851,7 +882,7 @@ const defaultAuthUsers = [
 function mapAuthUserToMember(user, index) {
   const numericId = Number(user?.id || index + 1);
   const safeNum = Number.isFinite(numericId) ? numericId : index + 1;
-  const parentRef = String(user?.parent_user_ref || user?.parentUserRef || user?.referred_by_code || "본사");
+  const parentRef = String(user?.parent_user_ref || user?.parentUserRef || user?.referred_by_code || ADMIN_STAGE_LABEL.SUPER_PAGE);
   const receivedRate = 50;
   const childRate = 45;
   return {
@@ -878,7 +909,7 @@ function mapAuthUserToMember(user, index) {
     joined: String(user?.created_at || "2026-05-01"),
     stageLabel: String(user?.stage_label || user?.stageLabel || ""),
     adminAssigned: Boolean(user?.admin_assigned ?? user?.adminAssigned),
-    role: String(user?.role || "일반회원"),
+    role: String(user?.role || "회원"),
     session_role: user?.session_role,
     sales_level: user?.sales_level,
   };
@@ -886,10 +917,12 @@ function mapAuthUserToMember(user, index) {
 
 function createVirtualDownlineUsers(ownerId, count = 200) {
   const stageBuckets = [
-    { stage: "본사", size: 5, receivedRate: 50, childRate: 45 },
-    { stage: "총판", size: 15, receivedRate: 45, childRate: 40 },
-    { stage: "파트너", size: 30, receivedRate: 40, childRate: 35 },
-    { stage: "팀장", size: 50, receivedRate: 35, childRate: 30 },
+    { stage: ADMIN_STAGE_LABEL.SUPER_PAGE, size: 2, receivedRate: 50, childRate: 45 },
+    { stage: ADMIN_STAGE_LABEL.HQ_ADMIN, size: 3, receivedRate: 48, childRate: 44 },
+    { stage: ADMIN_STAGE_LABEL.HQ_STAFF, size: 5, receivedRate: 46, childRate: 42 },
+    { stage: SALES_LEVEL_STAGES[0], size: 15, receivedRate: 45, childRate: 40 },
+    { stage: SALES_LEVEL_STAGES[1], size: 30, receivedRate: 40, childRate: 35 },
+    { stage: SALES_LEVEL_STAGES[2], size: 50, receivedRate: 35, childRate: 30 },
   ];
   const users = [];
   let cursor = 1;
@@ -921,7 +954,7 @@ function createVirtualDownlineUsers(ownerId, count = 200) {
         stageLabel: bucket.stage,
         adminAssigned: false,
         admin_assigned: false,
-        role: "일반회원",
+        role: "회원",
       });
     }
   }
@@ -1035,7 +1068,7 @@ export default function App() {
   const [adminParent, setAdminParent] = useState("TG777");
   const [adminReceivedRate, setAdminReceivedRate] = useState("50");
   const [adminRate, setAdminRate] = useState("45");
-  const [adminMemo, setAdminMemo] = useState("본사 → 총판 → 하위 파트너 구조");
+  const [adminMemo, setAdminMemo] = useState("슈퍼페이지 → 본사 관리자/관계자 → LEVEL 1~10 구조");
   const [adminUserSearch, setAdminUserSearch] = useState("");
   const [selectedAdminUser, setSelectedAdminUser] = useState(null);
   const [selectedChildUser, setSelectedChildUser] = useState(null);
@@ -1063,7 +1096,7 @@ export default function App() {
   const [linkedWallet, setLinkedWallet] = useState("");
   const [linkedReferral, setLinkedReferral] = useState("");
   const [mergeStatus, setMergeStatus] = useState("아직 연결된 계정 없음");
-  const [currentRole, setCurrentRole] = useState("일반회원");
+  const [currentRole, setCurrentRole] = useState("회원");
   const [language, setLanguage] = useState("KR");
   const [friends, setFriends] = useState(initialFriends);
   const [selectedFriendId, setSelectedFriendId] = useState(initialFriends[0].id);
@@ -1187,7 +1220,7 @@ export default function App() {
   }), [currentRole, linkedGoogle, meAuthUser]);
 
   const canAccessAdmin = sessionProfile.sessionRole === SESSION_ROLE.SALES;
-  const isSuperAdmin = currentRole.includes("슈퍼관리자");
+  const isSuperAdmin = sessionProfile.allowDestructiveAdminWrite || sessionProfile.sessionRole === SESSION_ROLE.HQ_OPS;
   const currentAdminActorId = useMemo(() => {
     const matched = authUsers.find((user) => user.email === linkedGoogle);
     return matched?.id || authUsers[0]?.id || 1;
@@ -1479,7 +1512,7 @@ export default function App() {
     setAuthRefreshToken(loginData?.refreshToken || "");
     setLoggedIn(true);
     setAccountType("이메일 계정");
-    setCurrentRole(user.role || "일반회원");
+    setCurrentRole(user.role || "회원");
     setNickname(user.nickname || "회원");
     setLinkedGoogle(user.email || fallbackEmail || "");
     setLinkedReferral(user.referred_by_code || "");
@@ -1526,7 +1559,7 @@ export default function App() {
         setAuthRefreshToken(signupData.refreshToken || "");
         setLoggedIn(true);
         setAccountType("이메일 계정");
-        setCurrentRole(user.role || "일반회원");
+        setCurrentRole(user.role || "회원");
         setNickname(user.nickname || "회원");
         setLinkedGoogle(user.email || email);
         setLinkedReferral(user.referred_by_code || referralInput || "");
@@ -1546,7 +1579,7 @@ export default function App() {
   function applyAuthSuccess(authData, fallbackEmail = "") {
     const user = authData?.user || {};
     const profile = deriveSessionProfile({
-      legacyRole: user.role || "일반회원",
+      legacyRole: user.role || "회원",
       email: user.email || fallbackEmail || "",
       sessionRoleHint: user.session_role || null,
       salesLevel: user.sales_level ?? null,
@@ -1558,7 +1591,7 @@ export default function App() {
     setAuthToken(authData?.accessToken || authData?.token || "");
     setAuthRefreshToken(authData?.refreshToken || "");
     setLoggedIn(true);
-    setCurrentRole(user.role || "일반회원");
+    setCurrentRole(user.role || "회원");
     setNickname(user.nickname || "회원");
     setLinkedGoogle(user.email || fallbackEmail || "");
     setLinkedReferral(user.referred_by_code || referralInput || "");
@@ -2072,7 +2105,7 @@ export default function App() {
       setAuthRefreshToken("");
       setLoggedIn(true);
       setAccountType("테스트 로컬 계정");
-      setCurrentRole(localUser.role || "일반회원");
+      setCurrentRole(localUser.role || "회원");
       setNickname(localUser.nickname || "회원");
       setLinkedGoogle(localUser.email || emailValue);
       setLinkedReferral(localUser.referred_by_code || "");
@@ -2117,6 +2150,20 @@ export default function App() {
           <button onClick={quickAutoTestLogin} className={`mb-2 w-full rounded-2xl px-5 py-4 text-sm font-black ${t.main}`}>
             아이디 입력 없이 바로 테스트 로그인
           </button>
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => quickTestLogin((authUsers || []).find((u) => String(u.email || "").toLowerCase() === "sales@tetherget.com"))}
+              className={`rounded-2xl px-4 py-3 text-sm font-black ${t.main}`}
+            >
+              영업 테스트 로그인
+            </button>
+            <button
+              onClick={handleGoogleClickLogin}
+              className={`rounded-2xl border px-4 py-3 text-sm font-black ${t.input}`}
+            >
+              Google 클릭 로그인
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setAuthTab("login")}
@@ -2175,6 +2222,7 @@ export default function App() {
           <div className={`rounded-2xl border p-3 text-xs ${t.cardSoft}`}>
             기본 관리자 계정: <b>admin@tetherget.com / admin1234</b>
           </div>
+          {false && (
           <div className={`rounded-2xl border p-3 ${t.cardSoft}`}>
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-black">테스트 로그인 (검색)</div>
@@ -2223,7 +2271,7 @@ export default function App() {
                       {loginRecentIds.includes(String(user.id || "")) && (
                         <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] text-white">최근</span>
                       )}
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] ${t.card}`}>{user.role || "일반회원"}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] ${t.card}`}>{user.role || "회원"}</span>
                     </div>
                   </div>
                   <div className={`mt-0.5 text-[11px] ${t.subtext}`}>{user.email || "-"}</div>
@@ -2231,6 +2279,9 @@ export default function App() {
               ))}
             </div>
           </div>
+          )}
+          {false && (
+          <>
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() => setLoginMode("google")}
@@ -2383,6 +2434,8 @@ export default function App() {
               가입 시 닉네임은 고유값으로 저장됩니다. 지갑으로 먼저 가입한 뒤 지메일을 추가하면, 다음 로그인에서 지메일/지갑 둘 다 같은 계정으로 인식됩니다. 레퍼럴/회원관리 데이터도 동일 계정으로 유지됩니다.
             </div>
           </div>
+          </>
+          )}
         </Modal>
       )}
 
@@ -2631,7 +2684,7 @@ export default function App() {
                 setLoggedIn(false);
                 setAuthToken("");
                 setAuthRefreshToken("");
-                setCurrentRole("일반회원");
+                setCurrentRole("회원");
                 setMergeStatus("로그아웃됨");
                 notify("Logout complete");
               }} className={`rounded-xl border px-4 py-2 text-sm font-bold ${t.input}`}>{lang.logout}</button>
@@ -2775,7 +2828,7 @@ export default function App() {
 function Modal({ title, desc, onClose, theme, children }) {
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 px-4">
-      <div className={`w-full max-w-lg rounded-3xl border p-6 shadow-2xl ${theme.card}`}>
+      <div className={`w-full max-w-md rounded-3xl border p-4 shadow-2xl ${theme.card}`}>
         <div className="flex items-start justify-between gap-4">
           <div><div className="text-2xl font-black">{title}</div><div className={`mt-1 text-sm ${theme.subtext}`}>{desc}</div></div>
           <button onClick={onClose} className={`rounded-xl border px-3 py-2 text-sm font-black whitespace-nowrap ${theme.input}`}>닫기</button>
@@ -3573,6 +3626,10 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [rollbackReason, setRollbackReason] = useState("");
   const [rollbackConfirmText, setRollbackConfirmText] = useState("");
   const [opsSnapshotLoading, setOpsSnapshotLoading] = useState(false);
+  const [marketCatalogLoading, setMarketCatalogLoading] = useState(false);
+  const [marketCatalogSaving, setMarketCatalogSaving] = useState(false);
+  const [marketAssets, setMarketAssets] = useState([]);
+  const [marketCatalog, setMarketCatalog] = useState([]);
   const [emergencyState, setEmergencyState] = useState({
     emergencyMode: false,
     emergencyReason: "",
@@ -3589,7 +3646,6 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [childInlineRates, setChildInlineRates] = useState({});
   const [monitorPath, setMonitorPath] = useState([]);
   const [userRateOverrides, setUserRateOverrides] = useState({});
-  const [userStageOverrides, setUserStageOverrides] = useState({});
   const [stageByUserId, setStageByUserId] = useState({});
   const [virtualDownlineUsers, setVirtualDownlineUsers] = useState(() => createVirtualDownlineUsers(currentAdminActorId, 200));
   const [userParentOverrides, setUserParentOverrides] = useState({});
@@ -3627,7 +3683,6 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       return next;
     };
     setStageByUserId(stripVirtualKeys);
-    setUserStageOverrides(stripVirtualKeys);
   }, [currentAdminActorId]);
 
   useEffect(() => {
@@ -3647,9 +3702,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     const source = [...authMapped, ...virtualDownlineUsers];
     const defaultStageFromRole = (user) => {
       const roleText = String(user?.role || "");
-      if (roleText.includes("슈퍼관리자")) return "본사";
-      if (roleText.includes("운영관리자") || roleText.includes("관리자")) return "팀장";
-      return "일반회원";
+      if (roleText.includes("슈퍼관리자")) return ADMIN_STAGE_LABEL.SUPER_PAGE;
+      if (roleText.includes("운영관리자") || roleText.includes("관리자")) return ADMIN_STAGE_LABEL.HQ_ADMIN;
+      return ADMIN_STAGE_LABEL.MEMBER;
     };
     const effectiveParentOf = (candidate) =>
       userParentOverrides[candidate.id] != null ? userParentOverrides[candidate.id] : candidate.parent;
@@ -3658,14 +3713,10 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       const idKey = String(user.id);
       const fromApi = [user.stage_label, user.stageLabel].map((s) => String(s || "").trim()).find(Boolean);
       const byRuntimeMap = String(stageByUserId[idKey] || "").trim();
-      const mergedStage =
-        byRuntimeMap ||
-        (userStageOverrides[idKey] != null && String(userStageOverrides[idKey]).trim()
-          ? String(userStageOverrides[idKey]).trim()
-          : fromApi || defaultStageFromRole(user));
+      const mergedStage = normalizeStageLabel(byRuntimeMap || fromApi || defaultStageFromRole(user));
       return { ...user, stageLabel: mergedStage, stage_label: mergedStage, children: childCount };
     });
-  }, [authUsers, virtualDownlineUsers, userStageOverrides, stageByUserId, userParentOverrides]);
+  }, [authUsers, virtualDownlineUsers, stageByUserId, userParentOverrides]);
   const summaryScopeUsers = useMemo(
     () => memberUsers.filter((u) => String(u.id) !== String(currentAdminActorId)),
     [memberUsers, currentAdminActorId]
@@ -3693,8 +3744,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       .slice(0, 14);
   }, [summaryScopeUsers, hierarchyQuickSearch]);
   const engineUsers = useMemo(
-    () => summaryScopeUsers.map((u) => ({ ...u, level: getEffectiveStage(u), parentId: getEffectiveParent(u) })),
-    [summaryScopeUsers, stageByUserId, userParentOverrides]
+    () => memberUsers.map((u) => ({ ...u, level: getEffectiveStage(u), parentId: getEffectiveParent(u) })),
+    [memberUsers, stageByUserId, userParentOverrides]
   );
   const referralTree = useMemo(() => buildReferralTree(engineUsers), [engineUsers]);
   const downlineStageSummary = useMemo(() => getLevelCounts(engineUsers), [engineUsers]);
@@ -3702,9 +3753,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const treeIntegrity = useMemo(() => validateTreeIntegrity(engineUsers), [engineUsers]);
   const stageSummaryHealth = useMemo(() => {
     const total = Object.values(downlineStageSummary).reduce((acc, count) => acc + Number(count || 0), 0);
-    const expected = summaryScopeUsers.length;
+    const expected = engineUsers.length;
     return { total, expected, mismatch: total !== expected };
-  }, [downlineStageSummary, summaryScopeUsers.length]);
+  }, [downlineStageSummary, engineUsers.length]);
   const visibleUsers = useMemo(() => {
     const stageUsers = memberStageFilter === "전체"
       ? searchableUsers
@@ -3733,17 +3784,46 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
 
   function getDefaultStage(user) {
     const roleText = String(user?.role || "");
-    if (roleText.includes("슈퍼관리자")) return "본사";
-    if (roleText.includes("운영관리자") || roleText.includes("관리자")) return "팀장";
-    return "일반회원";
+    if (roleText.includes("슈퍼관리자")) return ADMIN_STAGE_LABEL.SUPER_PAGE;
+    if (roleText.includes("운영관리자") || roleText.includes("관리자")) return ADMIN_STAGE_LABEL.HQ_ADMIN;
+    return ADMIN_STAGE_LABEL.MEMBER;
   }
 
   function getEffectiveStage(user) {
-    if (!user) return "일반회원";
+    if (!user) return ADMIN_STAGE_LABEL.MEMBER;
     const idKey = String(user.id || "");
     const staged = String(stageByUserId[idKey] || "").trim();
-    if (staged) return staged;
-    return user.stageLabel || user.stage_label || getDefaultStage(user);
+    if (staged) return normalizeStageLabel(staged);
+    return normalizeStageLabel(user.stageLabel || user.stage_label || getDefaultStage(user));
+  }
+
+  function getStageRank(stageLabel) {
+    const normalized = normalizeStageLabel(stageLabel);
+    if (normalized === ADMIN_STAGE_LABEL.SUPER_PAGE) return 1000;
+    if (normalized === ADMIN_STAGE_LABEL.HQ_ADMIN) return 900;
+    if (normalized === ADMIN_STAGE_LABEL.HQ_STAFF) return 800;
+    if (normalized === ADMIN_STAGE_LABEL.MEMBER) return 0;
+    const match = normalized.match(/^LEVEL\s+(\d{1,2})$/i);
+    if (match) {
+      const levelNo = Number(match[1]);
+      if (Number.isFinite(levelNo) && levelNo >= 1 && levelNo <= 10) {
+        return 700 - levelNo;
+      }
+    }
+    return 0;
+  }
+
+  function canActorControlTargetLevel(targetUser, nextLevel) {
+    if (!targetUser) return false;
+    if (isSuperAdmin) return true;
+    const actor = memberUsers.find((u) => String(u.id) === String(currentAdminActorId));
+    if (!actor) return false;
+    const isDownlineTarget = getAllDownlines(actor.id, memberUsers).some((u) => String(u.id) === String(targetUser.id));
+    if (!isDownlineTarget) return false;
+    const actorRank = getStageRank(getEffectiveStage(actor));
+    const targetRank = getStageRank(getEffectiveStage(targetUser));
+    const nextRank = getStageRank(nextLevel);
+    return actorRank > targetRank && actorRank > nextRank;
   }
 
   function isAdminAssignedUser(user) {
@@ -3982,6 +4062,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     const targetId = String(userId || "");
     const nextLevel = String(newLevel || "").trim();
     if (!targetId || !nextLevel) return false;
+    const prevStageMap = { ...stageByUserId };
     const nextUsers = updateUserLevel(targetId, nextLevel, memberUsers);
     const nextStats = recalculateAdminStats(nextUsers);
     const nextIntegrity = validateTreeIntegrity(nextUsers);
@@ -3991,10 +4072,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
 
     const nextStageMap = {};
     for (const user of nextUsers) {
-      const level = String(user.level || user.stageLabel || user.stage_label || "일반회원").trim() || "일반회원";
+      const level = normalizeStageLabel(String(user.level || user.stageLabel || user.stage_label || ADMIN_STAGE_LABEL.MEMBER).trim());
       nextStageMap[String(user.id)] = level;
     }
-    setUserStageOverrides(nextStageMap);
     setStageByUserId(nextStageMap);
 
     setVirtualDownlineUsers((prev) =>
@@ -4015,8 +4095,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     setStageConfirmOpen(false);
     setStageConfirmTarget("");
 
-    const shouldPersist = options.persist !== false && !targetId.startsWith("VD-");
+    const requestedPersist = options.persist !== false;
+    const isVirtualTarget = targetId.startsWith("VD-");
+    const canPersistRealUser = Boolean(isSuperAdmin);
+    const shouldPersist = requestedPersist && !isVirtualTarget && canPersistRealUser;
     if (!shouldPersist) {
+      if (requestedPersist && !isVirtualTarget && !canPersistRealUser) {
+        notify("실제 회원 단계 저장은 본사 계정만 가능합니다. 현재 변경은 로컬 시뮬레이션으로 반영됩니다.");
+      }
       appendAdminAction?.(`단계 변경(로컬): ${targetId} -> ${nextLevel}`);
       notify(`단계 적용됨: ${targetUser.nickname} -> ${nextLevel}`);
       return true;
@@ -4029,7 +4115,22 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       adminAssigned: isAdminAssignedUser(targetUser),
     });
     if (!ok) {
-      notify("단계 저장 실패: 다시 시도하세요.");
+      setStageByUserId(prevStageMap);
+      const rollbackVirtualUsers = updateUserLevel(targetId, prevStageMap[targetId] || "", nextUsers);
+      setVirtualDownlineUsers((prev) =>
+        prev.map((u) => {
+          const restored = rollbackVirtualUsers.find((ru) => String(ru.id) === String(u.id));
+          if (!restored) return u;
+          const level = normalizeStageLabel(String(restored.level || restored.stageLabel || restored.stage_label || u.level || "").trim());
+          return { ...u, level, stageLabel: level, stage_label: level };
+        })
+      );
+      setSelectedAdminUser((prev) => {
+        if (!prev || String(prev.id) !== targetId) return prev;
+        const restoredLevel = normalizeStageLabel(String(prevStageMap[targetId] || prev.level || prev.stageLabel || prev.stage_label || "").trim());
+        return { ...prev, level: restoredLevel, stageLabel: restoredLevel, stage_label: restoredLevel };
+      });
+      notify("단계 저장 실패: 변경을 되돌렸습니다. 다시 시도하세요.");
       return false;
     }
     appendAdminAction?.(
@@ -4116,14 +4217,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       notify("본인 계정의 단계는 변경할 수 없습니다.");
       return;
     }
-    if (!isSuperAdmin && !isVirtualUser) {
-      notify("슈퍼관리자 권한이 필요합니다.");
-      return;
-    }
     const fromSelect = String(stageSelectionValue || "").trim();
-    const nextStage = fromSelect || getEffectiveStage(monitorCurrentUser);
+    const nextStage = normalizeStageLabel(fromSelect || getEffectiveStage(monitorCurrentUser));
     if (!nextStage) {
       notify("적용할 단계를 선택하세요.");
+      return;
+    }
+    if (!isVirtualUser && !canActorControlTargetLevel(monitorCurrentUser, nextStage)) {
+      notify("상위 레벨 관리자만 자신의 하위 회원 단계를 승급/강등할 수 있습니다.");
       return;
     }
     const targetId = String(monitorCurrentUser.id);
@@ -4578,6 +4679,120 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
   }
 
+  async function loadMarketCatalog() {
+    try {
+      setMarketCatalogLoading(true);
+      const data = await apiClient.request("/api/admin/markets/catalog", { auth: true });
+      const assets = Array.isArray(data?.assets) ? data.assets : [];
+      const markets = Array.isArray(data?.markets) ? data.markets : [];
+      setMarketAssets(assets);
+      setMarketCatalog(markets);
+    } catch (error) {
+      notify(error.message || "마켓 카탈로그 조회에 실패했습니다.");
+    } finally {
+      setMarketCatalogLoading(false);
+    }
+  }
+
+  async function saveMarketCatalog() {
+    const assets = Array.isArray(marketAssets) ? marketAssets : [];
+    const markets = Array.isArray(marketCatalog) ? marketCatalog : [];
+    if (!Array.isArray(assets) || !Array.isArray(markets)) {
+      notify("assets와 markets는 배열(Array) 형식이어야 합니다.");
+      return;
+    }
+    const seenAssetCodes = new Set();
+    for (const asset of assets) {
+      const code = String(asset?.assetCode || "").trim().toUpperCase();
+      const name = String(asset?.displayName || "").trim();
+      if (!code || !name) {
+        notify("assets의 assetCode/displayName은 필수입니다.");
+        return;
+      }
+      if (seenAssetCodes.has(code)) {
+        notify(`중복 assetCode: ${code}`);
+        return;
+      }
+      seenAssetCodes.add(code);
+    }
+    const seenMarketKeys = new Set();
+    for (const market of markets) {
+      const key = String(market?.marketKey || "").trim();
+      const offered = String(market?.offeredAssetCode || "").trim().toUpperCase();
+      const requested = String(market?.requestedAssetCode || "").trim().toUpperCase();
+      if (!key || !offered || !requested) {
+        notify("markets의 marketKey/offeredAssetCode/requestedAssetCode는 필수입니다.");
+        return;
+      }
+      if (seenMarketKeys.has(key)) {
+        notify(`중복 marketKey: ${key}`);
+        return;
+      }
+      seenMarketKeys.add(key);
+    }
+    try {
+      setMarketCatalogSaving(true);
+      await apiClient.request("/api/admin/markets/catalog", {
+        method: "PUT",
+        auth: true,
+        body: JSON.stringify({ assets, markets }),
+      });
+      notify("마켓 카탈로그가 저장되었습니다.");
+      await loadMarketCatalog();
+    } catch (error) {
+      notify(error.message || "마켓 카탈로그 저장에 실패했습니다.");
+    } finally {
+      setMarketCatalogSaving(false);
+    }
+  }
+
+  function updateAssetRow(index, key, value) {
+    setMarketAssets((prev) => prev.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
+  }
+
+  function updateMarketRow(index, key, value) {
+    setMarketCatalog((prev) => prev.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
+  }
+
+  function addAssetRow() {
+    setMarketAssets((prev) => ([
+      ...prev,
+      {
+        assetCode: "",
+        displayName: "",
+        assetType: "coin",
+        network: "",
+        settlementEnabled: false,
+        isActive: true,
+        metadata: {},
+      },
+    ]));
+  }
+
+  function addMarketRow() {
+    setMarketCatalog((prev) => ([
+      ...prev,
+      {
+        marketKey: "",
+        marketType: "p2p",
+        offeredAssetCode: "",
+        requestedAssetCode: "",
+        settlementAssetCode: "",
+        escrowAdapter: "coin_escrow",
+        status: "planned",
+        metadata: {},
+      },
+    ]));
+  }
+
+  function removeAssetRow(index) {
+    setMarketAssets((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function removeMarketRow(index) {
+    setMarketCatalog((prev) => prev.filter((_, i) => i !== index));
+  }
+
   async function createOpsSnapshot() {
     if (!opsSnapshotReason || opsSnapshotReason.length < 5) {
       notify("스냅샷 사유를 5자 이상 입력하세요.");
@@ -4884,6 +5099,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     loadRecentReportHashes();
     loadOpsRiskSummary();
     loadOpsSnapshots();
+    loadMarketCatalog();
     loadEmergencyState();
   }, []);
 
@@ -5161,6 +5377,83 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">확장형 마켓 카탈로그 (코인/NFT)</div>
+              <div className={`text-xs ${theme.muted}`}>현재는 결제 코인 중심으로 운영하고, NFT 등은 planned 상태로 확장할 수 있습니다.</div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={loadMarketCatalog} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                {marketCatalogLoading ? "조회중..." : "카탈로그 새로고침"}
+              </button>
+              <button
+                onClick={saveMarketCatalog}
+                disabled={!isSuperAdmin || marketCatalogSaving}
+                className={`rounded-xl border px-3 py-2 text-xs font-black ${isSuperAdmin ? theme.main : theme.input}`}
+              >
+                {marketCatalogSaving ? "저장중..." : "카탈로그 저장"}
+              </button>
+            </div>
+          </div>
+          <div className={`mb-2 text-[11px] ${theme.muted}`}>자산/마켓을 행 단위로 수정한 뒤 저장하세요. (코인 active, NFT planned 권장)</div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <div className={`rounded-xl border p-2 ${theme.input}`}>
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-xs font-black">Assets</div>
+                <button onClick={addAssetRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ asset</button>
+              </div>
+              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                {marketAssets.map((asset, index) => (
+                  <div key={`asset-${index}`} className={`rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
+                    <div className="grid gap-1 md:grid-cols-2">
+                      <input value={asset.assetCode || ""} onChange={(e) => updateAssetRow(index, "assetCode", e.target.value.toUpperCase())} placeholder="assetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
+                      <input value={asset.displayName || ""} onChange={(e) => updateAssetRow(index, "displayName", e.target.value)} placeholder="displayName" className={`rounded border px-2 py-1 ${theme.input}`} />
+                      <select value={asset.assetType || "coin"} onChange={(e) => updateAssetRow(index, "assetType", e.target.value)} className={`rounded border px-2 py-1 ${theme.input}`}>
+                        <option value="coin">coin</option><option value="nft">nft</option><option value="tokenized_asset">tokenized_asset</option><option value="point">point</option>
+                      </select>
+                      <input value={asset.network || ""} onChange={(e) => updateAssetRow(index, "network", e.target.value)} placeholder="network" className={`rounded border px-2 py-1 ${theme.input}`} />
+                    </div>
+                    <div className="mt-1 flex items-center gap-3">
+                      <label className="flex items-center gap-1"><input type="checkbox" checked={Boolean(asset.settlementEnabled)} onChange={(e) => updateAssetRow(index, "settlementEnabled", e.target.checked)} />settlement</label>
+                      <label className="flex items-center gap-1"><input type="checkbox" checked={asset.isActive !== false} onChange={(e) => updateAssetRow(index, "isActive", e.target.checked)} />active</label>
+                      <button onClick={() => removeAssetRow(index)} className="rounded border px-2 py-1 text-[11px] font-black text-red-400">삭제</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className={`rounded-xl border p-2 ${theme.input}`}>
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-xs font-black">Markets</div>
+                <button onClick={addMarketRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ market</button>
+              </div>
+              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                {marketCatalog.map((market, index) => (
+                  <div key={`market-${index}`} className={`rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
+                    <div className="grid gap-1 md:grid-cols-2">
+                      <input value={market.marketKey || ""} onChange={(e) => updateMarketRow(index, "marketKey", e.target.value)} placeholder="marketKey" className={`rounded border px-2 py-1 ${theme.input}`} />
+                      <select value={market.marketType || "p2p"} onChange={(e) => updateMarketRow(index, "marketType", e.target.value)} className={`rounded border px-2 py-1 ${theme.input}`}>
+                        <option value="p2p">p2p</option><option value="mock">mock</option><option value="spot">spot</option>
+                      </select>
+                      <input value={market.offeredAssetCode || ""} onChange={(e) => updateMarketRow(index, "offeredAssetCode", e.target.value.toUpperCase())} placeholder="offeredAssetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
+                      <input value={market.requestedAssetCode || ""} onChange={(e) => updateMarketRow(index, "requestedAssetCode", e.target.value.toUpperCase())} placeholder="requestedAssetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
+                      <input value={market.settlementAssetCode || ""} onChange={(e) => updateMarketRow(index, "settlementAssetCode", e.target.value.toUpperCase())} placeholder="settlementAssetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
+                      <input value={market.escrowAdapter || ""} onChange={(e) => updateMarketRow(index, "escrowAdapter", e.target.value)} placeholder="escrowAdapter" className={`rounded border px-2 py-1 ${theme.input}`} />
+                      <select value={market.status || "planned"} onChange={(e) => updateMarketRow(index, "status", e.target.value)} className={`rounded border px-2 py-1 ${theme.input}`}>
+                        <option value="active">active</option><option value="planned">planned</option><option value="disabled">disabled</option>
+                      </select>
+                    </div>
+                    <div className="mt-1">
+                      <button onClick={() => removeMarketRow(index)} className="rounded border px-2 py-1 text-[11px] font-black text-red-400">삭제</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -5516,7 +5809,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 <div>트리 무결성 검사: {treeIntegrity.ok ? "통과" : `실패 (${treeIntegrity.errors.length})`}</div>
                 <div>직접 하부(선택): {monitorCurrentUser ? getDirectDownlines(monitorCurrentUser.id, engineUsers).length : 0}</div>
                 <div>전체 하부(선택): {monitorCurrentUser ? getAllDownlines(monitorCurrentUser.id, engineUsers).length : 0}</div>
-                <div>1레벨 회원 수: {getUsersByLevel("본사", engineUsers).length}</div>
+                <div>슈퍼페이지 회원 수: {getUsersByLevel(ADMIN_STAGE_LABEL.SUPER_PAGE, engineUsers).length}</div>
               </div>
             )}
 
@@ -5525,7 +5818,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 value={adminUserSearch}
                 onChange={(e) => setAdminUserSearch(e.target.value)}
                 className={`w-full rounded-2xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                placeholder="닉네임 · ID · 이메일 · 지갑 · 단계(본사/총판 등) 검색"
+                placeholder="닉네임 · ID · 이메일 · 지갑 · 단계(LEVEL 1~10, 본사) 검색"
               />
               <select
                 value={memberListSort}
@@ -5599,7 +5892,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                         value={hierarchyQuickSearch}
                         onChange={(e) => setHierarchyQuickSearch(e.target.value)}
                         className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                        placeholder="ID · 닉네임 · 이메일 · 상위 · 단계(예: 총판, VD-004)"
+                        placeholder="ID · 닉네임 · 이메일 · 상위 · 단계(예: LEVEL 1, VD-004)"
                         aria-label="하부 트리 회원 검색"
                       />
                       {hierarchyQuickMatches.length > 0 ? (
@@ -5638,11 +5931,11 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                         disabled={isSelfTargetMember}
                         className={`rounded-xl border px-2.5 py-1.5 text-sm font-black outline-none ${theme.input}`}
                       >
-                        <option value="일반회원">1단계 · 일반회원</option>
-                        <option value="팀장">2단계 · 팀장</option>
-                        <option value="파트너">3단계 · 파트너</option>
-                        <option value="총판">4단계 · 총판</option>
-                        <option value="본사">5단계 · 본사</option>
+                        {ADMIN_STAGE_OPTIONS.map((stageName) => (
+                          <option key={stageName} value={stageName}>
+                            {stageName}
+                          </option>
+                        ))}
                       </select>
                       <button onClick={applySelectedStage} disabled={isSelfTargetMember} className={`rounded-xl px-3 py-1.5 text-sm font-black ${isSelfTargetMember ? "bg-slate-500 text-white" : theme.main}`}>
                         단계 적용
@@ -5946,7 +6239,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               <Field label="대상 회원 ID / 지갑 / 이메일" theme={theme}>
                 <input value={adminMember} onChange={(e) => setAdminMember(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: TG-MEMBER-001" />
               </Field>
-              <Field label="상위 회원 / 추천인 / 파트너 ID" theme={theme}>
+              <Field label="상위 회원 / 추천인 / 레벨 관리자 ID" theme={theme}>
                 <input value={adminParent} onChange={(e) => setAdminParent(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: TG777" />
               </Field>
               <Field label="상위자가 받은 배분율 (%)" theme={theme}>
@@ -5998,9 +6291,10 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     disabled={!isSuperAdmin}
                     className={`rounded-2xl border px-3 py-2 text-sm font-black outline-none ${theme.input}`}
                   >
-                    <option>일반회원</option>
-                    <option>운영관리자</option>
-                    <option>본사 슈퍼관리자</option>
+                    <option>회원</option>
+                    <option>본사 관계자</option>
+                    <option>본사 관리자</option>
+                    <option>슈퍼페이지 관리자</option>
                   </select>
                   <button
                     onClick={() => notify(`${selectedOpsUser.nickname} 정보 수정 화면`)}
@@ -6017,7 +6311,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                         prev.map((user) => (String(user.id) === String(selectedOpsUser.id) ? { ...user, stage_label: e.target.value } : user))
                       )
                     }
-                    placeholder="현재 단계 (예: 파트너)"
+                    placeholder="현재 단계 (예: LEVEL 1)"
                     className={`rounded-2xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}
                   />
                   <input
@@ -6302,9 +6596,10 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     disabled={!isSuperAdmin}
                     className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
                   >
-                    <option>일반회원</option>
-                    <option>운영관리자</option>
-                    <option>본사 슈퍼관리자</option>
+                    <option>회원</option>
+                    <option>본사 관계자</option>
+                    <option>본사 관리자</option>
+                    <option>슈퍼페이지 관리자</option>
                   </select>
                 </div>
               </div>
