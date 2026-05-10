@@ -1,21 +1,42 @@
 import React, { useEffect, useMemo, useState } from "react";
+import {
+  loadRegistry,
+  addIssuedTestAccount,
+  removeIssuedTestAccount,
+  stripPassword,
+  REGISTRY_CHANGED_EVENT,
+} from "./testAccountRegistry";
 
 /** 플랫폼 오너 전용 콘솔 — 메인 서비스(/ )와 완전 분리된 엔트리 (/owner) */
 const STORAGE_KEY = "tgx_platform_owner_console_v1";
 
+const SEED_OWNER_ACCOUNTS = [{ email: "admin@tgx.com", password: "admin1234", note: "시드(데모)" }];
+
 function loadStore() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch {
-    /* ignore */
-  }
   const seed = {
     version: 1,
-    ownerAccounts: [{ email: "admin@tgx.com", password: "admin1234", note: "시드(데모)" }],
+    ownerAccounts: [...SEED_OWNER_ACCOUNTS],
     employees: [],
     audit: [],
   };
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const accounts = Array.isArray(parsed?.ownerAccounts) ? parsed.ownerAccounts : [];
+      const mergedOwners =
+        accounts.length > 0
+          ? accounts
+          : SEED_OWNER_ACCOUNTS.map((a) => ({ ...a }));
+      return {
+        ...seed,
+        ...parsed,
+        ownerAccounts: mergedOwners,
+      };
+    }
+  } catch {
+    /* fall through to fresh seed */
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
   return seed;
 }
@@ -32,6 +53,19 @@ export default function OwnerSuperApp() {
   const [empEmail, setEmpEmail] = useState("");
   const [empName, setEmpName] = useState("");
   const [empRole, setEmpRole] = useState("hq_staff");
+  const [issuedRows, setIssuedRows] = useState(() => loadRegistry().map(stripPassword));
+  const [issueEmail, setIssueEmail] = useState("");
+  const [issuePassword, setIssuePassword] = useState("");
+  const [issueNickname, setIssueNickname] = useState("");
+  const [issueKind, setIssueKind] = useState("sales");
+
+  useEffect(() => {
+    function syncIssued() {
+      setIssuedRows(loadRegistry().map(stripPassword));
+    }
+    window.addEventListener(REGISTRY_CHANGED_EVENT, syncIssued);
+    return () => window.removeEventListener(REGISTRY_CHANGED_EVENT, syncIssued);
+  }, []);
 
   useEffect(() => {
     saveStore(store);
@@ -45,7 +79,7 @@ export default function OwnerSuperApp() {
   function login(e) {
     e.preventDefault();
     const em = emailIn.trim().toLowerCase();
-    const pw = passwordIn;
+    const pw = String(passwordIn ?? "").trim();
     const acc = store.ownerAccounts?.find((a) => String(a.email || "").toLowerCase() === em);
     if (!acc || acc.password !== pw) {
       alert("이메일 또는 비밀번호가 올바르지 않습니다.");
@@ -157,6 +191,107 @@ export default function OwnerSuperApp() {
             </button>
           </div>
         </header>
+
+        <div className="mt-8 rounded-3xl border border-amber-500/40 bg-amber-500/5 p-6">
+          <h2 className="text-lg font-black text-amber-100">메인 앱 테스트 아이디 발급</h2>
+          <p className="mt-1 text-xs text-slate-400">
+            발급된 계정은 메인 서비스(<span className="text-white">/</span>) 로그인에서 이메일·비밀번호로 사용합니다. 서버가 없을 때는 브라우저 로컬 검증으로 로그인됩니다.
+          </p>
+          <form
+            className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const presets = {
+                sales: { role: "영업관리자 LEVEL 1", session_role: "sales", sales_level: 1 },
+                hq: { role: "슈퍼페이지 관리자", session_role: "hq_ops", sales_level: null },
+                member: { role: "회원", session_role: null, sales_level: null },
+              };
+              try {
+                addIssuedTestAccount({
+                  email: issueEmail,
+                  password: issuePassword,
+                  nickname: issueNickname,
+                  ...presets[issueKind],
+                });
+                appendAudit(`테스트 계정 발급: ${issueEmail.trim().toLowerCase()} (${issueKind})`);
+                setIssueEmail("");
+                setIssuePassword("");
+                setIssueNickname("");
+                notifyDone();
+              } catch (err) {
+                alert(err?.message || "발급 실패");
+              }
+            }}
+          >
+            <label className="grid gap-1 text-xs font-bold sm:col-span-2">
+              이메일
+              <input
+                value={issueEmail}
+                onChange={(e) => setIssueEmail(e.target.value)}
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm outline-none"
+                placeholder="test01@company.local"
+                autoComplete="off"
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-bold">
+              비밀번호 (6자+)
+              <input
+                type="password"
+                value={issuePassword}
+                onChange={(e) => setIssuePassword(e.target.value)}
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm outline-none"
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-bold">
+              닉네임
+              <input
+                value={issueNickname}
+                onChange={(e) => setIssueNickname(e.target.value)}
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm outline-none"
+                placeholder="표시 이름"
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-bold sm:col-span-2">
+              권한 유형
+              <select
+                value={issueKind}
+                onChange={(e) => setIssueKind(e.target.value)}
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm outline-none"
+              >
+                <option value="sales">영업 (관리자 탭)</option>
+                <option value="hq">본사·슈퍼 (hq_ops)</option>
+                <option value="member">일반 회원</option>
+              </select>
+            </label>
+            <div className="flex items-end sm:col-span-2">
+              <button type="submit" className="w-full rounded-xl bg-amber-500 py-2 text-sm font-black text-slate-950">
+                발급 및 목록에 추가
+              </button>
+            </div>
+          </form>
+          <ul className="mt-4 space-y-2 text-sm">
+            {issuedRows.length === 0 && <li className="text-slate-500">발급된 테스트 계정이 없습니다.</li>}
+            {issuedRows.map((row) => (
+              <li key={row.id || row.email} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-700 px-3 py-2">
+                <span>
+                  <b className="text-emerald-300">{row.email}</b> · {row.nickname} · <span className="text-slate-400">{row.role}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("이 발급 계정을 삭제할까요? (로컬만)")) {
+                      removeIssuedTestAccount(row.email);
+                      appendAudit(`테스트 계정 삭제: ${row.email}`);
+                    }
+                  }}
+                  className="text-xs font-black text-red-400"
+                >
+                  삭제
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
 
         <div className="mt-8 grid gap-8 lg:grid-cols-2">
           <section className="rounded-3xl border border-slate-700 bg-slate-900 p-6">

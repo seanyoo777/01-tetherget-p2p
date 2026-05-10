@@ -23,7 +23,8 @@
     "rebuild:sqlite": "npm rebuild better-sqlite3",
     "release:check": "npm run syntax:server && npm run build && npm run verify:admin-smoke",
     "backup:db": "node server/scripts/backup-db.js",
-    "restore:db": "node server/scripts/restore-db.js"
+    "restore:db": "node server/scripts/restore-db.js",
+    "smoke:admin": "node scripts/smoke-admin-entry.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.8",
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "playwright": "^1.49.1"
   }
 }
