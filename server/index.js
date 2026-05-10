@@ -858,15 +858,47 @@ for (const row of defaultMarketCatalog) {
   );
 }
 
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (/^http:\/\/localhost:\d+$/.test(origin)) return callback(null, true);
-    if (/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) return callback(null, true);
-    return callback(new Error("Not allowed by CORS"));
-  },
-  credentials: false,
-}));
+/** 로컬·루프백 Origin (Vite 등) — IPv4/IPv6·http(s)·임의 포트 */
+function isLoopbackDevOrigin(origin) {
+  if (!origin) return true;
+  try {
+    const u = new URL(origin);
+    const h = u.hostname;
+    if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1") {
+      return u.protocol === "http:" || u.protocol === "https:";
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+const corsProdExtraOrigins = String(process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const isProduction = process.env.NODE_ENV === "production";
+
+app.use(
+  cors(
+    isProduction
+      ? {
+          origin(origin, callback) {
+            if (!origin) return callback(null, true);
+            if (isLoopbackDevOrigin(origin)) return callback(null, true);
+            if (corsProdExtraOrigins.some((o) => origin === o)) return callback(null, true);
+            return callback(new Error("Not allowed by CORS"));
+          },
+          credentials: false,
+        }
+      : {
+          /** 개발: 모든 Origin 허용(요청 Origin 그대로 반사) — localhost/Vite 프록시 충돌 방지 */
+          origin: true,
+          credentials: false,
+        }
+  )
+);
 app.use(express.json());
 app.use((req, res, next) => {
   if (String(req.path || "").startsWith("/api/")) {

@@ -74,18 +74,6 @@ function defaultStageLabelFromRole(user) {
   return ADMIN_STAGE_LABEL.MEMBER;
 }
 
-/**
- * `memberUsers` 병합과 동일: stageByUserId → stage_label/stageLabel(API) → 역할 기본 단계.
- * 좌측 집계는 병합된 `memberUsers` 행만 쓰므로 보통 `u.stageLabel`과 동일 결과.
- */
-function summaryStageKeyFromUser(user, stageByUserIdMap = {}) {
-  if (!user) return ADMIN_STAGE_LABEL.MEMBER;
-  const idKey = String(user.id ?? "");
-  const byRuntimeMap = String(stageByUserIdMap[idKey] ?? stageByUserIdMap[user.id] ?? "").trim();
-  const fromApi = [user.stage_label, user.stageLabel].map((s) => String(s || "").trim()).find(Boolean);
-  return normalizeStageLabel(byRuntimeMap || fromApi || defaultStageLabelFromRole(user));
-}
-
 /** 단계 확인 팝업·안내용 짧은 표기 */
 function adminStageDisplayName(stage) {
   const n = normalizeStageLabel(String(stage || ""));
@@ -1297,6 +1285,18 @@ function GeneralAlertPanel({ theme: t, notifications, readIds, setReadIds, onNav
   );
 }
 
+/** JWT/API가 영어 role(Member/user)·빈 값만 줄 때도 시드 병합이 적용되도록 */
+function isPlainMemberLegacyRole(role) {
+  const r = String(role ?? "").trim();
+  if (!r) return true;
+  if (r === "회원") return true;
+  const lower = r.toLowerCase();
+  if (lower === "member" || lower === "members") return true;
+  if (lower === "user" || lower === "users") return true;
+  if (lower === "customer") return true;
+  return false;
+}
+
 /**
  * 로컬 세션 병합 포함 — 세션 프로필 단일 진실 원천 (헤더 네비 표시와 관리자 진입 판별을 동일하게).
  */
@@ -1317,7 +1317,7 @@ function computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAu
             salesLevel = Number(s.sales_level);
           }
           const savedRole = String(s.role || "").trim();
-          if (savedRole && (legacyRole === "회원" || legacyRole === "")) legacyRole = savedRole;
+          if (savedRole && isPlainMemberLegacyRole(legacyRole)) legacyRole = savedRole;
         }
       }
     } catch {
@@ -1343,7 +1343,7 @@ function computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAu
           }
         }
         const pr = String(payload.role || "").trim();
-        if (pr && (legacyRole === "회원" || legacyRole === "")) legacyRole = pr;
+        if (pr && isPlainMemberLegacyRole(legacyRole)) legacyRole = pr;
         if (
           payload.sales_level != null
           && Number.isFinite(Number(payload.sales_level))
@@ -1369,7 +1369,7 @@ function computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAu
   /** JWT·상태의 role이 \"회원\"으로만 남아 있는데 authUsers 행에는 영업·관리자 문자열이 있는 경우 */
   if (meAuthUser) {
     const ur = String(meAuthUser.role || "").trim();
-    if (ur && (legacyRole === "회원" || legacyRole === "")) legacyRole = ur;
+    if (ur && isPlainMemberLegacyRole(legacyRole)) legacyRole = ur;
   }
   /** 시드·레지스트리 원본(이메일 일치) — API 병합 행이 얇아도 관리자 탭·진입 판정 유지 */
   if (loggedIn && linkedGoogle) {
@@ -1377,7 +1377,7 @@ function computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAu
     const seed = buildAuthUsersState().find((u) => String(u.email || "").trim().toLowerCase() === em);
     if (seed) {
       const sr = String(seed.role || "").trim();
-      if (sr && (legacyRole === "회원" || legacyRole === "")) legacyRole = sr;
+      if (sr && isPlainMemberLegacyRole(legacyRole)) legacyRole = sr;
       const seedNorm = normalizeSessionRoleHint(seed.session_role);
       const hintNorm = normalizeSessionRoleHint(sessionRoleHint);
       if (seedNorm === SESSION_ROLE.SALES || seedNorm === SESSION_ROLE.HQ_OPS) {
@@ -1755,7 +1755,7 @@ export default function App() {
       const payload = decodeJwtPayload(token);
       if (payload?.email) {
         setLoggedIn(true);
-        setLinkedGoogle(String(payload.email));
+        setLinkedGoogle(String(payload.email).trim().toLowerCase());
         setNickname(String(payload.nickname || "회원"));
         setCurrentRole(String(payload.role || "회원"));
         setAccountType("이메일 계정");
@@ -2145,7 +2145,7 @@ export default function App() {
         setAccountType("테스트 계정");
         setCurrentRole(localUser.role || "회원");
         setNickname(localUser.nickname || "회원");
-        setLinkedGoogle(localUser.email || email);
+        setLinkedGoogle(String(localUser.email || email).trim().toLowerCase());
         setLinkedReferral(localUser.referred_by_code || "");
         setMyReferralCode(localUser.referral_code || myReferralCode);
         setMergeStatus("테스트 계정 로그인 (로컬)");
@@ -2190,7 +2190,7 @@ export default function App() {
     setAccountType("이메일 계정");
     setCurrentRole(user.role || "회원");
     setNickname(user.nickname || "회원");
-    setLinkedGoogle(user.email || fallbackEmail || "");
+    setLinkedGoogle(String(user.email || fallbackEmail || "").trim().toLowerCase());
     setLinkedReferral(user.referred_by_code || "");
     setMyReferralCode(user.referral_code || myReferralCode);
     setMergeStatus("DB 로그인 완료");
@@ -2238,7 +2238,7 @@ export default function App() {
         setAccountType("이메일 계정");
         setCurrentRole(user.role || "회원");
         setNickname(user.nickname || "회원");
-        setLinkedGoogle(user.email || email);
+        setLinkedGoogle(String(user.email || email).trim().toLowerCase());
         setLinkedReferral(user.referred_by_code || referralInput || "");
         setMyReferralCode(user.referral_code || myReferralCode);
         setMergeStatus("DB 계정으로 가입됨");
@@ -2262,7 +2262,7 @@ export default function App() {
     setLoggedIn(true);
     setCurrentRole(user.role || "회원");
     setNickname(user.nickname || "회원");
-    setLinkedGoogle(user.email || fallbackEmail || "");
+    setLinkedGoogle(String(user.email || fallbackEmail || "").trim().toLowerCase());
     setLinkedReferral(user.referred_by_code || referralInput || "");
     setMyReferralCode(user.referral_code || myReferralCode);
     setLoginOpen(false);
@@ -4792,7 +4792,7 @@ function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buye
             <Box label="연결된 추천인" value={linkedReferral || "미연결"} theme={theme} />
             <Box label="합산 상태" value={mergeStatus} theme={theme} />
             <button
-              onClick={() => { setLinkedGoogle(googleEmail); setMergeStatus("기존 계정에 지메일 추가 연결 완료"); notify("지메일 추가 연결 완료"); }}
+              onClick={() => { setLinkedGoogle(String(googleEmail).trim().toLowerCase()); setMergeStatus("기존 계정에 지메일 추가 연결 완료"); notify("지메일 추가 연결 완료"); }}
               className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
             >
               지메일 추가 연결
@@ -5749,13 +5749,11 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     [memberUsers, stageByUserId, userParentOverrides]
   );
   const referralTree = useMemo(() => buildReferralTree(engineUsers), [engineUsers]);
-  /** 좌측 단계별 버튼 — 병합된 `memberUsers.stageLabel`만 집계(맵/역할 fallback 불일치 방지) */
+  /** 좌측 단계별 버튼 — `memberUsers`에 이미 병합된 `stageLabel`만 집계(stageByUserId 이중 참조 없음) */
   const downlineStageSummary = useMemo(() => {
     const counts = {};
     for (const u of summaryScopeUsers) {
-      const stage = normalizeStageLabel(
-        String(u.stageLabel || u.stage_label || "").trim() || defaultStageLabelFromRole(u)
-      );
+      const stage = normalizeStageLabel(String(u.stageLabel || "").trim());
       counts[stage] = (counts[stage] || 0) + 1;
     }
     return counts;
@@ -6121,34 +6119,36 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     const targetUser = nextUsers.find((u) => String(u.id) === targetId);
     if (!targetUser) return false;
 
-    if (targetId.startsWith("VD-")) {
-      setVirtualDownlineUsers((prev) => {
-        if (import.meta.env.DEV) console.log("[handleChangeUserLevel] VD before virtualDownlineUsers.length", prev.length);
-        const next = prev.map((u) =>
-          String(u.id) !== targetId ? u : { ...u, stageLabel: canon, stage_label: canon }
-        );
-        if (next.length !== prev.length) {
-          notify("단계 변경 중단: 가상 회원 수가 바뀌었습니다.");
-          return prev;
-        }
-        if (import.meta.env.DEV) console.log("[handleChangeUserLevel] VD after virtualDownlineUsers.length", next.length);
-        return next;
-      });
-    } else {
-      setAuthUsers((prev) => {
-        if (import.meta.env.DEV) console.log("[handleChangeUserLevel] REAL before authUsers.length", prev.length);
-        const next = prev.map((u) =>
-          String(u.id) !== targetId ? u : { ...u, stageLabel: canon, stage_label: canon }
-        );
-        if (next.length !== prev.length) {
-          notify("단계 변경 중단: 회원 수가 바뀌었습니다.");
-          return prev;
-        }
-        if (import.meta.env.DEV) console.log("[handleChangeUserLevel] REAL after authUsers.length", next.length);
-        return next;
-      });
-    }
-    setStageByUserId((prev) => ({ ...prev, [targetId]: canon }));
+    flushSync(() => {
+      if (targetId.startsWith("VD-")) {
+        setVirtualDownlineUsers((prev) => {
+          if (import.meta.env.DEV) console.log("[handleChangeUserLevel] VD before virtualDownlineUsers.length", prev.length);
+          const next = prev.map((u) =>
+            String(u.id) !== targetId ? u : { ...u, stageLabel: canon, stage_label: canon }
+          );
+          if (next.length !== prev.length) {
+            notify("단계 변경 중단: 가상 회원 수가 바뀌었습니다.");
+            return prev;
+          }
+          if (import.meta.env.DEV) console.log("[handleChangeUserLevel] VD after virtualDownlineUsers.length", next.length);
+          return next;
+        });
+      } else {
+        setAuthUsers((prev) => {
+          if (import.meta.env.DEV) console.log("[handleChangeUserLevel] REAL before authUsers.length", prev.length);
+          const next = prev.map((u) =>
+            String(u.id) !== targetId ? u : { ...u, stageLabel: canon, stage_label: canon }
+          );
+          if (next.length !== prev.length) {
+            notify("단계 변경 중단: 회원 수가 바뀌었습니다.");
+            return prev;
+          }
+          if (import.meta.env.DEV) console.log("[handleChangeUserLevel] REAL after authUsers.length", next.length);
+          return next;
+        });
+      }
+      setStageByUserId((prev) => ({ ...prev, [targetId]: canon }));
+    });
     pendingStageLengthLogRef.current = true;
 
     setSelectedAdminUser((prev) => {
