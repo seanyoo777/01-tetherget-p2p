@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, createContext, useContext } from "react";
 import { createApiClient } from "./lib/apiClient";
+import { resolveApiBase } from "./lib/resolveApiBase";
 import { deriveSessionProfile, isLoginTestAdminLike, SESSION_ROLE } from "./sessionRoles";
 import {
   updateUserLevel,
@@ -853,7 +854,8 @@ const AUTH_TOKEN_KEY = "tetherget_auth_token_v1";
 const AUTH_REFRESH_TOKEN_KEY = "tetherget_refresh_token_v1";
 const MY_REFERRAL_CODE_KEY = "tetherget_my_referral_code_v1";
 const LOGIN_RECENT_IDS_KEY = "tetherget_login_recent_ids_v1";
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000";
+
+const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE, import.meta.env.DEV);
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
 const defaultAuthUsers = [
@@ -3591,7 +3593,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [webhookEvents, setWebhookEvents] = useState([]);
   const [webhookLoading, setWebhookLoading] = useState(false);
   const [webhookStatusFilter, setWebhookStatusFilter] = useState("all");
+  const [webhookChainAlertOnly, setWebhookChainAlertOnly] = useState(false);
   const [webhookAutoRefresh, setWebhookAutoRefresh] = useState(true);
+  const [webhookChainAlertUnreadCount, setWebhookChainAlertUnreadCount] = useState(0);
+  const [webhookAutoFocusOpsOnAlert, setWebhookAutoFocusOpsOnAlert] = useState(true);
+  const [webhookAlertSoundEnabled, setWebhookAlertSoundEnabled] = useState(false);
+  const webhookChainInitialFetchDoneRef = useRef(false);
+  const webhookChainMaxSeenIdRef = useRef(0);
+  const webhookPrevUnreadCountRef = useRef(0);
   const [auditFromDate, setAuditFromDate] = useState("");
   const [auditToDate, setAuditToDate] = useState("");
   const [auditLoading, setAuditLoading] = useState(false);
@@ -3628,6 +3637,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [opsSnapshotLoading, setOpsSnapshotLoading] = useState(false);
   const [marketCatalogLoading, setMarketCatalogLoading] = useState(false);
   const [marketCatalogSaving, setMarketCatalogSaving] = useState(false);
+  const [marketCatalogRevision, setMarketCatalogRevision] = useState("");
   const [marketAssets, setMarketAssets] = useState([]);
   const [marketCatalog, setMarketCatalog] = useState([]);
   const [marketCatalogLogs, setMarketCatalogLogs] = useState([]);
@@ -3635,6 +3645,19 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [marketAuditQuery, setMarketAuditQuery] = useState("");
   const [marketAuditFromDate, setMarketAuditFromDate] = useState("");
   const [marketAuditToDate, setMarketAuditToDate] = useState("");
+  const [marketAuditHasMore, setMarketAuditHasMore] = useState(false);
+  const [marketAuditLoadingMore, setMarketAuditLoadingMore] = useState(false);
+  const [expandedMarketAuditIds, setExpandedMarketAuditIds] = useState({});
+  const [marketAuditScope, setMarketAuditScope] = useState("all");
+  const [marketAuditIntegrityLoading, setMarketAuditIntegrityLoading] = useState(false);
+  const [marketAuditIntegrity, setMarketAuditIntegrity] = useState({
+    checkedAt: "",
+    total: 0,
+    rootHash: "",
+    scope: "all",
+  });
+  const [marketAuditChangeAlerts, setMarketAuditChangeAlerts] = useState([]);
+  const [lastMarketAuditAlertHash, setLastMarketAuditAlertHash] = useState("");
   const [originalMarketAssets, setOriginalMarketAssets] = useState([]);
   const [originalMarketCatalog, setOriginalMarketCatalog] = useState([]);
   const [marketAssetTypeFilter, setMarketAssetTypeFilter] = useState("all");
@@ -4586,16 +4609,43 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
   }
 
-  async function loadWebhookEvents() {
+  async function loadWebhookEvents(options = {}) {
+    const acknowledgeUnread = Boolean(options.acknowledgeUnread);
     try {
       setWebhookLoading(true);
       const data = await apiClient.request("/api/admin/webhook-events?limit=15", { auth: true });
-      setWebhookEvents(Array.isArray(data.events) ? data.events : []);
+      const next = Array.isArray(data.events) ? data.events : [];
+      const chainEvents = next.filter((e) => String(e?.event_type || "") === "market_catalog_audit_chain_changed");
+      const chainIds = chainEvents.map((e) => Number(e.id)).filter((id) => Number.isFinite(id));
+      const maxChainId = chainIds.length ? Math.max(...chainIds) : webhookChainMaxSeenIdRef.current;
+
+      if (acknowledgeUnread || !webhookChainInitialFetchDoneRef.current) {
+        webhookChainInitialFetchDoneRef.current = true;
+        webhookChainMaxSeenIdRef.current = maxChainId;
+        if (acknowledgeUnread) setWebhookChainAlertUnreadCount(0);
+      } else {
+        const prevMax = webhookChainMaxSeenIdRef.current;
+        const newChainCount = chainEvents.filter((e) => Number(e.id) > prevMax).length;
+        webhookChainMaxSeenIdRef.current = Math.max(prevMax, maxChainId);
+        if (newChainCount > 0) setWebhookChainAlertUnreadCount((c) => c + newChainCount);
+      }
+
+      setWebhookEvents(next);
     } catch (error) {
       notify(error.message || "웹훅 전송 이력 조회에 실패했습니다.");
     } finally {
       setWebhookLoading(false);
     }
+  }
+
+  function acknowledgeWebhookChainAlerts() {
+    const chainIds = (webhookEvents || [])
+      .filter((e) => String(e?.event_type || "") === "market_catalog_audit_chain_changed")
+      .map((e) => Number(e.id))
+      .filter((id) => Number.isFinite(id));
+    if (chainIds.length) webhookChainMaxSeenIdRef.current = Math.max(...chainIds);
+    webhookChainInitialFetchDoneRef.current = true;
+    setWebhookChainAlertUnreadCount(0);
   }
 
   async function loadApprovalAuditReport() {
@@ -4623,9 +4673,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
   }
 
-  async function loadRecentReportHashes() {
+  async function loadRecentReportHashes(reportType = "") {
     try {
-      const data = await apiClient.request("/api/admin/audit/report-hashes?limit=8", { auth: true });
+      const qs = new URLSearchParams({
+        limit: "8",
+        ...(reportType ? { reportType } : {}),
+      });
+      const data = await apiClient.request(`/api/admin/audit/report-hashes?${qs.toString()}`, { auth: true });
       setRecentReportHashes(Array.isArray(data.hashes) ? data.hashes : []);
     } catch (error) {
       notify(error.message || "리포트 해시 이력 조회에 실패했습니다.");
@@ -4705,6 +4759,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       setMarketCatalog(markets);
       setOriginalMarketAssets(assets);
       setOriginalMarketCatalog(markets);
+      setMarketCatalogRevision(String(data?.revision || ""));
     } catch (error) {
       notify(error.message || "마켓 카탈로그 조회에 실패했습니다.");
     } finally {
@@ -4712,19 +4767,29 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
   }
 
-  async function loadMarketCatalogAudit() {
+  async function loadMarketCatalogAudit(options = {}) {
+    const { append = false } = options;
+    const beforeId = append && marketCatalogLogs.length ? marketCatalogLogs[marketCatalogLogs.length - 1]?.id : 0;
     try {
+      if (append) setMarketAuditLoadingMore(true);
       const qs = new URLSearchParams({
         limit: "12",
         ...(marketAuditActorFilter ? { actorUserId: String(marketAuditActorFilter) } : {}),
         ...(marketAuditQuery.trim() ? { q: marketAuditQuery.trim() } : {}),
         ...(marketAuditFromDate ? { fromDate: marketAuditFromDate } : {}),
         ...(marketAuditToDate ? { toDate: marketAuditToDate } : {}),
+        ...(beforeId ? { beforeId: String(beforeId) } : {}),
       });
       const data = await apiClient.request(`/api/admin/markets/catalog/audit?${qs.toString()}`, { auth: true });
-      setMarketCatalogLogs(Array.isArray(data?.logs) ? data.logs : []);
+      const logs = Array.isArray(data?.logs) ? data.logs : [];
+      setMarketCatalogLogs((prev) => (append ? [...prev, ...logs] : logs));
+      if (!append) setExpandedMarketAuditIds({});
+      setMarketAuditHasMore(Boolean(data?.hasMore));
+      setMarketAuditScope(String(data?.scope || "all"));
     } catch (error) {
       notify(error.message || "카탈로그 변경 이력 조회에 실패했습니다.");
+    } finally {
+      if (append) setMarketAuditLoadingMore(false);
     }
   }
 
@@ -4763,6 +4828,73 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     a.click();
     URL.revokeObjectURL(url);
     notify("마켓 카탈로그 이력 CSV를 내보냈습니다.");
+  }
+
+  function toDateInputValue(dateObj) {
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+    const d = String(dateObj.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  function applyMarketAuditQuickRange(days) {
+    const now = new Date();
+    const start = new Date(now);
+    start.setDate(now.getDate() - Math.max(days - 1, 0));
+    setMarketAuditFromDate(toDateInputValue(start));
+    setMarketAuditToDate(toDateInputValue(now));
+  }
+
+  function resetMarketAuditFilters() {
+    setMarketAuditActorFilter("");
+    setMarketAuditQuery("");
+    setMarketAuditFromDate("");
+    setMarketAuditToDate("");
+  }
+
+  function toggleMarketAuditExpanded(logId) {
+    setExpandedMarketAuditIds((prev) => ({
+      ...prev,
+      [logId]: !prev[logId],
+    }));
+  }
+
+  async function verifyMarketCatalogAuditIntegrity() {
+    try {
+      setMarketAuditIntegrityLoading(true);
+      const qs = new URLSearchParams({
+        ...(marketAuditActorFilter ? { actorUserId: String(marketAuditActorFilter) } : {}),
+        ...(marketAuditQuery.trim() ? { q: marketAuditQuery.trim() } : {}),
+        ...(marketAuditFromDate ? { fromDate: marketAuditFromDate } : {}),
+        ...(marketAuditToDate ? { toDate: marketAuditToDate } : {}),
+      });
+      const data = await apiClient.request(`/api/admin/markets/catalog/audit/verify?${qs.toString()}`, { auth: true });
+      setMarketAuditIntegrity({
+        checkedAt: new Date().toISOString(),
+        total: Number(data?.total || 0),
+        rootHash: String(data?.rootHash || ""),
+        scope: String(data?.scope || "all"),
+      });
+      if (/^[a-f0-9]{64}$/.test(String(data?.rootHash || ""))) {
+        await apiClient.request("/api/admin/audit/report-hashes", {
+          method: "POST",
+          auth: true,
+          body: JSON.stringify({
+            reportType: "market_catalog_audit_chain",
+            fromDate: marketAuditFromDate || "",
+            toDate: marketAuditToDate || "",
+            rowCount: Number(data?.total || 0),
+            sha256Hash: String(data.rootHash),
+          }),
+        });
+      }
+      loadRecentReportHashes("market_catalog_audit_chain");
+      notify(`감사 무결성 검증 완료 · rows ${Number(data?.total || 0)} · hash ${String(data?.rootHash || "").slice(0, 12)}...`);
+    } catch (error) {
+      notify(error.message || "감사 무결성 검증에 실패했습니다.");
+    } finally {
+      setMarketAuditIntegrityLoading(false);
+    }
   }
 
   async function saveMarketCatalog() {
@@ -4836,12 +4968,22 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       await apiClient.request("/api/admin/markets/catalog", {
         method: "PUT",
         auth: true,
-        body: JSON.stringify({ assets: sanitizedAssets, markets: sanitizedMarkets }),
+        body: JSON.stringify({
+          assets: sanitizedAssets,
+          markets: sanitizedMarkets,
+          expectedRevision: marketCatalogRevision || "",
+        }),
       });
       notify("마켓 카탈로그가 저장되었습니다.");
       await loadMarketCatalog();
       await loadMarketCatalogAudit();
     } catch (error) {
+      if (String(error?.message || "").includes("catalog_revision_conflict")) {
+        notify("다른 관리자가 먼저 저장했습니다. 최신 이력을 다시 불러온 뒤 재시도하세요.");
+        await loadMarketCatalog();
+        await loadMarketCatalogAudit();
+        return;
+      }
       notify(error.message || "마켓 카탈로그 저장에 실패했습니다.");
     } finally {
       setMarketCatalogSaving(false);
@@ -4909,6 +5051,28 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       .filter(({ market }) => marketStatusFilter === "all" || String(market.status || "") === marketStatusFilter),
     [marketCatalog, marketStatusFilter]
   );
+  const recentMarketAuditChainHashes = useMemo(
+    () => (recentReportHashes || []).filter((row) => String(row?.report_type || "") === "market_catalog_audit_chain"),
+    [recentReportHashes]
+  );
+  const marketAuditChainDrift = useMemo(() => {
+    const latest = recentMarketAuditChainHashes[0];
+    const previous = recentMarketAuditChainHashes[1];
+    if (!latest || !previous) return { ready: false, changed: false };
+    const latestHash = String(latest?.sha256_hash || "");
+    const previousHash = String(previous?.sha256_hash || "");
+    return {
+      ready: true,
+      changed: Boolean(latestHash && previousHash && latestHash !== previousHash),
+      latestAt: String(latest?.created_at || ""),
+      previousAt: String(previous?.created_at || ""),
+      latestHash,
+      previousHash,
+    };
+  }, [recentMarketAuditChainHashes]);
+  const marketAuditChainStatus = marketAuditChainDrift.ready
+    ? (marketAuditChainDrift.changed ? "changed" : "stable")
+    : "pending";
 
   const marketCatalogDiff = useMemo(() => {
     const assetKey = (row) => String(row?.assetCode || "").trim().toUpperCase();
@@ -5284,12 +5448,63 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   }, [webhookAutoRefresh]);
 
   useEffect(() => {
+    const prevUnread = webhookPrevUnreadCountRef.current;
+    const hasNewUnread = webhookChainAlertUnreadCount > prevUnread;
+    webhookPrevUnreadCountRef.current = webhookChainAlertUnreadCount;
+    if (!hasNewUnread) return;
+    if (webhookAutoFocusOpsOnAlert && webhookChainAlertOnly) {
+      setAdminViewTab("ops");
+    }
+    if (webhookAlertSoundEnabled) {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        const oscillator = ctx.createOscillator();
+        const gain = ctx.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        oscillator.connect(gain);
+        gain.connect(ctx.destination);
+        oscillator.start();
+        oscillator.stop(ctx.currentTime + 0.12);
+      } catch {
+        // ignore audio notification errors
+      }
+    }
+  }, [webhookChainAlertUnreadCount, webhookAutoFocusOpsOnAlert, webhookChainAlertOnly, webhookAlertSoundEnabled]);
+
+  useEffect(() => {
     loadMarketCatalogAudit();
   }, [marketAuditActorFilter, marketAuditQuery, marketAuditFromDate, marketAuditToDate]);
 
-  const filteredWebhookEvents = (webhookEvents || []).filter((event) =>
-    webhookStatusFilter === "all" ? true : event.status === webhookStatusFilter
-  );
+  useEffect(() => {
+    if (!marketAuditChainDrift.ready || !marketAuditChainDrift.changed) return;
+    const alertKey = `${marketAuditChainDrift.latestAt}:${marketAuditChainDrift.latestHash}`;
+    if (!alertKey || alertKey === lastMarketAuditAlertHash) return;
+    setLastMarketAuditAlertHash(alertKey);
+    setMarketAuditChangeAlerts((prev) => ([
+      {
+        id: `audit-alert-${Date.now()}`,
+        at: marketAuditChainDrift.latestAt || new Date().toISOString(),
+        message: `체인 변경 감지 · ${marketAuditChainDrift.previousAt} -> ${marketAuditChainDrift.latestAt}`,
+        latestHash: marketAuditChainDrift.latestHash,
+        previousHash: marketAuditChainDrift.previousHash,
+      },
+      ...prev,
+    ]).slice(0, 8));
+  }, [marketAuditChainDrift, lastMarketAuditAlertHash]);
+
+  const filteredWebhookEvents = (webhookEvents || []).filter((event) => {
+    const statusMatched = webhookStatusFilter === "all" ? true : event.status === webhookStatusFilter;
+    const chainMatched = webhookChainAlertOnly ? String(event?.event_type || "") === "market_catalog_audit_chain_changed" : true;
+    return statusMatched && chainMatched;
+  });
+  const latestWebhookChainAlertAt = useMemo(() => {
+    const row = (webhookEvents || []).find((event) => String(event?.event_type || "") === "market_catalog_audit_chain_changed");
+    return row?.occurred_at || "";
+  }, [webhookEvents]);
   const isAdminTab = (tab) => adminViewTab === tab;
   const adminCategories = [
     { key: "member", title: "회원관리", desc: "유저 선택, 하부 목록, 선택 유저 상세 확인", color: "bg-indigo-600" },
@@ -5450,6 +5665,26 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         </div>
 
         <div className={`sticky top-2 z-20 mb-4 rounded-3xl border p-2.5 backdrop-blur ${theme.cardSoft}`}>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className={`rounded-full px-2 py-1 font-black text-white ${
+                webhookChainAlertUnreadCount > 0 ? "bg-red-600" : "bg-emerald-600"
+              }`}>
+                {webhookChainAlertUnreadCount > 0 ? `CHAIN ALERT ${webhookChainAlertUnreadCount}` : "CHAIN STABLE"}
+              </span>
+              <span className={theme.muted}>
+                {latestWebhookChainAlertAt ? `최근 경보: ${latestWebhookChainAlertAt}` : "최근 경보 기록 없음"}
+              </span>
+            </div>
+            {webhookChainAlertUnreadCount > 0 ? (
+              <button
+                onClick={() => setAdminViewTab("ops")}
+                className="rounded-full border border-red-500/50 bg-red-600/10 px-3 py-1 text-[11px] font-black text-red-400"
+              >
+                경보 바로보기
+              </button>
+            ) : null}
+          </div>
           <div className="grid gap-2 md:grid-cols-7">
             <button onClick={() => setAdminViewTab("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dashboard") ? theme.main : theme.input}`}>대시보드</button>
             <button onClick={() => setAdminViewTab("member")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("member") ? theme.main : theme.input}`}>회원관리</button>
@@ -5508,6 +5743,31 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <div>
               <div className="text-sm font-black">마켓 카탈로그 변경 이력</div>
               <div className={`text-xs ${theme.muted}`}>최근 변경 내역(작업자/시각/대상)을 추적합니다.</div>
+              <div className={`mt-1 text-[11px] ${theme.muted}`}>
+                scope: {marketAuditScope} · integrity rows: {marketAuditIntegrity.total || 0}
+                {marketAuditIntegrity.rootHash ? ` · hash: ${marketAuditIntegrity.rootHash.slice(0, 12)}...` : ""}
+              </div>
+              <div className={`mt-1 text-[11px] ${theme.muted}`}>
+                chain proof: {recentMarketAuditChainHashes.length ? `${recentMarketAuditChainHashes[0].created_at} / ${String(recentMarketAuditChainHashes[0].sha256_hash || "").slice(0, 12)}...` : "아직 없음"}
+              </div>
+              <div className={`mt-1 text-[11px] ${theme.muted}`}>
+                chain compare: {!marketAuditChainDrift.ready
+                  ? "비교용 기록 부족"
+                  : marketAuditChainDrift.changed
+                    ? `변경 감지 (${marketAuditChainDrift.previousAt} -> ${marketAuditChainDrift.latestAt})`
+                    : "변경 없음(최근 2회 동일)"}
+              </div>
+              <div className="mt-1">
+                <span className={`rounded-full px-2 py-1 text-[11px] font-black text-white ${
+                  marketAuditChainStatus === "changed"
+                    ? "bg-red-600"
+                    : marketAuditChainStatus === "stable"
+                      ? "bg-emerald-600"
+                      : "bg-slate-600"
+                }`}>
+                  {marketAuditChainStatus === "changed" ? "CHAIN ALERT" : marketAuditChainStatus === "stable" ? "CHAIN STABLE" : "CHAIN PENDING"}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-1">
               <button onClick={loadMarketCatalogAudit} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
@@ -5515,6 +5775,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               </button>
               <button onClick={exportMarketCatalogAuditCsv} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
                 CSV 내보내기
+              </button>
+              <button onClick={verifyMarketCatalogAuditIntegrity} disabled={marketAuditIntegrityLoading} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                {marketAuditIntegrityLoading ? "검증중..." : "무결성 검증"}
+              </button>
+              <button onClick={() => loadRecentReportHashes("market_catalog_audit_chain")} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+                체인기록 새로고침
               </button>
             </div>
           </div>
@@ -5552,6 +5818,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
             />
           </div>
+          <div className="mb-2 flex flex-wrap items-center gap-1">
+            <button onClick={() => applyMarketAuditQuickRange(1)} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>오늘</button>
+            <button onClick={() => applyMarketAuditQuickRange(7)} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>7일</button>
+            <button onClick={() => applyMarketAuditQuickRange(30)} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>30일</button>
+            <button onClick={resetMarketAuditFilters} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>필터 초기화</button>
+          </div>
           <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
             {marketCatalogLogs.length ? (
               marketCatalogLogs.map((log) => (
@@ -5583,11 +5855,64 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     {Array.isArray(log.summary?.assetCodes) ? `assets: ${log.summary.assetCodes.slice(0, 6).join(", ")}` : ""}
                     {Array.isArray(log.summary?.marketKeys) ? ` · markets: ${log.summary.marketKeys.slice(0, 6).join(", ")}` : ""}
                   </div>
+                  <div className="mt-1">
+                    <button
+                      onClick={() => toggleMarketAuditExpanded(log.id)}
+                      className={`rounded border px-2 py-1 text-[11px] font-black ${theme.input}`}
+                    >
+                      {expandedMarketAuditIds[log.id] ? "상세 닫기" : "상세 보기"}
+                    </button>
+                  </div>
+                  {expandedMarketAuditIds[log.id] ? (
+                    <div className={`mt-2 rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
+                      <div>
+                        asset added: {Array.isArray(log.summary?.assetDiff?.added) && log.summary.assetDiff.added.length ? log.summary.assetDiff.added.join(", ") : "-"}
+                      </div>
+                      <div>
+                        asset removed: {Array.isArray(log.summary?.assetDiff?.removed) && log.summary.assetDiff.removed.length ? log.summary.assetDiff.removed.join(", ") : "-"}
+                      </div>
+                      <div>
+                        asset updated: {Array.isArray(log.summary?.assetDiff?.updated) && log.summary.assetDiff.updated.length ? log.summary.assetDiff.updated.join(", ") : "-"}
+                      </div>
+                      <div className="mt-1">
+                        market added: {Array.isArray(log.summary?.marketDiff?.added) && log.summary.marketDiff.added.length ? log.summary.marketDiff.added.join(", ") : "-"}
+                      </div>
+                      <div>
+                        market removed: {Array.isArray(log.summary?.marketDiff?.removed) && log.summary.marketDiff.removed.length ? log.summary.marketDiff.removed.join(", ") : "-"}
+                      </div>
+                      <div>
+                        market updated: {Array.isArray(log.summary?.marketDiff?.updated) && log.summary.marketDiff.updated.length ? log.summary.marketDiff.updated.join(", ") : "-"}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))
             ) : (
               <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>카탈로그 변경 이력이 없습니다.</div>
             )}
+          </div>
+          <div className="mt-2 flex justify-end">
+            <button
+              onClick={() => loadMarketCatalogAudit({ append: true })}
+              disabled={!marketAuditHasMore || marketAuditLoadingMore}
+              className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input} ${!marketAuditHasMore ? "opacity-50" : ""}`}
+            >
+              {marketAuditLoadingMore ? "불러오는 중..." : marketAuditHasMore ? "더보기" : "끝"}
+            </button>
+          </div>
+          <div className={`mt-2 rounded-xl border p-2 ${theme.cardSoft}`}>
+            <div className="mb-1 text-xs font-black">감사 알림 로그</div>
+            <div className="max-h-24 space-y-1 overflow-y-auto pr-1">
+              {marketAuditChangeAlerts.length ? marketAuditChangeAlerts.map((alert) => (
+                <div key={alert.id} className={`rounded border p-1 text-[11px] ${theme.input}`}>
+                  <div className="font-black">{alert.at}</div>
+                  <div>{alert.message}</div>
+                  <div className="break-all text-[10px]">latest: {String(alert.latestHash || "").slice(0, 24)}... · prev: {String(alert.previousHash || "").slice(0, 24)}...</div>
+                </div>
+              )) : (
+                <div className={`rounded border p-1 text-[11px] ${theme.input}`}>변경 감지 알림이 없습니다.</div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -5909,6 +6234,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               >
                 <option value="approval_audit_pdf">PDF 리포트</option>
                 <option value="approval_audit_csv">CSV 리포트</option>
+                <option value="market_catalog_audit_chain">카탈로그 감사 체인</option>
               </select>
               <input
                 value={verifyHashInput}
@@ -5927,8 +6253,23 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">
             <div>
-              <div className="text-sm font-black">Webhook 전송 상태</div>
-              <div className={`text-xs ${theme.muted}`}>최근 관리자 이벤트 전송 결과 (성공/실패/비활성)</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-black">Webhook 전송 상태</span>
+                {webhookChainAlertUnreadCount > 0 ? (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-black text-white ${
+                      webhookAutoRefresh && webhookChainAlertOnly ? "bg-red-600" : "bg-amber-600"
+                    }`}
+                    title={webhookAutoRefresh && webhookChainAlertOnly ? "자동 감시 중 신규 CHAIN ALERT" : "신규 CHAIN ALERT (확인 전)"}
+                  >
+                    +{webhookChainAlertUnreadCount} CHAIN
+                  </span>
+                ) : null}
+              </div>
+              <div className={`text-xs ${theme.muted}`}>
+                최근 관리자 이벤트 전송 결과 (성공/실패/비활성)
+                {latestWebhookChainAlertAt ? ` · 최근 CHAIN ALERT: ${latestWebhookChainAlertAt}` : ""}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <select
@@ -5949,8 +6290,46 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 />
                 15초 자동
               </label>
-              <button onClick={loadWebhookEvents} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
+              <label className={`relative flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
+                <input
+                  type="checkbox"
+                  checked={webhookChainAlertOnly}
+                  onChange={(e) => setWebhookChainAlertOnly(e.target.checked)}
+                />
+                CHAIN ALERT만
+                {webhookChainAlertUnreadCount > 0 && webhookChainAlertOnly ? (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-black leading-none text-white">
+                    {webhookChainAlertUnreadCount > 99 ? "99+" : webhookChainAlertUnreadCount}
+                  </span>
+                ) : null}
+              </label>
+              <label className={`flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
+                <input
+                  type="checkbox"
+                  checked={webhookAutoFocusOpsOnAlert}
+                  onChange={(e) => setWebhookAutoFocusOpsOnAlert(e.target.checked)}
+                />
+                경보시 ops 고정
+              </label>
+              <label className={`flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
+                <input
+                  type="checkbox"
+                  checked={webhookAlertSoundEnabled}
+                  onChange={(e) => setWebhookAlertSoundEnabled(e.target.checked)}
+                />
+                소리 알림
+              </label>
+              <button
+                onClick={() => loadWebhookEvents({ acknowledgeUnread: true })}
+                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+              >
                 {webhookLoading ? "조회중..." : "새로고침"}
+              </button>
+              <button
+                onClick={acknowledgeWebhookChainAlerts}
+                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+              >
+                경보 확인처리
               </button>
             </div>
           </div>
@@ -5963,10 +6342,16 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     : event.status === "failed"
                       ? "bg-red-600 text-white"
                       : "bg-amber-500 text-white";
+                const isChainAlertEvent = String(event.event_type || "") === "market_catalog_audit_chain_changed";
                 return (
                   <div key={event.id} className={`flex items-center justify-between rounded-xl border p-2 text-xs ${theme.input}`}>
                     <div>
-                      <div className="font-black">{event.event_type}</div>
+                      <div className="flex items-center gap-1">
+                        <div className="font-black">{event.event_type}</div>
+                        {isChainAlertEvent ? (
+                          <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black text-white">CHAIN ALERT</span>
+                        ) : null}
+                      </div>
                       <div className={theme.muted}>
                         {event.occurred_at}
                         {event.status_code ? ` · HTTP ${event.status_code}` : ""}

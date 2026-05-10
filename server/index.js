@@ -730,6 +730,39 @@ function adminRequired(req, res, next) {
   next();
 }
 
+function canViewAllMarketAuditLogs(user) {
+  const viewerSessionRole = String(user?.session_role || "");
+  const viewerLegacyRole = String(user?.role || "");
+  return viewerSessionRole === "hq_ops" || viewerLegacyRole.includes("슈퍼페이지");
+}
+
+function buildMarketAuditChain(rowsAsc) {
+  let prevHash = "";
+  let headHash = "";
+  let tailHash = "";
+  for (const row of rowsAsc) {
+    const payload = [
+      String(row?.id || ""),
+      String(row?.actor_user_id || ""),
+      String(row?.assets_count || ""),
+      String(row?.markets_count || ""),
+      String(row?.summary_json || ""),
+      String(row?.created_at || ""),
+      prevHash,
+    ].join("|");
+    const rowHash = crypto.createHash("sha256").update(payload).digest("hex");
+    if (!headHash) headHash = rowHash;
+    tailHash = rowHash;
+    prevHash = rowHash;
+  }
+  return {
+    total: rowsAsc.length,
+    headHash,
+    tailHash,
+    rootHash: tailHash,
+  };
+}
+
 function normalizeStageLabelForAuth(raw) {
   const value = String(raw || "").trim();
   if (!value) return "회원";
@@ -812,6 +845,44 @@ function parseJsonSafe(value, fallback = {}) {
   } catch {
     return fallback;
   }
+}
+
+function stableSortObject(value) {
+  if (Array.isArray(value)) return value.map(stableSortObject);
+  if (!value || typeof value !== "object") return value;
+  return Object.keys(value)
+    .sort()
+    .reduce((acc, key) => {
+      acc[key] = stableSortObject(value[key]);
+      return acc;
+    }, {});
+}
+
+function buildMarketCatalogRevision(catalog) {
+  const assets = (Array.isArray(catalog?.assets) ? catalog.assets : [])
+    .map((asset) => ({
+      assetCode: String(asset?.assetCode || "").trim().toUpperCase(),
+      displayName: String(asset?.displayName || "").trim(),
+      assetType: String(asset?.assetType || "").trim(),
+      network: String(asset?.network || "").trim(),
+      settlementEnabled: Boolean(asset?.settlementEnabled),
+      isActive: asset?.isActive === false ? false : true,
+      metadata: stableSortObject(asset?.metadata || {}),
+    }))
+    .sort((a, b) => a.assetCode.localeCompare(b.assetCode));
+  const markets = (Array.isArray(catalog?.markets) ? catalog.markets : [])
+    .map((market) => ({
+      marketKey: String(market?.marketKey || "").trim(),
+      marketType: String(market?.marketType || "").trim(),
+      offeredAssetCode: String(market?.offeredAssetCode || "").trim().toUpperCase(),
+      requestedAssetCode: String(market?.requestedAssetCode || "").trim().toUpperCase(),
+      settlementAssetCode: String(market?.settlementAssetCode || "").trim().toUpperCase(),
+      escrowAdapter: String(market?.escrowAdapter || "").trim(),
+      status: String(market?.status || "").trim(),
+      metadata: stableSortObject(market?.metadata || {}),
+    }))
+    .sort((a, b) => a.marketKey.localeCompare(b.marketKey));
+  return crypto.createHash("sha256").update(JSON.stringify({ assets, markets })).digest("hex");
 }
 
 function getMarketCatalog({ includeInactive = false } = {}) {
@@ -2030,7 +2101,8 @@ app.get("/api/features", authRequired, (_req, res) => {
 });
 
 app.get("/api/markets/catalog", authRequired, (_req, res) => {
-  res.json(getMarketCatalog({ includeInactive: false }));
+  const catalog = getMarketCatalog({ includeInactive: false });
+  res.json({ ...catalog, revision: buildMarketCatalogRevision(catalog) });
 });
 
 app.get("/api/admin/features", authRequired, adminRequired, (_req, res) => {
@@ -2039,15 +2111,19 @@ app.get("/api/admin/features", authRequired, adminRequired, (_req, res) => {
 });
 
 app.get("/api/admin/markets/catalog", authRequired, adminRequired, (_req, res) => {
-  res.json(getMarketCatalog({ includeInactive: true }));
+  const catalog = getMarketCatalog({ includeInactive: true });
+  res.json({ ...catalog, revision: buildMarketCatalogRevision(catalog) });
 });
 
 app.get("/api/admin/markets/catalog/audit", authRequired, adminRequired, (req, res) => {
   const limit = Math.min(Math.max(Number(req.query?.limit || 20), 1), 100);
-  const actorUserId = Number(req.query?.actorUserId || 0);
+  const requestedActorUserId = Number(req.query?.actorUserId || 0);
+  const beforeId = Number(req.query?.beforeId || 0);
   const q = String(req.query?.q || "").trim().toLowerCase();
   const fromDate = String(req.query?.fromDate || "").trim();
   const toDate = String(req.query?.toDate || "").trim();
+  const canViewAllAuditLogs = canViewAllMarketAuditLogs(req.user);
+  const actorUserId = canViewAllAuditLogs ? requestedActorUserId : Number(req.user?.id || 0);
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   if (fromDate && !datePattern.test(fromDate)) return res.status(400).json({ message: "fromDate 형식이 잘못되었습니다. (YYYY-MM-DD)" });
   if (toDate && !datePattern.test(toDate)) return res.status(400).json({ message: "toDate 형식이 잘못되었습니다. (YYYY-MM-DD)" });
@@ -2058,6 +2134,59 @@ app.get("/api/admin/markets/catalog/audit", authRequired, adminRequired, (req, r
       LEFT JOIN users u ON u.id = l.actor_user_id
   `;
   const where = [];
+  if (actorUserId > 0) {
+    where.push("l.actor_user_id = ?");
+    params.push(actorUserId);
+  }
+  if (beforeId > 0) {
+    where.push("l.id < ?");
+    params.push(beforeId);
+  }
+  if (q) {
+    where.push("(LOWER(COALESCE(l.summary_json, '')) LIKE ? OR LOWER(COALESCE(u.nickname, '')) LIKE ?)");
+    params.push(`%${q}%`, `%${q}%`);
+  }
+  if (fromDate) {
+    where.push("l.created_at >= ?");
+    params.push(`${fromDate} 00:00:00`);
+  }
+  if (toDate) {
+    where.push("l.created_at <= ?");
+    params.push(`${toDate} 23:59:59`);
+  }
+  if (where.length) sql += ` WHERE ${where.join(" AND ")} `;
+  sql += " ORDER BY l.id DESC LIMIT ?";
+  params.push(limit + 1);
+  const rows = db
+    .prepare(sql)
+    .all(...params)
+    .map((row) => ({
+      id: row.id,
+      actorUserId: row.actor_user_id,
+      actorName: row.actor_name || "",
+      assetsCount: Number(row.assets_count || 0),
+      marketsCount: Number(row.markets_count || 0),
+      summary: parseJsonSafe(row.summary_json, {}),
+      createdAt: row.created_at,
+    }));
+  const hasMore = rows.length > limit;
+  const logs = hasMore ? rows.slice(0, limit) : rows;
+  const nextBeforeId = logs.length ? Number(logs[logs.length - 1].id) : 0;
+  res.json({ logs, hasMore, nextBeforeId, scope: canViewAllAuditLogs ? "all" : "self" });
+});
+
+app.get("/api/admin/markets/catalog/audit/verify", authRequired, adminRequired, (req, res) => {
+  const requestedActorUserId = Number(req.query?.actorUserId || 0);
+  const q = String(req.query?.q || "").trim().toLowerCase();
+  const fromDate = String(req.query?.fromDate || "").trim();
+  const toDate = String(req.query?.toDate || "").trim();
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (fromDate && !datePattern.test(fromDate)) return res.status(400).json({ message: "fromDate 형식이 잘못되었습니다. (YYYY-MM-DD)" });
+  if (toDate && !datePattern.test(toDate)) return res.status(400).json({ message: "toDate 형식이 잘못되었습니다. (YYYY-MM-DD)" });
+  const canViewAllAuditLogs = canViewAllMarketAuditLogs(req.user);
+  const actorUserId = canViewAllAuditLogs ? requestedActorUserId : Number(req.user?.id || 0);
+  const where = [];
+  const params = [];
   if (actorUserId > 0) {
     where.push("l.actor_user_id = ?");
     params.push(actorUserId);
@@ -2074,22 +2203,47 @@ app.get("/api/admin/markets/catalog/audit", authRequired, adminRequired, (req, r
     where.push("l.created_at <= ?");
     params.push(`${toDate} 23:59:59`);
   }
+  let sql = `
+    SELECT l.id, l.actor_user_id, l.assets_count, l.markets_count, l.summary_json, l.created_at
+    FROM market_catalog_audit_logs l
+    LEFT JOIN users u ON u.id = l.actor_user_id
+  `;
   if (where.length) sql += ` WHERE ${where.join(" AND ")} `;
-  sql += " ORDER BY l.id DESC LIMIT ?";
-  params.push(limit);
-  const rows = db
-    .prepare(sql)
-    .all(...params)
-    .map((row) => ({
-      id: row.id,
-      actorUserId: row.actor_user_id,
-      actorName: row.actor_name || "",
-      assetsCount: Number(row.assets_count || 0),
-      marketsCount: Number(row.markets_count || 0),
-      summary: parseJsonSafe(row.summary_json, {}),
-      createdAt: row.created_at,
-    }));
-  res.json({ logs: rows });
+  sql += " ORDER BY l.id ASC";
+  const rows = db.prepare(sql).all(...params);
+  const chain = buildMarketAuditChain(rows);
+  const firstId = rows.length ? Number(rows[0].id) : 0;
+  const lastId = rows.length ? Number(rows[rows.length - 1].id) : 0;
+  const previousProof = db.prepare(`
+    SELECT sha256_hash, created_at
+    FROM audit_report_hashes
+    WHERE report_type = 'market_catalog_audit_chain'
+    ORDER BY id DESC
+    LIMIT 1
+  `).get();
+  const previousHash = String(previousProof?.sha256_hash || "");
+  const changedFromPrevious = Boolean(chain.rootHash && previousHash && chain.rootHash !== previousHash);
+  if (changedFromPrevious) {
+    sendAdminWebhook("market_catalog_audit_chain_changed", {
+      actorUserId: req.user.id,
+      scope: canViewAllAuditLogs ? "all" : "self",
+      total: chain.total,
+      previousHash,
+      newHash: chain.rootHash,
+      previousCreatedAt: String(previousProof?.created_at || ""),
+    });
+  }
+  res.json({
+    valid: true,
+    scope: canViewAllAuditLogs ? "all" : "self",
+    total: chain.total,
+    firstId,
+    lastId,
+    headHash: chain.headHash,
+    rootHash: chain.rootHash,
+    changedFromPrevious,
+    previousHash,
+  });
 });
 
 app.get("/api/admin/webhook-events", authRequired, adminRequired, (req, res) => {
@@ -2420,13 +2574,20 @@ app.post("/api/admin/audit/report-hashes", authRequired, adminRequired, (req, re
 
 app.get("/api/admin/audit/report-hashes", authRequired, adminRequired, (req, res) => {
   const limit = Math.min(Math.max(Number(req.query?.limit || 20), 1), 100);
-  const rows = db.prepare(`
+  const reportType = String(req.query?.reportType || "").trim();
+  const params = [];
+  let sql = `
     SELECT h.id, h.actor_user_id, u.nickname as actor_name, h.report_type, h.from_date, h.to_date, h.row_count, h.sha256_hash, h.created_at
     FROM audit_report_hashes h
     LEFT JOIN users u ON u.id = h.actor_user_id
-    ORDER BY h.id DESC
-    LIMIT ?
-  `).all(limit);
+  `;
+  if (reportType) {
+    sql += " WHERE h.report_type = ? ";
+    params.push(reportType);
+  }
+  sql += " ORDER BY h.id DESC LIMIT ? ";
+  params.push(limit);
+  const rows = db.prepare(sql).all(...params);
   res.json({ hashes: rows });
 });
 
@@ -2480,9 +2641,18 @@ app.put("/api/admin/features", authRequired, superAdminRequired, (req, res) => {
 app.put("/api/admin/markets/catalog", authRequired, superAdminRequired, (req, res) => {
   const assets = Array.isArray(req.body?.assets) ? req.body.assets : [];
   const markets = Array.isArray(req.body?.markets) ? req.body.markets : [];
+  const expectedRevision = String(req.body?.expectedRevision || "").trim();
   const validAssetTypes = new Set(["coin", "nft", "tokenized_asset", "point"]);
   const validMarketTypes = new Set(["p2p", "mock", "spot"]);
   const validStatuses = new Set(["active", "planned", "disabled"]);
+  const currentCatalog = getMarketCatalog({ includeInactive: true });
+  const currentRevision = buildMarketCatalogRevision(currentCatalog);
+  if (expectedRevision && expectedRevision !== currentRevision) {
+    return res.status(409).json({
+      message: "catalog_revision_conflict",
+      currentRevision,
+    });
+  }
   const beforeAssets = db
     .prepare("SELECT asset_code, display_name, asset_type, network, settlement_enabled, is_active, metadata_json FROM market_assets")
     .all();
@@ -2624,7 +2794,8 @@ app.put("/api/admin/markets/catalog", authRequired, superAdminRequired, (req, re
       marketKeys: markets.map((m) => String(m?.marketKey || "").trim()).filter(Boolean),
     })
   );
-  res.json(getMarketCatalog({ includeInactive: true }));
+  const catalog = getMarketCatalog({ includeInactive: true });
+  res.json({ ...catalog, revision: buildMarketCatalogRevision(catalog) });
 });
 
 app.patch("/api/admin/users/:id/role", authRequired, superAdminRequired, (req, res) => {
