@@ -12,6 +12,7 @@ import {
   recalculateAdminStats,
   validateTreeIntegrity,
 } from "./utils/referralTreeEngine";
+import { MOCK_USER_NOTIFICATIONS, MOCK_ADMIN_BRIEFS } from "./mock/notificationMock.js";
 
 const ADMIN_STAGE_LABEL = Object.freeze({
   SUPER_PAGE: "슈퍼페이지",
@@ -1014,21 +1015,25 @@ function number(v) {
   return new Intl.NumberFormat("ko-KR").format(Math.round(v || 0));
 }
 
-function getMarketRate(sellAsset, receiveAsset, receiveType) {
-  const fiatRates = {
+/** 서버 미연동·오류 시 사용하는 내장 시세 (server/market/priceFeedCore.js 폴백과 동일 수치). */
+const STATIC_MARKET_PRICES = {
+  fiatRates: {
     USDT: { KRW: 1392, USD: 1, VND: 26000, JPY: 156 },
     SOL: { KRW: 238000, USD: 171, VND: 4446000, JPY: 26600 },
     BTC: { KRW: 90000000, USD: 64700, VND: 1682200000, JPY: 10090000 },
     ETH: { KRW: 4300000, USD: 3090, VND: 80340000, JPY: 482000 },
-  };
-
-  const coinRates = {
+  },
+  coinRates: {
     USDT: { USDT: 1, SOL: 0.0058, BTC: 0.000015, ETH: 0.00032 },
     SOL: { USDT: 171, SOL: 1, BTC: 0.0026, ETH: 0.055 },
     BTC: { USDT: 64700, SOL: 378, BTC: 1, ETH: 20.9 },
     ETH: { USDT: 3090, SOL: 18, BTC: 0.048, ETH: 1 },
-  };
+  },
+};
 
+function getMarketRate(sellAsset, receiveAsset, receiveType, snapshot) {
+  const fiatRates = snapshot?.fiatRates ?? STATIC_MARKET_PRICES.fiatRates;
+  const coinRates = snapshot?.coinRates ?? STATIC_MARKET_PRICES.coinRates;
   if (receiveType === "통화") return fiatRates[sellAsset]?.[receiveAsset] || 0;
   return coinRates[sellAsset]?.[receiveAsset] || 0;
 }
@@ -1041,6 +1046,17 @@ function rateText(value, receiveAsset, receiveType) {
 export default function App() {
   const [theme, setTheme] = useState("dark");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifDesktopRef = useRef(null);
+  const notifMobileRef = useRef(null);
+  const [mockNotifReadIds, setMockNotifReadIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem("tg_mock_notif_read");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
   const [loggedIn, setLoggedIn] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
@@ -1135,7 +1151,13 @@ export default function App() {
   const [adminActionLogs, setAdminActionLogs] = useState([]);
   const [sellerDepositNotice, setSellerDepositNotice] = useState(defaultSellerDepositNotice);
   const [walletAccount, setWalletAccount] = useState({ provider: "", address: "", connectedAt: "", updatedAt: "" });
-  const [financeAccount, setFinanceAccount] = useState({ availableBalance: 0, referralEarningsTotal: 0, pendingWithdrawal: 0, updatedAt: "" });
+  const [financeAccount, setFinanceAccount] = useState({
+    availableBalance: 0,
+    referralEarningsTotal: 0,
+    pendingWithdrawal: 0,
+    p2pEscrowLocked: 0,
+    updatedAt: "",
+  });
   const [withdrawRequests, setWithdrawRequests] = useState([]);
   const [withdrawAmountInput, setWithdrawAmountInput] = useState("");
   const [withdrawNoteInput, setWithdrawNoteInput] = useState("");
@@ -1162,14 +1184,23 @@ export default function App() {
     emergencyEta: "",
     updatedAt: "",
   });
+  const [marketPrices, setMarketPrices] = useState(null);
   const domI18nOriginalTextMapRef = useRef(new WeakMap());
 
   const t = themeMap[theme];
   const lang = translations[language] || translations.KR;
-  const rate = coin === "USDT" ? 1392 : coin === "SOL" ? 238000 : 90000000;
+  const fiatForFee = marketPrices?.fiatRates;
+  const rate =
+    coin === "USDT"
+      ? fiatForFee?.USDT?.KRW ?? STATIC_MARKET_PRICES.fiatRates.USDT.KRW
+      : coin === "SOL"
+        ? fiatForFee?.SOL?.KRW ?? STATIC_MARKET_PRICES.fiatRates.SOL.KRW
+        : coin === "ETH"
+          ? fiatForFee?.ETH?.KRW ?? STATIC_MARKET_PRICES.fiatRates.ETH.KRW
+          : fiatForFee?.BTC?.KRW ?? STATIC_MARKET_PRICES.fiatRates.BTC.KRW;
   const fee = amount * rate * 0.01;
   const total = amount * rate + fee;
-  const marketRate = getMarketRate(sellAsset, receiveAsset, receiveType);
+  const marketRate = getMarketRate(sellAsset, receiveAsset, receiveType, marketPrices);
   const marketRateMinus = receiveType === "통화" ? Math.round(marketRate * 0.99) : Number((marketRate * 0.99).toFixed(8));
   const marketRatePlus = receiveType === "통화" ? Math.round(marketRate * 1.01) : Number((marketRate * 1.01).toFixed(8));
   const selectedFriend = useMemo(() => friends.find((friend) => friend.id === selectedFriendId), [friends, selectedFriendId]);
@@ -1265,6 +1296,12 @@ export default function App() {
       { key: "support", label: lang.support, show: true },
     ].filter((item) => item.show);
   }, [lang, canAccessAdmin]);
+
+  const mockNotifUnread = useMemo(
+    () => MOCK_USER_NOTIFICATIONS.filter((n) => !mockNotifReadIds.includes(n.id)).length,
+    [mockNotifReadIds]
+  );
+
   const apiClient = useMemo(
     () =>
       createApiClient({
@@ -1294,6 +1331,25 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(LOGIN_RECENT_IDS_KEY, JSON.stringify(loginRecentIds.slice(0, 12)));
   }, [loginRecentIds]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("tg_mock_notif_read", JSON.stringify(mockNotifReadIds));
+    } catch {
+      /* ignore */
+    }
+  }, [mockNotifReadIds]);
+
+  useEffect(() => {
+    if (!notifOpen) return undefined;
+    function onDocMouseDown(e) {
+      const inDesktop = notifDesktopRef.current?.contains(e.target);
+      const inMobile = notifMobileRef.current?.contains(e.target);
+      if (!inDesktop && !inMobile) setNotifOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [notifOpen]);
 
   useEffect(() => {
     if (myReferralCode) localStorage.setItem(MY_REFERRAL_CODE_KEY, myReferralCode);
@@ -1354,7 +1410,15 @@ export default function App() {
       .catch(() => {});
     apiClient.request("/api/finance/me", { auth: true })
       .then((data) => {
-        if (data?.account) setFinanceAccount(data.account);
+        if (data?.account) {
+          setFinanceAccount({
+            availableBalance: Number(data.account.availableBalance ?? 0),
+            referralEarningsTotal: Number(data.account.referralEarningsTotal ?? 0),
+            pendingWithdrawal: Number(data.account.pendingWithdrawal ?? 0),
+            p2pEscrowLocked: Number(data.account.p2pEscrowLocked ?? 0),
+            updatedAt: String(data.account.updatedAt || ""),
+          });
+        }
         if (Array.isArray(data?.withdrawals)) setWithdrawRequests(data.withdrawals);
         if (data?.wallet?.address) {
           setLinkedWallet(data.wallet.address);
@@ -1382,6 +1446,25 @@ export default function App() {
     }
     loadRuntimeState();
     const timer = setInterval(loadRuntimeState, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, [apiClient]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadMarketPrices() {
+      try {
+        const data = await apiClient.request("/api/market/prices");
+        if (!mounted || !data?.fiatRates || !data?.coinRates) return;
+        setMarketPrices({ fiatRates: data.fiatRates, coinRates: data.coinRates });
+      } catch {
+        /* 서버 다운 시 내장 STATIC_MARKET_PRICES 유지 */
+      }
+    }
+    loadMarketPrices();
+    const timer = setInterval(loadMarketPrices, 60000);
     return () => {
       mounted = false;
       clearInterval(timer);
@@ -1820,7 +1903,16 @@ export default function App() {
         body: JSON.stringify({ amount, note: withdrawNoteInput }),
       });
       const financeData = await apiClient.request("/api/finance/me", { auth: true });
-      if (financeData?.account) setFinanceAccount(financeData.account);
+      if (financeData?.account) {
+        const a = financeData.account;
+        setFinanceAccount({
+          availableBalance: Number(a.availableBalance ?? 0),
+          referralEarningsTotal: Number(a.referralEarningsTotal ?? 0),
+          pendingWithdrawal: Number(a.pendingWithdrawal ?? 0),
+          p2pEscrowLocked: Number(a.p2pEscrowLocked ?? 0),
+          updatedAt: String(a.updatedAt || ""),
+        });
+      }
       if (Array.isArray(financeData?.withdrawals)) setWithdrawRequests(financeData.withdrawals);
       setWithdrawAmountInput("");
       setWithdrawNoteInput("");
@@ -2667,6 +2759,63 @@ export default function App() {
           </nav>
 
           <div className="hidden items-center gap-2 md:flex">
+            {loggedIn ? (
+              <div className="relative" ref={notifDesktopRef}>
+                <button
+                  type="button"
+                  aria-label="알림"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNotifOpen((v) => !v);
+                  }}
+                  className={`relative rounded-xl border px-3 py-2 text-sm font-bold ${t.input}`}
+                >
+                  알림
+                  {mockNotifUnread > 0 ? (
+                    <span className="absolute -right-1 -top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-black leading-none text-white">
+                      {mockNotifUnread > 9 ? "9+" : mockNotifUnread}
+                    </span>
+                  ) : null}
+                </button>
+                {notifOpen ? (
+                  <div className={`absolute right-0 top-full z-[60] mt-2 w-[min(92vw,20rem)] rounded-2xl border p-3 shadow-xl ${t.card}`}>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs font-black">
+                        알림{" "}
+                        <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-black text-amber-300">MOCK</span>
+                      </span>
+                      <button
+                        type="button"
+                        className={`text-[11px] font-bold ${t.muted}`}
+                        onClick={() => setMockNotifReadIds(MOCK_USER_NOTIFICATIONS.map((n) => n.id))}
+                      >
+                        모두 읽음
+                      </button>
+                    </div>
+                    <ul className="max-h-72 space-y-2 overflow-auto">
+                      {MOCK_USER_NOTIFICATIONS.map((n) => {
+                        const read = mockNotifReadIds.includes(n.id);
+                        return (
+                          <li key={n.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMockNotifReadIds((prev) => (prev.includes(n.id) ? prev : [...prev, n.id]))
+                              }
+                              className={`w-full rounded-xl border p-3 text-left text-xs transition ${read ? `${t.muted} opacity-75` : t.input}`}
+                            >
+                              <div className="font-black">{n.title}</div>
+                              <div className={`mt-1 leading-snug ${t.subtext}`}>{n.body}</div>
+                              <div className={`mt-1 text-[10px] ${t.muted}`}>{n.at}</div>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <select value={language} onChange={(e) => { setLanguage(e.target.value); notify(`${languages.find((l) => l.code === e.target.value)?.label} 언어 적용`); }} className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${t.input}`}>
               {languages.map((lang) => <option key={lang.code} value={lang.code}>{lang.flag} {lang.label}</option>)}
             </select>
@@ -2697,6 +2846,63 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 md:hidden">
+            {loggedIn ? (
+              <div className="relative" ref={notifMobileRef}>
+                <button
+                  type="button"
+                  aria-label="알림"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setNotifOpen((v) => !v);
+                  }}
+                  className={`relative rounded-xl border px-2 py-2 text-xs font-bold ${t.input}`}
+                >
+                  🔔
+                  {mockNotifUnread > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-0.5 text-[9px] font-black leading-none text-white">
+                      {mockNotifUnread > 9 ? "9+" : mockNotifUnread}
+                    </span>
+                  ) : null}
+                </button>
+                {notifOpen ? (
+                  <div className={`fixed left-3 right-3 top-[4.25rem] z-[60] rounded-2xl border p-3 shadow-xl sm:absolute sm:left-auto sm:right-4 sm:top-full sm:mt-2 sm:w-[min(92vw,20rem)] ${t.card}`}>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs font-black">
+                        알림{" "}
+                        <span className="rounded bg-amber-500/20 px-1 py-0.5 text-[10px] font-black text-amber-300">MOCK</span>
+                      </span>
+                      <button
+                        type="button"
+                        className={`text-[11px] font-bold ${t.muted}`}
+                        onClick={() => setMockNotifReadIds(MOCK_USER_NOTIFICATIONS.map((n) => n.id))}
+                      >
+                        모두 읽음
+                      </button>
+                    </div>
+                    <ul className="max-h-[min(50vh,18rem)] space-y-2 overflow-auto">
+                      {MOCK_USER_NOTIFICATIONS.map((n) => {
+                        const read = mockNotifReadIds.includes(n.id);
+                        return (
+                          <li key={n.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMockNotifReadIds((prev) => (prev.includes(n.id) ? prev : [...prev, n.id]))
+                              }
+                              className={`w-full rounded-xl border p-3 text-left text-xs transition ${read ? `${t.muted} opacity-75` : t.input}`}
+                            >
+                              <div className="font-black">{n.title}</div>
+                              <div className={`mt-1 leading-snug ${t.subtext}`}>{n.body}</div>
+                              <div className={`mt-1 text-[10px] ${t.muted}`}>{n.at}</div>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <select value={language} onChange={(e) => setLanguage(e.target.value)} className={`rounded-xl border px-2 py-2 text-xs font-bold outline-none ${t.input}`}>
               {languages.map((lang) => <option key={lang.code} value={lang.code}>{lang.flag}</option>)}
             </select>
@@ -2766,10 +2972,13 @@ export default function App() {
             onReportDispute={registerDisputeCase}
             buyerKyc={buyerKyc}
             escrowPolicy={escrowPolicy}
+            apiClient={apiClient}
+            authToken={authToken}
+            myUserId={meAuthUser?.id ?? null}
           />
         )}
         {activePage === "myinfo" && <MyInfo nickname={nickname} setNickname={setNickname} bankRegistered={bankRegistered} setBankRegistered={setBankRegistered} buyerKyc={buyerKyc} setBuyerKyc={setBuyerKyc} apiClient={apiClient} myInfoTab={myInfoTab} setMyInfoTab={setMyInfoTab} showReferral={showReferral} setShowReferral={setShowReferral} theme={t} notify={notify} linkedGoogle={linkedGoogle} setLinkedGoogle={setLinkedGoogle} linkedWallet={linkedWallet} setLinkedWallet={setLinkedWallet} linkedReferral={linkedReferral} mergeStatus={mergeStatus} setMergeStatus={setMergeStatus} googleEmail={googleEmail} phantomWallet={phantomWallet} walletAccount={walletAccount} financeAccount={financeAccount} withdrawRequests={withdrawRequests} withdrawAmountInput={withdrawAmountInput} setWithdrawAmountInput={setWithdrawAmountInput} withdrawNoteInput={withdrawNoteInput} setWithdrawNoteInput={setWithdrawNoteInput} onConnectWallet={connectMyWallet} onRequestWithdrawal={requestWithdrawal} myReferralCode={myReferralCode} setMyReferralCode={setMyReferralCode} referralJoinLink={referralJoinLink} referralStats={referralStats} onSaveNickname={saveMyNickname} isSavingNickname={isSavingNickname} />}
-        {activePage === "mytrades" && <MyTradesOnly theme={t} notify={notify} />}
+        {activePage === "mytrades" && <MyTradesOnly theme={t} notify={notify} apiClient={apiClient} authToken={authToken} />}
         {activePage === "friends" && (
           <FriendsPage
             theme={t}
@@ -2846,9 +3055,20 @@ function Field({ label, theme, children }) {
   return <label className="grid gap-2"><span className={`text-sm font-bold ${theme.subtext}`}>{localizeLoose(label, language)}</span>{children}</label>;
 }
 
-function TradeList({ theme, requireLogin, notify, sellerDepositNotice, onReportDispute, buyerKyc, escrowPolicy }) {
+function TradeList({ theme, requireLogin, notify, sellerDepositNotice, onReportDispute, buyerKyc, escrowPolicy, apiClient, authToken, myUserId }) {
   const lang = useLang();
   const language = useLanguageCode();
+  const [listedOrders, setListedOrders] = useState([]);
+  const [listedLoading, setListedLoading] = useState(false);
+  const [listedTakeId, setListedTakeId] = useState("");
+  const [listedCancelId, setListedCancelId] = useState("");
+  const [tradeTimelineOrderId, setTradeTimelineOrderId] = useState("");
+  const [tradeOrderEventsCache, setTradeOrderEventsCache] = useState({});
+  const [tradeOrderEventsLoadingId, setTradeOrderEventsLoadingId] = useState("");
+  const [sellCoin, setSellCoin] = useState("USDT");
+  const [sellAmount, setSellAmount] = useState("");
+  const [sellUnitPrice, setSellUnitPrice] = useState("");
+  const [sellPayMethod, setSellPayMethod] = useState("KRW");
   const [query, setQuery] = useState("");
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [buyAmount, setBuyAmount] = useState("");
@@ -2864,6 +3084,292 @@ function TradeList({ theme, requireLogin, notify, sellerDepositNotice, onReportD
   const [sortMode, setSortMode] = useState("상위노출");
   const [minAmount, setMinAmount] = useState("");
   const [delayNoticeAgreed, setDelayNoticeAgreed] = useState(false);
+  const [myProgressOrders, setMyProgressOrders] = useState([]);
+  const [myOrdersLoading, setMyOrdersLoading] = useState(false);
+  const [tradeFlowActionId, setTradeFlowActionId] = useState("");
+  const [tradeClockTick, setTradeClockTick] = useState(0);
+  const [takeAmountDraft, setTakeAmountDraft] = useState({});
+
+  async function loadListedOrders() {
+    try {
+      setListedLoading(true);
+      const data = await apiClient.request("/api/p2p/orders?limit=60");
+      setListedOrders(Array.isArray(data.orders) ? data.orders : []);
+    } catch {
+      setListedOrders([]);
+    } finally {
+      setListedLoading(false);
+    }
+  }
+
+  async function loadMyProgressOrders() {
+    if (!authToken) {
+      setMyProgressOrders([]);
+      return;
+    }
+    try {
+      setMyOrdersLoading(true);
+      const data = await apiClient.request("/api/p2p/orders/me", { auth: true });
+      const all = Array.isArray(data.orders) ? data.orders : [];
+      setMyProgressOrders(all.filter((o) => o.status === "matched" || o.status === "payment_sent"));
+    } catch {
+      setMyProgressOrders([]);
+    } finally {
+      setMyOrdersLoading(false);
+    }
+  }
+
+  async function tradePaymentStart(orderId) {
+    try {
+      setTradeFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/payment-start`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("송금 신청을 접수했습니다.");
+      await loadMyProgressOrders();
+      await loadListedOrders();
+      setTradeOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    } catch (error) {
+      notify(error.message || "송금 신청에 실패했습니다.");
+    } finally {
+      setTradeFlowActionId("");
+    }
+  }
+
+  async function tradeMarkBuyerPaid(orderId) {
+    try {
+      setTradeFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/mark-paid`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("송금 완료로 표시했습니다.");
+      await loadMyProgressOrders();
+      await loadListedOrders();
+      setTradeOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    } catch (error) {
+      notify(error.message || "처리에 실패했습니다.");
+    } finally {
+      setTradeFlowActionId("");
+    }
+  }
+
+  async function tradeCompleteSeller(orderId) {
+    try {
+      setTradeFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/complete`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("거래를 완료했습니다.");
+      await loadMyProgressOrders();
+      await loadListedOrders();
+      setTradeOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    } catch (error) {
+      notify(error.message || "완료 처리에 실패했습니다.");
+    } finally {
+      setTradeFlowActionId("");
+    }
+  }
+
+  async function tradeWithdrawMatch(orderId) {
+    const ok = window.confirm("매칭을 철회하고 주문을 취소합니다. 계속할까요?");
+    if (!ok) return;
+    try {
+      setTradeFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/withdraw-match`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("매칭을 철회했습니다.");
+      await loadMyProgressOrders();
+      await loadListedOrders();
+      setTradeOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+      setTradeTimelineOrderId((cur) => (cur === orderId ? "" : cur));
+    } catch (error) {
+      notify(error.message || "철회에 실패했습니다.");
+    } finally {
+      setTradeFlowActionId("");
+    }
+  }
+
+  useEffect(() => {
+    loadListedOrders();
+    loadMyProgressOrders();
+    const id = setInterval(() => {
+      loadListedOrders();
+      loadMyProgressOrders();
+    }, 25000);
+    return () => clearInterval(id);
+  }, [apiClient, authToken]);
+
+  useEffect(() => {
+    if (!authToken) return undefined;
+    const id = setInterval(() => setTradeClockTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [authToken]);
+
+  function submitSellListing() {
+    requireLogin(async () => {
+      try {
+        const amount = Number(sellAmount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          notify("판매 수량을 올바르게 입력하세요.");
+          return;
+        }
+        await apiClient.request("/api/p2p/orders", {
+          method: "POST",
+          auth: true,
+          body: JSON.stringify({
+            coin: sellCoin || "USDT",
+            amount,
+            unitPrice: Number(sellUnitPrice) || 0,
+            paymentMethod: sellPayMethod || "",
+          }),
+        });
+        notify("판매 호가가 등록되었습니다.");
+        setSellAmount("");
+        await loadListedOrders();
+      } catch (error) {
+        notify(error.message || "판매 등록에 실패했습니다.");
+      }
+    });
+  }
+
+  function takeListedOrder(orderId, listedAmount) {
+    requireLogin(async () => {
+      try {
+        setListedTakeId(orderId);
+        const raw = takeAmountDraft[orderId];
+        const body = {};
+        if (raw != null && String(raw).trim() !== "") {
+          const n = Number(raw);
+          if (!Number.isFinite(n) || n <= 0) {
+            notify("매칭 수량을 올바르게 입력하세요.");
+            setListedTakeId("");
+            return;
+          }
+          if (n > listedAmount + 1e-9) {
+            notify("호가 수량을 초과할 수 없습니다.");
+            setListedTakeId("");
+            return;
+          }
+          body.amount = n;
+        }
+        const data = await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/take`, {
+          method: "POST",
+          auth: true,
+          body: JSON.stringify(body),
+        });
+        if (data.listingOrder) {
+          notify(`부분 매칭되었습니다. (${body.amount ?? listedAmount} ${data.order?.coin || ""}) 나머지는 호가에 남습니다.`);
+        } else {
+          notify("매칭되었습니다. 내 거래에서 확인하세요.");
+        }
+        await loadListedOrders();
+        await loadMyProgressOrders();
+        setTradeOrderEventsCache((prev) => {
+          const next = { ...prev };
+          delete next[orderId];
+          if (data.order?.id) delete next[data.order.id];
+          return next;
+        });
+        setTakeAmountDraft((prev) => {
+          const next = { ...prev };
+          delete next[orderId];
+          return next;
+        });
+      } catch (error) {
+        notify(error.message || "매칭에 실패했습니다.");
+      } finally {
+        setListedTakeId("");
+      }
+    });
+  }
+
+  function cancelListedOrder(orderId) {
+    requireLogin(async () => {
+      try {
+        setListedCancelId(orderId);
+        await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/cancel`, {
+          method: "POST",
+          auth: true,
+          body: JSON.stringify({}),
+        });
+        notify("호가를 취소했습니다.");
+        await loadListedOrders();
+        setTradeOrderEventsCache((prev) => {
+          const next = { ...prev };
+          delete next[orderId];
+          return next;
+        });
+      } catch (error) {
+        notify(error.message || "호가 취소에 실패했습니다.");
+      } finally {
+        setListedCancelId("");
+      }
+    });
+  }
+
+  async function toggleTradeTimeline(orderId) {
+    if (!authToken) {
+      notify("로그인 후 이벤트 타임라인을 볼 수 있습니다.");
+      return;
+    }
+    if (tradeTimelineOrderId === orderId) {
+      setTradeTimelineOrderId("");
+      return;
+    }
+    setTradeTimelineOrderId(orderId);
+    if (tradeOrderEventsCache[orderId]) return;
+    try {
+      setTradeOrderEventsLoadingId(orderId);
+      const data = await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/events`, { auth: true });
+      const ev = Array.isArray(data.events) ? data.events : [];
+      setTradeOrderEventsCache((prev) => ({ ...prev, [orderId]: ev }));
+    } catch (error) {
+      notify(error.message || "이벤트를 불러오지 못했습니다.");
+      setTradeTimelineOrderId("");
+    } finally {
+      setTradeOrderEventsLoadingId("");
+    }
+  }
+
+  async function refreshTradeTimeline(orderId) {
+    if (!authToken) return;
+    try {
+      setTradeOrderEventsLoadingId(orderId);
+      const data = await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/events`, { auth: true });
+      const ev = Array.isArray(data.events) ? data.events : [];
+      setTradeOrderEventsCache((prev) => ({ ...prev, [orderId]: ev }));
+      notify("타임라인을 새로고침했습니다.");
+    } catch (error) {
+      notify(error.message || "새로고침에 실패했습니다.");
+    } finally {
+      setTradeOrderEventsLoadingId("");
+    }
+  }
 
   function openTrade(order) {
     requireLogin(() => {
@@ -2963,6 +3469,45 @@ function TradeList({ theme, requireLogin, notify, sellerDepositNotice, onReportD
       if (sortMode === "낮은환율") return a.price - b.price;
       return b.price - a.price;
     });
+
+  /** TGX 스타일 레이아웃 연습용: 목업 차트·오더북 (실거래 데이터 아님, 기존 P2P 흐름 유지) */
+  const tgxMockDepth = useMemo(() => {
+    const rows = Array.isArray(listedOrders) ? listedOrders : [];
+    const withPx = rows.filter((o) => o && Number(o.unit_price) > 0);
+    let mid = 1350;
+    if (withPx.length > 0) {
+      mid = withPx.reduce((s, o) => s + Number(o.unit_price), 0) / withPx.length;
+      mid = Math.round(mid * 10000) / 10000;
+    }
+    const spread = Math.max(mid * 0.0004, 0.01);
+    const bids = [];
+    const asks = [];
+    for (let i = 0; i < 8; i++) {
+      const seed = (tradeClockTick + i * 13) % 97;
+      const sizeBid = ((seed % 50) / 100 + 0.2).toFixed(4);
+      const sizeAsk = (((seed * 3) % 50) / 100 + 0.2).toFixed(4);
+      bids.push({ price: mid - spread * (i + 1), size: sizeBid });
+      asks.push({ price: mid + spread * (i + 1), size: sizeAsk });
+    }
+    const pts = [];
+    let v = mid;
+    for (let i = 0; i < 56; i++) {
+      v += Math.sin((tradeClockTick * 0.05 + i) * 0.12) * mid * 0.00015;
+      pts.push(v);
+    }
+    const minP = Math.min(...pts);
+    const maxP = Math.max(...pts);
+    const w = 400;
+    const h = 140;
+    const polylinePoints = pts
+      .map((p, i) => {
+        const x = (i / Math.max(pts.length - 1, 1)) * w;
+        const y = h - ((p - minP) / (maxP - minP || 1)) * (h - 10) - 5;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+    return { mid, bids, asks, polylinePoints, minP, maxP };
+  }, [listedOrders, tradeClockTick]);
 
   return (
     <section className={`mx-auto max-w-7xl px-4 py-8 ${theme.card.includes("slate-900") ? "text-white" : "text-slate-950"}`}>
@@ -3104,6 +3649,315 @@ function TradeList({ theme, requireLogin, notify, sellerDepositNotice, onReportD
           <p className={`mt-2 ${theme.subtext}`}>국가별 국기를 누르면 해당 통화 판매 등록 리스트가 바로 표시됩니다.</p>
         </div>
         <button onClick={() => notify("다른 P2P 거래 카테고리는 상단 리스트로 확장 예정입니다.")} className={`rounded-2xl border px-4 py-3 text-sm font-black ${theme.input}`}>다른 P2P 확장</button>
+      </div>
+
+      <div className="mb-6 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.85fr)]">
+        <div className={`rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-black">참고 시세 차트 (목업)</div>
+              <div className={`text-[11px] ${theme.muted}`}>
+                TGX/거래소형 UI 연습 · 실제 체결 아님 · 호가 단가 평균 또는 기준 1350 반영
+              </div>
+            </div>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${theme.input}`}>MOCK</span>
+          </div>
+          <svg viewBox="0 0 400 140" className="mt-3 h-36 w-full" preserveAspectRatio="none" aria-hidden>
+            <rect width="400" height="140" fill="rgba(15,23,42,0.35)" rx="8" />
+            <polyline fill="none" stroke="#38bdf8" strokeWidth="2" points={tgxMockDepth.polylinePoints} />
+          </svg>
+          <div className={`mt-2 flex justify-between text-[11px] ${theme.muted}`}>
+            <span>저점 {number(tgxMockDepth.minP)}</span>
+            <span className="font-black text-sky-400">참고 mid {number(tgxMockDepth.mid)}</span>
+            <span>고점 {number(tgxMockDepth.maxP)}</span>
+          </div>
+        </div>
+        <div className={`rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-black">오더북 (목업)</div>
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${theme.input}`}>MOCK</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-[11px]">
+            <div>
+              <div className="mb-1 font-black text-emerald-400">매수</div>
+              <div className="space-y-1">
+                {tgxMockDepth.bids.slice(0, 6).map((row, i) => (
+                  <div key={`mock-bid-${i}`} className="flex justify-between gap-2 font-mono">
+                    <span className="text-emerald-400">{number(row.price)}</span>
+                    <span className={theme.muted}>{row.size}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 font-black text-rose-400">매도</div>
+              <div className="space-y-1">
+                {tgxMockDepth.asks.slice(0, 6).map((row, i) => (
+                  <div key={`mock-ask-${i}`} className="flex justify-between gap-2 font-mono">
+                    <span className="text-rose-400">{number(row.price)}</span>
+                    <span className={theme.muted}>{row.size}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className={`mb-8 rounded-3xl border p-5 shadow-sm ${theme.card}`}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-lg font-black">실시간 호가 (서버 연동)</div>
+            <div className={`text-xs ${theme.subtext}`}>등록·매칭은 API에서 처리됩니다. 본인 게시 호가에는 매칭할 수 없습니다. 수량을 적으면 부분 매칭 후 나머지가 같은 호가로 남습니다.</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadListedOrders()}
+            disabled={listedLoading}
+            className={`rounded-xl border px-3 py-2 text-xs font-black ${listedLoading ? "opacity-60" : theme.input}`}
+          >
+            {listedLoading ? "불러오는 중…" : "호가 새로고침"}
+          </button>
+        </div>
+
+        {authToken ? (
+          <div className="mb-6 grid gap-3 rounded-2xl border border-white/10 p-4 md:grid-cols-6">
+            <label className={`grid gap-1 md:col-span-1 ${theme.subtext}`}>
+              <span className="text-[11px] font-black">코인</span>
+              <select value={sellCoin} onChange={(e) => setSellCoin(e.target.value)} className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}>
+                <option value="USDT">USDT</option>
+                <option value="SOL">SOL</option>
+                <option value="BTC">BTC</option>
+                <option value="ETH">ETH</option>
+              </select>
+            </label>
+            <label className={`grid gap-1 md:col-span-1 ${theme.subtext}`}>
+              <span className="text-[11px] font-black">수량</span>
+              <input value={sellAmount} onChange={(e) => setSellAmount(e.target.value)} placeholder="예: 500" className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`} />
+            </label>
+            <label className={`grid gap-1 md:col-span-1 ${theme.subtext}`}>
+              <span className="text-[11px] font-black">단가(통화)</span>
+              <input value={sellUnitPrice} onChange={(e) => setSellUnitPrice(e.target.value)} placeholder="0 = 미표시" className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`} />
+            </label>
+            <label className={`grid gap-1 md:col-span-1 ${theme.subtext}`}>
+              <span className="text-[11px] font-black">결제 방식</span>
+              <select value={sellPayMethod} onChange={(e) => setSellPayMethod(e.target.value)} className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}>
+                <option value="KRW">KRW</option>
+                <option value="USD">USD</option>
+                <option value="VND">VND</option>
+                <option value="JPY">JPY</option>
+                <option value="USDT">USDT</option>
+              </select>
+            </label>
+            <div className="flex flex-col justify-end gap-1 md:col-span-2">
+              <div className={`text-[10px] ${theme.muted}`}>등록 수량만큼 내 잔고에서 P2P 예치(락)됩니다. 호가 취소·매칭 철회·자동 취소 시 출금 가능으로 돌아옵니다.</div>
+              <button type="button" onClick={submitSellListing} className={`w-full rounded-xl px-4 py-2.5 text-sm font-black ${theme.main}`}>
+                판매 호가 등록
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className={`mb-6 rounded-2xl p-4 text-sm ${theme.cardSoft}`}>로그인 후 서버에 판매 호가를 등록할 수 있습니다.</div>
+        )}
+
+        {authToken && (myProgressOrders.length > 0 || myOrdersLoading) ? (
+          <div className={`mb-6 rounded-2xl border border-amber-500/25 bg-amber-950/25 p-4 ${theme.cardSoft}`}>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-black text-amber-100">진행 중인 주문 (매칭·송금)</div>
+              {myOrdersLoading ? <span className={`text-xs ${theme.muted}`}>동기화…</span> : null}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {myProgressOrders.map((row) => (
+                <div key={row.id} className={`rounded-xl border border-white/10 p-3 ${theme.card}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-[10px] text-emerald-400">{row.id}</div>
+                      <div className="mt-1 text-sm font-black">
+                        {row.my_role === "seller" ? "매도" : row.my_role === "buyer" ? "매수" : "참여"} · {number(row.amount)} {row.coin}
+                      </div>
+                      {row.status === "matched" && row.match_deadline_at ? (
+                        <div className={`mt-1 text-[10px] font-bold text-amber-400`}>
+                          {formatP2pMatchCountdown(row.match_deadline_at)}
+                          {typeof row.match_sla_minutes === "number" ? ` · ${row.match_sla_minutes}분 내 송금 확인` : ""}
+                        </div>
+                      ) : null}
+                      {row.status === "matched" && row.my_role === "seller" ? (
+                        <div className={`mt-1 text-[9px] leading-snug ${theme.muted}`}>미체결 시 자동 취소 후 예치 물량 복구.</div>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-black text-white">{p2pStatusLabel(row.status)}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {row.my_role === "buyer" && row.status === "matched" && !row.buyer_payment_started_at ? (
+                      <button
+                        type="button"
+                        disabled={tradeFlowActionId === row.id}
+                        onClick={() => tradePaymentStart(row.id)}
+                        className={`rounded-lg border border-violet-500/60 px-3 py-2 text-[11px] font-black text-violet-200 ${theme.input}`}
+                      >
+                        {tradeFlowActionId === row.id ? "처리 중…" : "송금 신청"}
+                      </button>
+                    ) : null}
+                    {row.my_role === "buyer" && row.status === "matched" && row.buyer_payment_started_at ? (
+                      <button
+                        type="button"
+                        disabled={tradeFlowActionId === row.id}
+                        onClick={() => tradeMarkBuyerPaid(row.id)}
+                        className={`rounded-lg border border-sky-500/60 px-3 py-2 text-[11px] font-black text-sky-200 ${theme.input}`}
+                      >
+                        {tradeFlowActionId === row.id ? "처리 중…" : "송금 완료 표시"}
+                      </button>
+                    ) : null}
+                    {row.my_role === "seller" && row.status === "payment_sent" ? (
+                      <button
+                        type="button"
+                        disabled={tradeFlowActionId === row.id}
+                        onClick={() => tradeCompleteSeller(row.id)}
+                        className={`rounded-lg border border-emerald-500/60 px-3 py-2 text-[11px] font-black text-emerald-200 ${theme.input}`}
+                      >
+                        {tradeFlowActionId === row.id ? "처리 중…" : "거래 완료(릴리즈)"}
+                      </button>
+                    ) : null}
+                    {row.status === "matched" && row.my_role === "seller" ? (
+                      <button
+                        type="button"
+                        disabled={tradeFlowActionId === row.id}
+                        onClick={() => tradeWithdrawMatch(row.id)}
+                        className={`rounded-lg border border-red-500/50 px-3 py-2 text-[11px] font-black text-red-300 ${theme.input}`}
+                      >
+                        {tradeFlowActionId === row.id ? "처리 중…" : "매칭 취소"}
+                      </button>
+                    ) : null}
+                    {row.status === "matched" && row.my_role === "buyer" && !row.buyer_payment_started_at ? (
+                      <button
+                        type="button"
+                        disabled={tradeFlowActionId === row.id}
+                        onClick={() => tradeWithdrawMatch(row.id)}
+                        className={`rounded-lg border border-red-500/50 px-3 py-2 text-[11px] font-black text-red-300 ${theme.input}`}
+                      >
+                        {tradeFlowActionId === row.id ? "처리 중…" : "매칭 철회"}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {listedOrders.length === 0 && !listedLoading ? (
+            <div className={`col-span-full rounded-2xl border p-4 text-sm ${theme.input}`}>등록된 서버 호가가 없습니다. 위에서 판매 호가를 등록해 보세요.</div>
+          ) : null}
+          {listedOrders.map((row) => {
+            const ownListing = myUserId != null && Number(row.seller_user_id) === Number(myUserId);
+            const evCount = tradeOrderEventsCache[row.id]?.length;
+            return (
+              <div key={row.id} className={`rounded-2xl border border-white/10 ${theme.cardSoft}`}>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-mono text-[11px] text-emerald-400">{row.id}</div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      {evCount != null ? (
+                        <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-black text-white" title="불러온 이벤트 수">
+                          이벤트 {evCount}
+                        </span>
+                      ) : null}
+                      <span className="rounded-full bg-slate-600 px-2 py-0.5 text-[10px] font-black text-white">서버</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-xl font-black">{number(row.amount)} {row.coin}</div>
+                  <div className={`mt-1 text-sm ${theme.subtext}`}>
+                    판매자 user #{row.seller_user_id}
+                    {Number(row.unit_price) > 0 ? ` · 단가 ${number(row.unit_price)}` : ""}
+                    {row.payment_method ? ` · ${row.payment_method}` : ""}
+                  </div>
+                  <div className={`mt-2 text-xs ${theme.muted}`}>{row.created_at}</div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleTradeTimeline(row.id)}
+                      className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                    >
+                      {tradeTimelineOrderId === row.id ? "타임라인 닫기" : "이벤트 타임라인"}
+                    </button>
+                    {authToken && tradeTimelineOrderId === row.id ? (
+                      <button
+                        type="button"
+                        disabled={tradeOrderEventsLoadingId === row.id}
+                        onClick={() => refreshTradeTimeline(row.id)}
+                        className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                      >
+                        {tradeOrderEventsLoadingId === row.id ? "…" : "타임라인 새로고침"}
+                      </button>
+                    ) : null}
+                  </div>
+                  {ownListing && row.status === "listed" ? (
+                    <button
+                      type="button"
+                      disabled={listedCancelId === row.id}
+                      onClick={() => cancelListedOrder(row.id)}
+                      className="mt-3 w-full rounded-xl bg-amber-600 px-4 py-3 text-sm font-black text-white disabled:opacity-60"
+                    >
+                      {listedCancelId === row.id ? "취소 중…" : "호가 취소"}
+                    </button>
+                  ) : (
+                    <>
+                      {authToken && !ownListing ? (
+                        <label className={`mt-3 grid gap-1 text-[11px] font-bold ${theme.subtext}`}>
+                          매칭 수량 (비우면 전체 {number(row.amount)})
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            placeholder={`최대 ${number(row.amount)}`}
+                            value={takeAmountDraft[row.id] ?? ""}
+                            onChange={(e) =>
+                              setTakeAmountDraft((prev) => ({ ...prev, [row.id]: e.target.value }))
+                            }
+                            className={`rounded-xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}
+                          />
+                        </label>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={!authToken || ownListing || listedTakeId === row.id}
+                        onClick={() => takeListedOrder(row.id, Number(row.amount))}
+                        className={`mt-3 w-full rounded-xl px-4 py-3 text-sm font-black ${
+                          !authToken || ownListing ? "bg-slate-600 text-white" : theme.main
+                        }`}
+                      >
+                        {!authToken ? "로그인 후 매칭" : ownListing ? "내 주문" : listedTakeId === row.id ? "처리 중…" : "이 호가에 매칭"}
+                      </button>
+                    </>
+                  )}
+                </div>
+                {tradeTimelineOrderId === row.id ? (
+                  <div className={`border-t border-white/10 px-4 pb-4 pt-3 ${theme.subtext}`}>
+                    <div className="mb-2 text-[11px] font-black text-emerald-400">서버 이벤트</div>
+                    {tradeOrderEventsLoadingId === row.id ? (
+                      <div className={`text-xs ${theme.muted}`}>불러오는 중…</div>
+                    ) : (tradeOrderEventsCache[row.id] || []).length ? (
+                      <ul className="max-h-48 space-y-2 overflow-auto text-[11px]">
+                        {(tradeOrderEventsCache[row.id] || []).map((ev) => (
+                          <li key={ev.id} className={`rounded-lg border border-white/5 px-2 py-2 ${theme.card}`}>
+                            <div className="flex flex-wrap gap-2">
+                              <span className="font-mono text-[10px] text-sky-400">{ev.created_at}</span>
+                              <span className="font-black">{ev.action}</span>
+                            </div>
+                            <pre className={`mt-1 max-h-16 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] ${theme.muted}`}>{ev.detail_json}</pre>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className={`text-xs ${theme.muted}`}>이벤트가 없습니다.</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-3">
@@ -3285,6 +4139,7 @@ function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buye
         {myInfoTab === "잔고/출금" && (
           <div className="grid gap-3 md:grid-cols-2">
             <Box label="내 잔고" value={`${number(financeAccount?.availableBalance || 0)} USDT`} theme={theme} />
+            <Box label="P2P 판매 예치(락)" value={`${number(financeAccount?.p2pEscrowLocked || 0)} USDT`} theme={theme} />
             <Box label="누적 레퍼럴 수익" value={`${number(financeAccount?.referralEarningsTotal || 0)} USDT`} theme={theme} />
             <Box label="출금 대기" value={`${number(financeAccount?.pendingWithdrawal || 0)} USDT`} theme={theme} />
             <Box label="출금 지갑" value={walletAccount?.address || "지갑 미연결"} theme={theme} />
@@ -3313,7 +4168,7 @@ function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buye
               출금 신청 (회사 지갑 처리)
             </button>
             <div className={`rounded-2xl border p-4 text-xs ${theme.input}`}>
-              출금 신청 시 회사 지갑에서 검토 후 순차 출금됩니다.
+              출금 신청 시 회사 지갑에서 검토 후 순차 출금됩니다. P2P 매도가 최종 확인되면 주문 수량만큼 매수자 출금 가능 잔고에 반영됩니다(표시 단위는 추후 코인별 분리 가능).
             </div>
             <div className="md:col-span-2">
               <div className="mb-2 text-sm font-black">최근 출금 신청</div>
@@ -3522,13 +4377,225 @@ function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buye
   );
 }
 
-function MyTradesOnly({ theme, notify }) {
+function p2pStatusLabel(status) {
+  const map = {
+    listed: "판매등록",
+    matched: "매칭됨",
+    payment_sent: "송금완료·확인대기",
+    cancelled: "취소",
+    completed: "완료",
+  };
+  return map[status] || status;
+}
+
+function formatP2pMatchCountdown(matchDeadlineAtIso) {
+  if (!matchDeadlineAtIso) return "";
+  const end = Date.parse(matchDeadlineAtIso);
+  if (!Number.isFinite(end)) return "";
+  const ms = end - Date.now();
+  if (ms <= 0) return "송금 마감됨";
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  return `송금 확인까지 약 ${m}분 ${s}초`;
+}
+
+function MyTradesOnly({ theme, notify, apiClient, authToken }) {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [serverOrders, setServerOrders] = useState([]);
+  const [serverLoading, setServerLoading] = useState(false);
+  const [serverCancelId, setServerCancelId] = useState("");
+  const [timelineOrderId, setTimelineOrderId] = useState("");
+  const [orderEventsCache, setOrderEventsCache] = useState({});
+  const [orderEventsLoadingId, setOrderEventsLoadingId] = useState("");
+  const [orderFlowActionId, setOrderFlowActionId] = useState("");
+  const [clockTick, setClockTick] = useState(0);
+
+  async function reloadServerOrders() {
+    if (!authToken) {
+      setServerOrders([]);
+      return;
+    }
+    try {
+      setServerLoading(true);
+      const data = await apiClient.request("/api/p2p/orders/me", { auth: true });
+      setServerOrders(Array.isArray(data.orders) ? data.orders : []);
+    } catch {
+      setServerOrders([]);
+    } finally {
+      setServerLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    reloadServerOrders();
+  }, [authToken, apiClient]);
+
+  useEffect(() => {
+    if (!authToken) return undefined;
+    const id = setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [authToken]);
+
+  async function cancelMyListing(orderId) {
+    try {
+      setServerCancelId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/cancel`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("호가를 취소했습니다.");
+      await reloadServerOrders();
+      setOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    } catch (error) {
+      notify(error.message || "취소에 실패했습니다.");
+    } finally {
+      setServerCancelId("");
+    }
+  }
+
+  async function toggleOrderTimeline(orderId) {
+    if (timelineOrderId === orderId) {
+      setTimelineOrderId("");
+      return;
+    }
+    setTimelineOrderId(orderId);
+    if (orderEventsCache[orderId]) return;
+    try {
+      setOrderEventsLoadingId(orderId);
+      const data = await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/events`, { auth: true });
+      const ev = Array.isArray(data.events) ? data.events : [];
+      setOrderEventsCache((prev) => ({ ...prev, [orderId]: ev }));
+    } catch (error) {
+      notify(error.message || "주문 이벤트를 불러오지 못했습니다.");
+      setTimelineOrderId("");
+    } finally {
+      setOrderEventsLoadingId("");
+    }
+  }
+
+  async function refreshOrderTimeline(orderId) {
+    if (!authToken) return;
+    try {
+      setOrderEventsLoadingId(orderId);
+      const data = await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/events`, { auth: true });
+      const ev = Array.isArray(data.events) ? data.events : [];
+      setOrderEventsCache((prev) => ({ ...prev, [orderId]: ev }));
+      notify("타임라인을 새로고침했습니다.");
+    } catch (error) {
+      notify(error.message || "새로고침에 실패했습니다.");
+    } finally {
+      setOrderEventsLoadingId("");
+    }
+  }
+
+  async function paymentStartOrder(orderId) {
+    try {
+      setOrderFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/payment-start`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("송금 신청을 접수했습니다. 마감 전 송금 확인(송금 완료 표시)을 완료해 주세요.");
+      await reloadServerOrders();
+      setOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    } catch (error) {
+      notify(error.message || "송금 신청에 실패했습니다.");
+    } finally {
+      setOrderFlowActionId("");
+    }
+  }
+
+  async function markBuyerPaid(orderId) {
+    try {
+      setOrderFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/mark-paid`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("송금 완료로 표시했습니다.");
+      await reloadServerOrders();
+      setOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    } catch (error) {
+      notify(error.message || "처리에 실패했습니다.");
+    } finally {
+      setOrderFlowActionId("");
+    }
+  }
+
+  async function completeSellerOrder(orderId) {
+    try {
+      setOrderFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/complete`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("거래를 완료했습니다.");
+      await reloadServerOrders();
+      setOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+    } catch (error) {
+      notify(error.message || "완료 처리에 실패했습니다.");
+    } finally {
+      setOrderFlowActionId("");
+    }
+  }
+
+  async function withdrawMatched(orderId) {
+    const ok = window.confirm("매칭을 철회하고 주문을 취소합니다. 계속할까요?");
+    if (!ok) return;
+    try {
+      setOrderFlowActionId(orderId);
+      await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/withdraw-match`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({}),
+      });
+      notify("매칭을 철회했습니다.");
+      await reloadServerOrders();
+      setOrderEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+      setTimelineOrderId((cur) => (cur === orderId ? "" : cur));
+    } catch (error) {
+      notify(error.message || "철회에 실패했습니다.");
+    } finally {
+      setOrderFlowActionId("");
+    }
+  }
+
   const filteredTrades = trades.filter((trade) => {
     const tradeDate = trade.time.slice(0, 10);
     if (fromDate && tradeDate < fromDate) return false;
     if (toDate && tradeDate > toDate) return false;
+    return true;
+  });
+
+  const filteredServerOrders = serverOrders.filter((row) => {
+    const d = String(row.created_at || "").slice(0, 10);
+    if (fromDate && d && d < fromDate) return false;
+    if (toDate && d && d > toDate) return false;
     return true;
   });
 
@@ -3538,7 +4605,7 @@ function MyTradesOnly({ theme, notify }) {
         <div className="mb-5 flex items-center justify-between">
           <div>
             <div className="text-xl font-black">내 거래</div>
-            <div className={`text-sm ${theme.subtext}`}>기간별 거래내역 · 입금증빙 · 상태조회</div>
+            <div className={`text-sm ${theme.subtext}`}>기간별 거래내역 · 서버 연동 P2P 주문 · 데모 목업</div>
           </div>
           <button onClick={() => notify(`${fromDate || "시작일 미지정"} ~ ${toDate || "종료일 미지정"} 기간 조회`)} className={`rounded-2xl border px-4 py-2 text-sm font-bold ${theme.input}`}>기간조회</button>
         </div>
@@ -3556,6 +4623,152 @@ function MyTradesOnly({ theme, notify }) {
             기간 초기화
           </button>
         </div>
+
+        {authToken ? (
+          <div className="mb-6 space-y-3">
+            <div className={`text-sm font-black ${theme.subtext}`}>서버 P2P 주문 {serverLoading ? "(불러오는 중…)" : `(${filteredServerOrders.length}건)`}</div>
+            {filteredServerOrders.length ? filteredServerOrders.map((row) => (
+              <div key={row.id} className={`rounded-2xl border border-white/10 ${theme.cardSoft}`}>
+                <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-black">
+                      {row.my_role === "seller" ? "매도" : row.my_role === "buyer" ? "매수" : "참여"}
+                      {" "}
+                      {row.amount} {row.coin}
+                      {Number(row.unit_price) > 0 ? ` · 단가 ${row.unit_price}` : ""}
+                    </div>
+                    <div className={`mt-1 text-xs ${theme.muted}`}>
+                      {row.id} · {row.created_at}
+                      {row.payment_method ? ` · ${row.payment_method}` : ""}
+                    </div>
+                    {row.status === "matched" && row.match_deadline_at ? (
+                      <div className={`mt-1 text-[11px] font-bold text-amber-400`}>
+                        {formatP2pMatchCountdown(row.match_deadline_at)}
+                        {typeof row.match_sla_minutes === "number" ? ` · 매칭 후 ${row.match_sla_minutes}분 내 송금 확인` : ""}
+                      </div>
+                    ) : null}
+                    {row.status === "matched" && row.my_role === "seller" ? (
+                      <div className={`mt-1 text-[10px] leading-snug ${theme.muted}`}>
+                        시간 내 미체결 시 자동 취소되며, 예치·정산 정책에 따라 해당 물량이 판매자 측으로 복구됩니다.
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+                    <span className="w-fit rounded-full bg-indigo-600 px-3 py-1 text-xs font-black text-white">{p2pStatusLabel(row.status)}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleOrderTimeline(row.id)}
+                      className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                    >
+                      {timelineOrderId === row.id ? "타임라인 닫기" : "이벤트 타임라인"}
+                    </button>
+                    {row.my_role === "seller" && row.status === "listed" ? (
+                      <button
+                        type="button"
+                        disabled={serverCancelId === row.id}
+                        onClick={() => cancelMyListing(row.id)}
+                        className={`rounded-xl border border-amber-500/60 px-3 py-2 text-xs font-black text-amber-600 ${theme.input}`}
+                      >
+                        {serverCancelId === row.id ? "취소 중…" : "호가 취소"}
+                      </button>
+                    ) : null}
+                    {row.my_role === "buyer" && row.status === "matched" && !row.buyer_payment_started_at ? (
+                      <button
+                        type="button"
+                        disabled={orderFlowActionId === row.id}
+                        onClick={() => paymentStartOrder(row.id)}
+                        className={`rounded-xl border border-violet-500/60 px-3 py-2 text-xs font-black text-violet-200 ${theme.input}`}
+                      >
+                        {orderFlowActionId === row.id ? "처리 중…" : "송금 신청"}
+                      </button>
+                    ) : null}
+                    {row.my_role === "buyer" && row.status === "matched" && row.buyer_payment_started_at ? (
+                      <button
+                        type="button"
+                        disabled={orderFlowActionId === row.id}
+                        onClick={() => markBuyerPaid(row.id)}
+                        className={`rounded-xl border border-sky-500/60 px-3 py-2 text-xs font-black text-sky-300 ${theme.input}`}
+                      >
+                        {orderFlowActionId === row.id ? "처리 중…" : "송금 완료 표시"}
+                      </button>
+                    ) : null}
+                    {row.status === "matched" && row.my_role === "seller" ? (
+                      <button
+                        type="button"
+                        disabled={orderFlowActionId === row.id}
+                        onClick={() => withdrawMatched(row.id)}
+                        className={`rounded-xl border border-red-500/50 px-3 py-2 text-xs font-black text-red-300 ${theme.input}`}
+                      >
+                        {orderFlowActionId === row.id ? "처리 중…" : "매칭 취소"}
+                      </button>
+                    ) : null}
+                    {row.status === "matched" && row.my_role === "buyer" && !row.buyer_payment_started_at ? (
+                      <button
+                        type="button"
+                        disabled={orderFlowActionId === row.id}
+                        onClick={() => withdrawMatched(row.id)}
+                        className={`rounded-xl border border-red-500/50 px-3 py-2 text-xs font-black text-red-300 ${theme.input}`}
+                      >
+                        {orderFlowActionId === row.id ? "처리 중…" : "매칭 철회"}
+                      </button>
+                    ) : null}
+                    {row.my_role === "seller" && row.status === "payment_sent" ? (
+                      <button
+                        type="button"
+                        disabled={orderFlowActionId === row.id}
+                        onClick={() => completeSellerOrder(row.id)}
+                        className={`rounded-xl border border-emerald-500/60 px-3 py-2 text-xs font-black text-emerald-300 ${theme.input}`}
+                      >
+                        {orderFlowActionId === row.id ? "처리 중…" : "거래 완료(릴리즈)"}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                {timelineOrderId === row.id ? (
+                  <div className={`border-t border-white/10 px-4 pb-4 pt-3 ${theme.subtext}`}>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[11px] font-black text-emerald-400">서버 기록 (추적)</span>
+                      <button
+                        type="button"
+                        disabled={orderEventsLoadingId === row.id}
+                        onClick={() => refreshOrderTimeline(row.id)}
+                        className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
+                      >
+                        {orderEventsLoadingId === row.id ? "…" : "타임라인 새로고침"}
+                      </button>
+                    </div>
+                    {orderEventsLoadingId === row.id ? (
+                      <div className={`text-xs ${theme.muted}`}>불러오는 중…</div>
+                    ) : (orderEventsCache[row.id] || []).length ? (
+                      <ul className="max-h-56 space-y-2 overflow-auto text-[11px]">
+                        {(orderEventsCache[row.id] || []).map((ev) => (
+                          <li key={ev.id} className={`rounded-lg border border-white/5 px-2 py-2 ${theme.card}`}>
+                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                              <span className="font-mono text-[10px] text-sky-400">{ev.created_at}</span>
+                              <span className="font-black">{ev.action}</span>
+                              {ev.actor_user_id != null ? (
+                                <span className={`text-[10px] ${theme.muted}`}>actor #{ev.actor_user_id}</span>
+                              ) : null}
+                            </div>
+                            <pre className={`mt-1 max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] ${theme.muted}`}>{ev.detail_json}</pre>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className={`text-xs ${theme.muted}`}>이벤트가 없습니다.</div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )) : !serverLoading ? (
+              <div className={`rounded-2xl border p-4 text-sm ${theme.input}`}>아직 서버에 등록된 P2P 주문이 없습니다. (API 연동됨)</div>
+            ) : null}
+          </div>
+        ) : (
+          <div className={`mb-6 rounded-2xl border p-3 text-sm ${theme.input}`}>로그인하면 서버에 저장된 P2P 주문이 여기에 표시됩니다.</div>
+        )}
+
+        <div className={`mb-2 text-sm font-black ${theme.subtext}`}>데모 목업 거래 (로컬)</div>
         <div className="space-y-3">
           {filteredTrades.length ? filteredTrades.map((tr) => (
             <div key={tr.id} className={`flex items-center justify-between rounded-2xl p-4 ${theme.cardSoft}`}>
@@ -3566,7 +4779,7 @@ function MyTradesOnly({ theme, notify }) {
               <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{tr.status}</span>
             </div>
           )) : (
-            <div className={`rounded-2xl border p-4 text-sm ${theme.input}`}>선택한 기간의 거래 기록이 없습니다.</div>
+            <div className={`rounded-2xl border p-4 text-sm ${theme.input}`}>선택한 기간의 데모 거래 기록이 없습니다.</div>
           )}
         </div>
       </div>
@@ -3673,6 +4886,18 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [emergencyReasonInput, setEmergencyReasonInput] = useState("");
   const [emergencyEtaInput, setEmergencyEtaInput] = useState("");
   const [emergencyLoading, setEmergencyLoading] = useState(false);
+  const [platformOpsLoading, setPlatformOpsLoading] = useState(false);
+  const [platformOpsSaving, setPlatformOpsSaving] = useState(false);
+  const [p2pMatchSlaInput, setP2pMatchSlaInput] = useState("30");
+  const [p2pMatchSlaUpdatedAt, setP2pMatchSlaUpdatedAt] = useState("");
+  const [p2pMatchSlaUpdatedBy, setP2pMatchSlaUpdatedBy] = useState(null);
+  const [envFallbackSla, setEnvFallbackSla] = useState(30);
+  const [priceFeedProviderSelect, setPriceFeedProviderSelect] = useState("");
+  const [priceFeedBuiltinIds, setPriceFeedBuiltinIds] = useState([]);
+  const [priceFeedEffective, setPriceFeedEffective] = useState("");
+  const [priceFeedEnvOnly, setPriceFeedEnvOnly] = useState("");
+  const [priceFeedUpdatedAt, setPriceFeedUpdatedAt] = useState("");
+  const [priceFeedUpdatedBy, setPriceFeedUpdatedBy] = useState(null);
   const [selectedChildRateInput, setSelectedChildRateInput] = useState("");
   const [selectedChildIds, setSelectedChildIds] = useState([]);
   const [bulkChildRateInput, setBulkChildRateInput] = useState("");
@@ -3687,6 +4912,14 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [memberChildPage, setMemberChildPage] = useState(1);
   const [memberStageFilter, setMemberStageFilter] = useState("전체");
   const [memberListSort, setMemberListSort] = useState("joined_desc");
+  const [platformAuditLogs, setPlatformAuditLogs] = useState([]);
+  const [platformAuditLoading, setPlatformAuditLoading] = useState(false);
+  const [adminP2pOrders, setAdminP2pOrders] = useState([]);
+  const [adminP2pLoading, setAdminP2pLoading] = useState(false);
+  const [adminP2pTimelineId, setAdminP2pTimelineId] = useState("");
+  const [adminP2pEventsCache, setAdminP2pEventsCache] = useState({});
+  const [adminP2pEventsLoadingId, setAdminP2pEventsLoadingId] = useState("");
+  const [adminP2pCancelId, setAdminP2pCancelId] = useState("");
   const [downlineTargetUserId, setDownlineTargetUserId] = useState("");
   /** 우측 하부 트리 패널 전용 빠른 검색 (경로·선택 이동) */
   const [hierarchyQuickSearch, setHierarchyQuickSearch] = useState("");
@@ -4703,6 +5936,89 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
   }
 
+  async function loadPlatformAuditLogs() {
+    try {
+      setPlatformAuditLoading(true);
+      const data = await apiClient.request("/api/admin/platform-audit-logs?limit=150", { auth: true });
+      setPlatformAuditLogs(Array.isArray(data.logs) ? data.logs : []);
+    } catch (error) {
+      notify(error.message || "플랫폼 감사 로그 조회에 실패했습니다.");
+    } finally {
+      setPlatformAuditLoading(false);
+    }
+  }
+
+  async function loadAdminP2pOrders() {
+    try {
+      setAdminP2pLoading(true);
+      const data = await apiClient.request("/api/admin/p2p/orders?limit=120", { auth: true });
+      setAdminP2pOrders(Array.isArray(data.orders) ? data.orders : []);
+    } catch (error) {
+      notify(error.message || "P2P 주문 목록 조회에 실패했습니다.");
+    } finally {
+      setAdminP2pLoading(false);
+    }
+  }
+
+  async function toggleAdminP2pTimeline(orderId) {
+    if (adminP2pTimelineId === orderId) {
+      setAdminP2pTimelineId("");
+      return;
+    }
+    setAdminP2pTimelineId(orderId);
+    if (adminP2pEventsCache[orderId]) return;
+    try {
+      setAdminP2pEventsLoadingId(orderId);
+      const data = await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/events`, { auth: true });
+      const ev = Array.isArray(data.events) ? data.events : [];
+      setAdminP2pEventsCache((prev) => ({ ...prev, [orderId]: ev }));
+    } catch (error) {
+      notify(error.message || "주문 이벤트 조회에 실패했습니다.");
+      setAdminP2pTimelineId("");
+    } finally {
+      setAdminP2pEventsLoadingId("");
+    }
+  }
+
+  async function refreshAdminP2pTimeline(orderId) {
+    try {
+      setAdminP2pEventsLoadingId(orderId);
+      const data = await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/events`, { auth: true });
+      const ev = Array.isArray(data.events) ? data.events : [];
+      setAdminP2pEventsCache((prev) => ({ ...prev, [orderId]: ev }));
+      notify("타임라인을 새로고침했습니다.");
+    } catch (error) {
+      notify(error.message || "새로고침에 실패했습니다.");
+    } finally {
+      setAdminP2pEventsLoadingId("");
+    }
+  }
+
+  async function adminCancelP2pOrder(orderId) {
+    const ok = window.confirm("이 주문을 관리자 취소로 종료할까요? (매칭·송금 단계만 가능)");
+    if (!ok) return;
+    try {
+      setAdminP2pCancelId(orderId);
+      await apiClient.request(`/api/admin/p2p/orders/${encodeURIComponent(orderId)}/cancel`, {
+        method: "POST",
+        auth: true,
+        body: JSON.stringify({ reason: "관리자 중재 취소" }),
+      });
+      notify("주문을 취소 처리했습니다.");
+      await loadAdminP2pOrders();
+      setAdminP2pEventsCache((prev) => {
+        const next = { ...prev };
+        delete next[orderId];
+        return next;
+      });
+      setAdminP2pTimelineId((cur) => (cur === orderId ? "" : cur));
+    } catch (error) {
+      notify(error.message || "취소 처리에 실패했습니다.");
+    } finally {
+      setAdminP2pCancelId("");
+    }
+  }
+
   async function runOpsAction(actionKey) {
     try {
       setOpsActionLoading(actionKey);
@@ -5191,6 +6507,55 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
   }
 
+  async function loadPlatformSettings() {
+    try {
+      setPlatformOpsLoading(true);
+      const data = await apiClient.request("/api/admin/platform-settings", { auth: true });
+      const m = Number(data.p2p_match_sla_minutes ?? 30);
+      setP2pMatchSlaInput(String(Number.isFinite(m) ? m : 30));
+      setP2pMatchSlaUpdatedAt(String(data.p2p_match_sla_updated_at || ""));
+      setP2pMatchSlaUpdatedBy(data.p2p_match_sla_updated_by ?? null);
+      const ef = Number(data.env_fallback_p2p_match_sla_minutes ?? 30);
+      setEnvFallbackSla(Number.isFinite(ef) ? ef : 30);
+      const pfp = String(data.price_feed_provider ?? "").trim().toLowerCase();
+      setPriceFeedProviderSelect(pfp);
+      setPriceFeedBuiltinIds(Array.isArray(data.price_feed_builtin_providers) ? data.price_feed_builtin_providers : []);
+      setPriceFeedEffective(String(data.price_feed_provider_effective || ""));
+      setPriceFeedEnvOnly(String(data.env_only_price_feed_provider || ""));
+      setPriceFeedUpdatedAt(String(data.price_feed_updated_at || ""));
+      setPriceFeedUpdatedBy(data.price_feed_updated_by ?? null);
+    } catch (error) {
+      notify(error.message || "플랫폼 설정을 불러오지 못했습니다.");
+    } finally {
+      setPlatformOpsLoading(false);
+    }
+  }
+
+  async function savePlatformSettings() {
+    const n = Number(p2pMatchSlaInput);
+    if (!Number.isFinite(n) || n < 5 || n > 180) {
+      notify("P2P 송금 마감은 5~180분 사이로 입력하세요.");
+      return;
+    }
+    try {
+      setPlatformOpsSaving(true);
+      await apiClient.request("/api/admin/platform-settings", {
+        method: "PATCH",
+        auth: true,
+        body: JSON.stringify({
+          p2p_match_sla_minutes: n,
+          price_feed_provider: priceFeedProviderSelect === "" ? "" : priceFeedProviderSelect,
+        }),
+      });
+      notify("플랫폼 설정을 저장했습니다.");
+      await loadPlatformSettings();
+    } catch (error) {
+      notify(error.message || "저장에 실패했습니다.");
+    } finally {
+      setPlatformOpsSaving(false);
+    }
+  }
+
   async function loadEmergencyState() {
     try {
       const data = await apiClient.request("/api/admin/ops/emergency-mode", { auth: true });
@@ -5437,6 +6802,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     loadMarketCatalog();
     loadMarketCatalogAudit();
     loadEmergencyState();
+    loadPlatformSettings();
   }, []);
 
   useEffect(() => {
@@ -5480,6 +6846,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   }, [marketAuditActorFilter, marketAuditQuery, marketAuditFromDate, marketAuditToDate]);
 
   useEffect(() => {
+    if (adminViewTab !== "audit") return;
+    loadPlatformAuditLogs();
+    loadAdminP2pOrders();
+  }, [adminViewTab]);
+
+  useEffect(() => {
     if (!marketAuditChainDrift.ready || !marketAuditChainDrift.changed) return;
     const alertKey = `${marketAuditChainDrift.latestAt}:${marketAuditChainDrift.latestHash}`;
     if (!alertKey || alertKey === lastMarketAuditAlertHash) return;
@@ -5513,6 +6885,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     { key: "kyc", title: "KYC", desc: "회사 승인, 문서 열람, 2인 승인 워크플로우", color: "bg-violet-600" },
     { key: "dispute", title: "분쟁/정산", desc: "다중승인, OTP 최종승인, 보관계좌 정책", color: "bg-amber-500" },
     { key: "ops", title: "감사/복구", desc: "감사리포트, 해시검증, 스냅샷/롤백/비상모드", color: "bg-emerald-600" },
+    { key: "audit", title: "플랫폼 감사로그", desc: "로그인·가입 등 서버 공통 감사 기록", color: "bg-slate-600" },
   ];
   const adminTabTitleMap = {
     dashboard: "대시보드",
@@ -5522,6 +6895,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     kyc: "KYC",
     dispute: "분쟁/정산",
     ops: "감사/복구",
+    audit: "플랫폼 감사로그",
   };
   const currentAdminStage = adminTabTitleMap[adminViewTab] || "대시보드";
   const currentAdminFocus =
@@ -5533,9 +6907,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           ? `${selectedSecurityUser?.nickname || "-"} (${selectedSecurityUser?.id || "-"})`
           : adminViewTab === "kyc"
             ? `KYC 상태: ${buyerKyc?.companyApprovalStatus || "-"}`
-            : adminViewTab === "ops"
-              ? `리스크 점수: ${opsRiskSummary?.score ?? 0}`
-              : "카테고리를 선택하세요";
+            : adminViewTab === "dispute"
+              ? `분쟁 ${Array.isArray(disputeCases) ? disputeCases.length : 0}건`
+              : adminViewTab === "ops"
+                ? `리스크 점수: ${opsRiskSummary?.score ?? 0}`
+                : adminViewTab === "audit"
+                  ? `로그 ${platformAuditLogs.length}건 표시`
+                  : "카테고리를 선택하세요";
   const quickActionLabel =
     adminViewTab === "member"
       ? "하부 열기"
@@ -5549,7 +6927,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               ? "분쟁 새로고침"
               : adminViewTab === "ops"
                 ? "리스크 점검"
-                : "카테고리 열기";
+                : adminViewTab === "audit"
+                  ? "로그 새로고침"
+                  : "카테고리 열기";
   const quickActionDisabled =
     (adminViewTab === "member" && !monitorCurrentUser) ||
     (adminViewTab === "memberOps" && !selectedOpsUser) ||
@@ -5587,6 +6967,10 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     if (adminViewTab === "ops") {
       loadOpsRiskSummary();
       notify("운영 리스크를 점검합니다.");
+      return;
+    }
+    if (adminViewTab === "audit") {
+      Promise.all([loadPlatformAuditLogs(), loadAdminP2pOrders()]).then(() => notify("감사 로그·P2P 주문을 새로고침했습니다."));
       return;
     }
     notify("카테고리를 선택하세요.");
@@ -5664,6 +7048,36 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
+        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.card}`}>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="text-sm font-black">
+                운영 알림 요약{" "}
+                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-black text-amber-300">MOCK</span>
+              </div>
+              <div className={`mt-1 text-xs ${theme.muted}`}>실제 알림·승인 큐 API 연동 전, 레이아웃과 우선순위 점검용입니다.</div>
+            </div>
+          </div>
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {MOCK_ADMIN_BRIEFS.map((b) => (
+              <li
+                key={b.id}
+                className={`rounded-2xl border p-3 text-left ${
+                  b.tone === "warn"
+                    ? "border-amber-500/40 bg-amber-500/5"
+                    : b.tone === "info"
+                      ? "border-sky-500/35 bg-sky-500/5"
+                      : theme.input
+                }`}
+              >
+                <div className="text-xs font-black">{b.title}</div>
+                <div className={`mt-1 text-[11px] leading-snug ${theme.subtext}`}>{b.body}</div>
+                <div className={`mt-2 text-[10px] font-bold ${theme.muted}`}>{b.at}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
         <div className={`sticky top-2 z-20 mb-4 rounded-3xl border p-2.5 backdrop-blur ${theme.cardSoft}`}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-2 text-[11px]">
@@ -5685,7 +7099,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               </button>
             ) : null}
           </div>
-          <div className="grid gap-2 md:grid-cols-7">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
             <button onClick={() => setAdminViewTab("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dashboard") ? theme.main : theme.input}`}>대시보드</button>
             <button onClick={() => setAdminViewTab("member")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("member") ? theme.main : theme.input}`}>회원관리</button>
             <button onClick={() => setAdminViewTab("memberOps")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("memberOps") ? theme.main : theme.input}`}>회원운영</button>
@@ -5693,10 +7107,255 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <button onClick={() => setAdminViewTab("kyc")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("kyc") ? theme.main : theme.input}`}>KYC</button>
             <button onClick={() => setAdminViewTab("dispute")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dispute") ? theme.main : theme.input}`}>분쟁/정산</button>
             <button onClick={() => setAdminViewTab("ops")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("ops") ? theme.main : theme.input}`}>감사/복구</button>
+            <button onClick={() => setAdminViewTab("audit")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("audit") ? theme.main : theme.input}`}>플랫폼로그</button>
           </div>
         </div>
 
         <div className="space-y-4">
+
+        <div className={`${isAdminTab("audit") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-black">플랫폼 감사 로그</div>
+              <div className={`text-xs ${theme.muted}`}>로그인·가입·지갑 로그인 등 서버에 기록된 공통 감사 이벤트입니다.</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                loadPlatformAuditLogs();
+                loadAdminP2pOrders();
+              }}
+              disabled={platformAuditLoading || adminP2pLoading}
+              className={`rounded-xl border px-3 py-2 text-xs font-black ${platformAuditLoading || adminP2pLoading ? "opacity-60" : theme.input}`}
+            >
+              {platformAuditLoading || adminP2pLoading ? "불러오는 중…" : "새로고침"}
+            </button>
+          </div>
+          <div className="max-h-[min(70vh,560px)] overflow-auto rounded-2xl border border-white/10">
+            <table className="min-w-full text-left text-[11px]">
+              <thead className={`sticky top-0 z-10 ${theme.card}`}>
+                <tr className={`border-b ${theme.muted}`}>
+                  <th className="px-2 py-2 pr-2">ID</th>
+                  <th className="py-2 pr-2">시각</th>
+                  <th className="py-2 pr-2">이벤트</th>
+                  <th className="py-2 pr-2">플랫폼</th>
+                  <th className="py-2 pr-2">user_id</th>
+                  <th className="py-2 pr-2">IP</th>
+                  <th className="py-2 pr-2">UA</th>
+                  <th className="py-2 pr-2">payload</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(platformAuditLogs || []).map((row) => (
+                  <tr key={row.id} className={`border-b border-white/5 ${theme.subtext}`}>
+                    <td className="px-2 py-1.5 pr-2 font-mono">{row.id}</td>
+                    <td className="py-1.5 pr-2 whitespace-nowrap">{row.created_at}</td>
+                    <td className="py-1.5 pr-2">{row.event_type}</td>
+                    <td className="py-1.5 pr-2 font-mono text-[10px]">{row.platform_code || "—"}</td>
+                    <td className="py-1.5 pr-2">{row.user_id ?? "—"}</td>
+                    <td className="py-1.5 pr-2 font-mono text-[10px]">{row.ip || "—"}</td>
+                    <td className="py-1.5 pr-2 max-w-[120px] truncate text-[10px]" title={row.user_agent}>{row.user_agent || "—"}</td>
+                    <td className="py-1.5 pr-2 max-w-[min(40vw,220px)] truncate font-mono text-[10px]" title={row.payload_json}>{row.payload_json}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!platformAuditLoading && (!platformAuditLogs || platformAuditLogs.length === 0) ? (
+            <div className={`mt-3 text-xs ${theme.muted}`}>기록이 없습니다. 로그인 후 이 탭을 다시 열어 보세요.</div>
+          ) : null}
+
+          <div className="mt-8 border-t border-white/10 pt-6">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-black">P2P 주문 모니터</div>
+                <div className={`text-xs ${theme.muted}`}>전체 주문 상태 · 판매자/매수자 user_id (관리자 전용)</div>
+              </div>
+              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${theme.cardSoft}`}>
+                {adminP2pLoading ? "…" : `${adminP2pOrders.length}건`}
+              </span>
+            </div>
+            <div className="max-h-[min(50vh,420px)] overflow-auto rounded-2xl border border-white/10">
+              <table className="min-w-full text-left text-[11px]">
+                <thead className={`sticky top-0 z-10 ${theme.card}`}>
+                  <tr className={`border-b ${theme.muted}`}>
+                    <th className="px-2 py-2">주문 ID</th>
+                    <th className="py-2 pr-2">상태</th>
+                    <th className="py-2 pr-2">플랫폼</th>
+                    <th className="py-2 pr-2">코인/수량</th>
+                    <th className="py-2 pr-2">판매자</th>
+                    <th className="py-2 pr-2">매수자</th>
+                    <th className="py-2 pr-2">갱신</th>
+                    <th className="py-2 pr-2">이벤트</th>
+                    <th className="py-2 pr-2">중재</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(adminP2pOrders || []).map((row) => (
+                    <tr key={row.id} className={`border-b border-white/5 ${theme.subtext}`}>
+                      <td className="max-w-[140px] truncate px-2 py-1.5 font-mono text-[10px]" title={row.id}>{row.id}</td>
+                      <td className="py-1.5 pr-2">{row.status}</td>
+                      <td className="py-1.5 pr-2 font-mono text-[10px]">{row.platform_code || "—"}</td>
+                      <td className="py-1.5 pr-2 whitespace-nowrap">{row.amount} {row.coin}</td>
+                      <td className="py-1.5 pr-2">{actorNameMap[row.seller_user_id] || `#${row.seller_user_id}`}</td>
+                      <td className="py-1.5 pr-2">{row.buyer_user_id != null ? (actorNameMap[row.buyer_user_id] || `#${row.buyer_user_id}`) : "—"}</td>
+                      <td className="py-1.5 pr-2 whitespace-nowrap text-[10px]">{row.updated_at}</td>
+                      <td className="py-1.5 pr-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleAdminP2pTimeline(row.id)}
+                          className={`rounded-lg border px-2 py-1 text-[10px] font-black ${theme.input}`}
+                        >
+                          {adminP2pTimelineId === row.id ? "닫기" : "보기"}
+                        </button>
+                      </td>
+                      <td className="py-1.5 pr-2">
+                        {row.status === "matched" || row.status === "payment_sent" ? (
+                          <button
+                            type="button"
+                            disabled={adminP2pCancelId === row.id}
+                            onClick={() => adminCancelP2pOrder(row.id)}
+                            className={`rounded-lg border border-red-500/50 px-2 py-1 text-[10px] font-black text-red-300 ${theme.input}`}
+                          >
+                            {adminP2pCancelId === row.id ? "…" : "취소"}
+                          </button>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {adminP2pTimelineId ? (
+              <div className={`mt-4 rounded-2xl border border-white/10 p-4 ${theme.card}`}>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-black text-emerald-400">이벤트 타임라인 · {adminP2pTimelineId}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={adminP2pEventsLoadingId === adminP2pTimelineId}
+                      onClick={() => refreshAdminP2pTimeline(adminP2pTimelineId)}
+                      className={`rounded-lg border px-2 py-1 text-[10px] font-black ${theme.input}`}
+                    >
+                      {adminP2pEventsLoadingId === adminP2pTimelineId ? "…" : "타임라인 새로고침"}
+                    </button>
+                    <button type="button" onClick={() => setAdminP2pTimelineId("")} className={`rounded-lg border px-2 py-1 text-[10px] font-black ${theme.input}`}>
+                      닫기
+                    </button>
+                  </div>
+                </div>
+                {adminP2pEventsLoadingId === adminP2pTimelineId ? (
+                  <div className={`text-xs ${theme.muted}`}>불러오는 중…</div>
+                ) : (adminP2pEventsCache[adminP2pTimelineId] || []).length ? (
+                  <ul className="max-h-64 space-y-2 overflow-auto text-[11px]">
+                    {(adminP2pEventsCache[adminP2pTimelineId] || []).map((ev) => (
+                      <li key={ev.id} className={`rounded-lg border border-white/5 px-2 py-2 ${theme.cardSoft}`}>
+                        <div className="flex flex-wrap gap-2">
+                          <span className="font-mono text-[10px] text-sky-400">{ev.created_at}</span>
+                          <span className="font-black">{ev.action}</span>
+                          <span className={`text-[10px] ${theme.muted}`}>#{ev.actor_user_id ?? "—"}</span>
+                        </div>
+                        <pre className={`mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] ${theme.muted}`}>{ev.detail_json}</pre>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className={`text-xs ${theme.muted}`}>이벤트가 없습니다.</div>
+                )}
+              </div>
+            ) : null}
+            {!adminP2pLoading && (!adminP2pOrders || adminP2pOrders.length === 0) ? (
+              <div className={`mt-3 text-xs ${theme.muted}`}>등록된 P2P 주문이 없습니다.</div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-black">본사 운영 설정</div>
+              <div className={`text-xs ${theme.muted}`}>
+                DB에 저장되며 재시작 후에도 유지됩니다. P2P 송금 마감: 환경변수 미설정 시 폴백 {envFallbackSla}분. 시세 출처를 비우면{" "}
+                <span className="font-mono">PRICE_FEED_PROVIDER</span> 등 환경변수 규칙을 따릅니다.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadPlatformSettings()}
+              disabled={platformOpsLoading}
+              className={`rounded-xl border px-3 py-2 text-xs font-black ${platformOpsLoading ? "opacity-60" : theme.input}`}
+            >
+              {platformOpsLoading ? "불러오는 중…" : "새로고침"}
+            </button>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className={`grid gap-1 ${theme.subtext}`}>
+              <span className="text-[11px] font-black">P2P 매칭 후 송금 마감(분)</span>
+              <input
+                type="number"
+                min={5}
+                max={180}
+                value={p2pMatchSlaInput}
+                onChange={(e) => setP2pMatchSlaInput(e.target.value)}
+                className={`w-28 rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+              />
+            </label>
+            <label className={`grid min-w-[220px] gap-1 ${theme.subtext}`}>
+              <span className="text-[11px] font-black">참고 시세 출처 (앱 표시용)</span>
+              <select
+                value={priceFeedProviderSelect}
+                onChange={(e) => setPriceFeedProviderSelect(e.target.value)}
+                className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
+              >
+                <option value="">(비움) 환경변수·자동 규칙</option>
+                {(priceFeedBuiltinIds.length ? priceFeedBuiltinIds : ["coingecko", "coinmarketcap", "static", "upbit"]).map((id) => (
+                  <option key={id} value={id}>
+                    {id === "coingecko"
+                      ? "CoinGecko (집계)"
+                      : id === "coinmarketcap"
+                        ? "CoinMarketCap (집계, API 키)"
+                        : id === "static"
+                          ? "내장 고정값"
+                          : id === "upbit"
+                            ? "업비트 공개 티커"
+                            : id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => savePlatformSettings()}
+              disabled={platformOpsSaving || platformOpsLoading}
+              className={`rounded-xl border px-4 py-2 text-xs font-black ${theme.main}`}
+            >
+              {platformOpsSaving ? "저장 중…" : "저장"}
+            </button>
+          </div>
+          <div className={`mt-2 space-y-1 text-[11px] ${theme.muted}`}>
+            <div>
+              P2P 적용: {p2pMatchSlaInput}분 · 마지막 수정: {p2pMatchSlaUpdatedAt || "-"}
+              {p2pMatchSlaUpdatedBy != null ? ` · by user #${p2pMatchSlaUpdatedBy}` : ""}
+            </div>
+            <div>
+              시세 DB 지정: {priceFeedProviderSelect ? <span className="font-mono text-sky-400">{priceFeedProviderSelect}</span> : "— (환경변수 규칙)"}{" "}
+              · 적용 출처 id: <span className="font-mono text-emerald-400">{priceFeedEffective || "—"}</span>
+              {" "}
+              <span className="opacity-80">(CMC는 키 없으면 내부적으로 coingecko 로 폴백)</span>
+              {priceFeedEnvOnly ? (
+                <>
+                  {" "}
+                  · 환경만 보면: <span className="font-mono">{priceFeedEnvOnly}</span>
+                </>
+              ) : null}
+              {" · "}
+              마지막 수정: {priceFeedUpdatedAt || "-"}
+              {priceFeedUpdatedBy != null ? ` · by user #${priceFeedUpdatedBy}` : ""}
+            </div>
+          </div>
+        </div>
 
         <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex items-center justify-between">

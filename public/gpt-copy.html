@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ChatGPT용 메시지 복사</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --ok: #22c55e;
+      --err: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      margin: 0 0 0.5rem;
+    }
+    p.hint {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin: 0 0 1rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 280px;
+      padding: 1rem;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      background: var(--card);
+      color: var(--text);
+      font-size: 0.9rem;
+      resize: vertical;
+      margin-bottom: 1rem;
+    }
+    textarea:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    button#copyBtn {
+      width: 100%;
+      padding: 1rem 1.25rem;
+      font-size: 1rem;
+      font-weight: 800;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+      color: #0f172a;
+      cursor: pointer;
+      transition: transform 0.15s, filter 0.15s;
+    }
+    button#copyBtn:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
+    button#copyBtn:active {
+      transform: translateY(0);
+    }
+    #status {
+      margin-top: 1rem;
+      text-align: center;
+      font-size: 0.9rem;
+      font-weight: 700;
+      min-height: 1.5rem;
+    }
+    #status.ok { color: var(--ok); }
+    #status.err { color: var(--err); }
+    code {
+      font-size: 0.85em;
+      background: #334155;
+      padding: 0.15em 0.4em;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ChatGPT에 붙일 말</h1>
+    <p class="hint">아래 내용을 수정한 뒤 <strong>복사</strong>를 누르세요. 개발 서버 실행 중이면 <code>/gpt-copy.html</code> 로 열 수 있습니다.</p>
+    <textarea id="msg" spellcheck="false"></textarea>
+    <button type="button" id="copyBtn">클립보드에 복사</button>
+    <div id="status" aria-live="polite"></div>
+  </div>
+  <script>
+    const defaultText = `다음은 tetherget-mvp 프로젝트 관련 질문입니다.
+
+[로컬 환경]
+- 프론트: http://localhost:5173
+- 백엔드 API: http://localhost:4000
+- API 정상 여부: 브라우저 또는 터미널에서 GET http://localhost:4000/api/health
+  → 응답에 "service":"tetherget-mvp-api" 가 있어야 이 레포 API가 맞음 (다른 프로세스가 4000을 쓰면 안 됨)
+
+[부탁]
+- 추측만 하지 말고, 가능하면 브라우저 Network의 실패 요청 URL·상태코드(400/401/403/404/500)·응답 message를 기준으로 설명해 주세요.
+- DB 삭제·기능 대량 삭제 같은 파괴적 조언은 하지 말아 주세요.
+
+[현재 이슈 / 질문]
+(여기에 적어 주세요)
+`;
+
+    const ta = document.getElementById("msg");
+    const btn = document.getElementById("copyBtn");
+    const status = document.getElementById("status");
+
+    ta.value = localStorage.getItem("gpt-copy-draft") || defaultText;
+    ta.addEventListener("input", () => {
+      localStorage.setItem("gpt-copy-draft", ta.value);
+    });
+
+    btn.addEventListener("click", async () => {
+      const text = ta.value;
+      status.textContent = "";
+      status.className = "";
+      try {
+        await navigator.clipboard.writeText(text);
+        status.textContent = "복사되었습니다. ChatGPT에 붙여 넣으세요.";
+        status.className = "ok";
+      } catch (e) {
+        ta.select();
+        status.textContent = "클립보드 API 실패 — 텍스트가 선택되었으니 Ctrl+C로 복사하세요.";
+        status.className = "err";
+      }
+    });
+  </script>
+</body>
+</html>

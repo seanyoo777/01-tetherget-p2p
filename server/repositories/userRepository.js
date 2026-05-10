@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 export function createUserRepository(db) {
   return {
     findByEmail(email) {
@@ -18,12 +20,23 @@ export function createUserRepository(db) {
     },
     create({ email, passwordHash, nickname, role = "회원", session_role = "user", sales_level = null } = {}) {
       const sl = sales_level == null || sales_level === "" ? null : Number(sales_level);
-      const result = db
-        .prepare(
-          "INSERT INTO users (email, password_hash, nickname, role, session_role, sales_level) VALUES (?, ?, ?, ?, ?, ?)"
-        )
-        .run(email, passwordHash, nickname, role, session_role, Number.isFinite(sl) ? sl : null);
-      return this.findPublicById(result.lastInsertRowid);
+      const insert = db.prepare(
+        "INSERT INTO users (email, password_hash, nickname, role, session_role, sales_level) VALUES (?, ?, ?, ?, ?, ?)"
+      );
+      const setReferral = db.prepare("UPDATE users SET referral_code = ? WHERE id = ?");
+      const run = db.transaction(() => {
+        const result = insert.run(email, passwordHash, nickname, role, session_role, Number.isFinite(sl) ? sl : null);
+        const id = Number(result.lastInsertRowid);
+        let code = `TG-${String(id).padStart(6, "0")}`;
+        const taken = db.prepare("SELECT id FROM users WHERE referral_code = ?").get(code);
+        if (taken && Number(taken.id) !== id) {
+          code = `TG-${String(id).padStart(6, "0")}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+        }
+        setReferral.run(code, id);
+        return id;
+      });
+      const newId = run();
+      return this.findPublicById(newId);
     },
     listPublic() {
       return db

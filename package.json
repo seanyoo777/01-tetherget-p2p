@@ -3,11 +3,16 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "dev:api": "node server/index.js",
     "dev:full": "concurrently \"npm run dev:api\" \"npm run dev\"",
     "check:vite-api-base": "node scripts/check-vite-api-base.mjs",
+    "verify:api-origin": "node scripts/verify-mvp-api.mjs",
+    "verify:api-origin:wait": "node scripts/verify-mvp-api.mjs --wait",
     "prebuild": "npm run check:vite-api-base",
     "build": "vite build",
     "verify:admin-stage": "node server/scripts/verify-admin-stage-consistency.mjs",
@@ -15,6 +20,7 @@
     "verify:referral-engine": "node server/scripts/verify-referral-tree-engine.mjs",
     "verify:admin-smoke": "node server/scripts/verify-admin-stage-consistency.mjs && node server/scripts/verify-admin-downline-consistency.mjs && node server/scripts/verify-referral-tree-engine.mjs",
     "syntax:server": "node --check server/index.js",
+    "rebuild:sqlite": "npm rebuild better-sqlite3",
     "release:check": "npm run syntax:server && npm run build && npm run verify:admin-smoke",
     "backup:db": "node server/scripts/backup-db.js",
     "restore:db": "node server/scripts/restore-db.js"

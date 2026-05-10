@@ -14,10 +14,47 @@ import { db } from "./db/sqlite.js";
 import { createUserRepository } from "./repositories/userRepository.js";
 import { createRefreshTokenRepository } from "./repositories/refreshTokenRepository.js";
 import { encryptText, decryptText, encryptBuffer, decryptBuffer } from "./security/crypto.js";
+import {
+  PLATFORM_CODE,
+  SERVICE_LINE,
+  mergeAuditPayload,
+  mergeDomainPayload,
+} from "./platform/context.js";
+import { buildPriceSnapshot, listBuiltinPriceFeedProviders } from "./market/priceFeed.js";
+import {
+  MARKET_PRICE_FEED_SETTING_KEY,
+  parseStoredMarketPriceFeedProvider,
+  normalizeAdminPriceFeedProviderInput,
+  storageJsonForPriceFeedProvider,
+  resolvedPriceFeedProviderFromStored,
+  envResolutionPriceFeedProviderId,
+} from "./market/platformPriceFeedSettings.js";
+import {
+  normalizeLedgerAmount,
+  minorBigIntToSqlInt,
+  financialMinorToMajor,
+  normalizeLedgerFromSqlMinor,
+  parseLedgerPositiveAmount,
+  parseLedgerNonNegativePrice,
+} from "./finance/moneyAmount.js";
+
+const LEDGER_MINOR_MIGRATION_KEY = "ledger.integer_minor_v1";
+const LEDGER_DROP_REAL_COLUMNS_KEY = "ledger.drop_real_columns_v1";
+
+function tableHasColumn(tableName, columnName) {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  return rows.some((r) => r.name === columnName);
+}
 
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
-const JWT_SECRET = process.env.JWT_SECRET || "tetherget-dev-secret-change-me";
+/** DB(`platform_settings`) 미설정 시 폴백. 운영 값은 관리자 API에서 변경. */
+const DEFAULT_JWT_SECRET = "tetherget-dev-secret-change-me";
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
+if (process.env.NODE_ENV === "production" && JWT_SECRET === DEFAULT_JWT_SECRET) {
+  console.error("[tetherget-api] NODE_ENV=production 인데 JWT_SECRET 이 기본값입니다. 운영에서는 반드시 환경변수로 설정하세요.");
+  process.exit(1);
+}
 const ADMIN_WEBHOOK_URL = process.env.ADMIN_WEBHOOK_URL || "";
 const ADMIN_SAFE_MODE = String(process.env.ADMIN_SAFE_MODE || "false").trim().toLowerCase() === "true";
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || "").trim();
@@ -51,6 +88,26 @@ ensureColumn("users", "parent_user_ref", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("users", "admin_assigned", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("users", "session_role", "TEXT NOT NULL DEFAULT 'user'");
 ensureColumn("users", "sales_level", "INTEGER");
+
+/** 빈 referral_code 는 UNIQUE 인덱스에서 동일 값으로 충돌하므로, 인덱스 생성 전에 한 번 채움 */
+function backfillUsersEmptyReferralCodesBeforeUniqueIndex() {
+  try {
+    const rows = db.prepare("SELECT id FROM users WHERE IFNULL(referral_code, '') = ''").all();
+    for (const row of rows) {
+      const id = Number(row.id);
+      let code = `TG-${String(id).padStart(6, "0")}`;
+      const taken = db.prepare("SELECT id FROM users WHERE referral_code = ?").get(code);
+      if (taken && Number(taken.id) !== id) {
+        code = `TG-${String(id).padStart(6, "0")}-${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+      }
+      db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(code, id);
+    }
+  } catch (error) {
+    console.warn("[users] referral_code empty backfill:", error?.message || error);
+  }
+}
+backfillUsersEmptyReferralCodesBeforeUniqueIndex();
+
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code_unique ON users(referral_code)");
 try {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_nickname_unique ON users(nickname COLLATE NOCASE)");
@@ -100,29 +157,35 @@ try {
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_financial_accounts (
     user_id INTEGER PRIMARY KEY,
-    available_balance REAL NOT NULL DEFAULT 0,
-    referral_earnings_total REAL NOT NULL DEFAULT 0,
-    pending_withdrawal REAL NOT NULL DEFAULT 0,
+    available_balance_minor INTEGER NOT NULL DEFAULT 0,
+    referral_earnings_total_minor INTEGER NOT NULL DEFAULT 0,
+    pending_withdrawal_minor INTEGER NOT NULL DEFAULT 0,
+    p2p_escrow_locked_minor INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+ensureColumn("user_financial_accounts", "available_balance_minor", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("user_financial_accounts", "referral_earnings_total_minor", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("user_financial_accounts", "pending_withdrawal_minor", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("user_financial_accounts", "p2p_escrow_locked_minor", "INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS company_wallet (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     wallet_label TEXT NOT NULL DEFAULT 'TG-COMPANY-HQ-WALLET',
     wallet_address TEXT NOT NULL DEFAULT '0xTGCOMPANY0001',
-    available_balance REAL NOT NULL DEFAULT 1000000,
+    available_balance_minor INTEGER NOT NULL DEFAULT 100000000000000,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
+ensureColumn("company_wallet", "available_balance_minor", "INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS withdrawal_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    amount REAL NOT NULL,
+    amount_minor INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending',
     destination_wallet_provider TEXT NOT NULL DEFAULT '',
     destination_wallet_address TEXT NOT NULL DEFAULT '',
@@ -135,6 +198,7 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+ensureColumn("withdrawal_requests", "amount_minor", "INTEGER NOT NULL DEFAULT 0");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS kyc_profiles (
@@ -359,6 +423,21 @@ db.exec(`
   );
 `);
 db.exec(`
+  CREATE TABLE IF NOT EXISTS platform_audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    ip TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_platform_audit_created ON platform_audit_logs(created_at DESC)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_platform_audit_user_created ON platform_audit_logs(user_id, created_at DESC)");
+ensureColumn("platform_audit_logs", "platform_code", "TEXT NOT NULL DEFAULT 'tetherget'");
+db.exec("CREATE INDEX IF NOT EXISTS idx_platform_audit_platform_created ON platform_audit_logs(platform_code, created_at DESC)");
+db.exec(`
   CREATE TABLE IF NOT EXISTS ops_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     snapshot_type TEXT NOT NULL DEFAULT 'manual',
@@ -382,6 +461,27 @@ db.exec(`
   );
 `);
 ensureColumn("ops_runtime_state", "emergency_eta", "TEXT NOT NULL DEFAULT ''");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS platform_settings (
+    setting_key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL DEFAULT '{}',
+    updated_by_user_id INTEGER,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+try {
+  const raw = Number(process.env.P2P_MATCH_SLA_MINUTES || 30);
+  const seedMin = Math.min(180, Math.max(5, Number.isFinite(raw) ? raw : 30));
+  const exists = db.prepare("SELECT setting_key FROM platform_settings WHERE setting_key = ?").get("p2p.match_sla_minutes");
+  if (!exists) {
+    db.prepare(`
+      INSERT INTO platform_settings (setting_key, value_json, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+    `).run("p2p.match_sla_minutes", JSON.stringify({ minutes: seedMin }));
+  }
+} catch (error) {
+  console.warn("[platform_settings] seed skipped:", error?.message || error);
+}
 db.exec("CREATE INDEX IF NOT EXISTS idx_kyc_view_requests_doc_created ON kyc_document_view_requests(document_id, created_at DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_kyc_access_logs_doc_created ON kyc_document_access_logs(document_id, created_at DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_webhook_events_occurred_at ON admin_webhook_events(occurred_at DESC)");
@@ -390,6 +490,50 @@ db.exec("CREATE INDEX IF NOT EXISTS idx_audit_report_hashes_created ON audit_rep
 db.exec("CREATE INDEX IF NOT EXISTS idx_ops_snapshots_created ON ops_snapshots(created_at DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_user_requested ON withdrawal_requests(user_id, requested_at DESC)");
 db.exec("CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_status_requested ON withdrawal_requests(status, requested_at DESC)");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS p2p_orders (
+    id TEXT PRIMARY KEY,
+    seller_user_id INTEGER NOT NULL,
+    buyer_user_id INTEGER,
+    coin TEXT NOT NULL DEFAULT 'USDT',
+    amount_minor INTEGER NOT NULL DEFAULT 0,
+    unit_price_minor INTEGER NOT NULL DEFAULT 0,
+    payment_method TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'listed',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (seller_user_id) REFERENCES users(id),
+    FOREIGN KEY (buyer_user_id) REFERENCES users(id)
+  );
+`);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS p2p_order_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id TEXT NOT NULL,
+    actor_user_id INTEGER,
+    action TEXT NOT NULL,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES p2p_orders(id)
+  );
+`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_p2p_orders_status_created ON p2p_orders(status, created_at DESC)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_p2p_orders_seller ON p2p_orders(seller_user_id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_p2p_orders_buyer ON p2p_orders(buyer_user_id)");
+db.exec("CREATE INDEX IF NOT EXISTS idx_p2p_order_events_order ON p2p_order_events(order_id, id)");
+ensureColumn("p2p_orders", "platform_code", "TEXT NOT NULL DEFAULT 'tetherget'");
+ensureColumn("p2p_orders", "matched_at", "TEXT");
+ensureColumn("p2p_orders", "buyer_payment_started_at", "TEXT");
+ensureColumn("p2p_orders", "amount_minor", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("p2p_orders", "unit_price_minor", "INTEGER NOT NULL DEFAULT 0");
+try {
+  db.prepare(`UPDATE p2p_orders SET matched_at = updated_at WHERE status = 'matched' AND matched_at IS NULL`).run();
+} catch (error) {
+  console.warn("[p2p_orders] matched_at backfill skipped:", error?.message || error);
+}
+db.exec("CREATE INDEX IF NOT EXISTS idx_p2p_orders_platform_updated ON p2p_orders(platform_code, updated_at DESC)");
 
 const OPS_SNAPSHOT_TABLES = [
   "users",
@@ -415,6 +559,10 @@ const OPS_SNAPSHOT_TABLES = [
   "market_catalog",
   "admin_webhook_events",
   "audit_report_hashes",
+  "platform_audit_logs",
+  "platform_settings",
+  "p2p_orders",
+  "p2p_order_events",
 ];
 
 function makeSnapshotDir() {
@@ -471,8 +619,7 @@ function rollbackFromSnapshot(snapshotPath) {
 }
 
 const adminEmail = "admin@tetherget.com";
-const seededAdmin = userRepo.findByEmail(adminEmail);
-if (!seededAdmin) {
+if (!userRepo.findByEmail(adminEmail)) {
   const hash = bcrypt.hashSync("admin1234", 10);
   userRepo.create({
     email: adminEmail,
@@ -484,6 +631,10 @@ if (!seededAdmin) {
   });
 }
 const ensuredAdmin = userRepo.findByEmail(adminEmail);
+if (!ensuredAdmin) {
+  console.error("[tetherget-api] 시드 관리자(admin@tetherget.com)를 찾을 수 없습니다.");
+  process.exit(1);
+}
 db.prepare("UPDATE users SET session_role = 'hq_ops', sales_level = NULL WHERE id = ?").run(ensuredAdmin.id);
 
 const salesSeedEmail = "sales@tetherget.com";
@@ -497,14 +648,6 @@ if (!userRepo.findByEmail(salesSeedEmail)) {
     session_role: "sales",
     sales_level: 1,
   });
-  const salesRow = userRepo.findByEmail(salesSeedEmail);
-  if (salesRow && !salesRow.referral_code) {
-    db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(generateDefaultReferralCode(salesRow.id), salesRow.id);
-  }
-}
-if (!ensuredAdmin.referral_code) {
-  const adminReferralCode = generateDefaultReferralCode(ensuredAdmin.id);
-  db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(adminReferralCode, ensuredAdmin.id);
 }
 const policyRow = db.prepare("SELECT id FROM escrow_policy WHERE id = 1").get();
 if (!policyRow) {
@@ -528,10 +671,107 @@ if (!securityRow) {
 const companyWalletRow = db.prepare("SELECT id FROM company_wallet WHERE id = 1").get();
 if (!companyWalletRow) {
   db.prepare(`
-    INSERT INTO company_wallet (id, wallet_label, wallet_address, available_balance, updated_at)
-    VALUES (1, 'TG-COMPANY-HQ-WALLET', '0xTGCOMPANY0001', 1000000, CURRENT_TIMESTAMP)
+    INSERT INTO company_wallet (id, wallet_label, wallet_address, available_balance_minor, updated_at)
+    VALUES (1, 'TG-COMPANY-HQ-WALLET', '0xTGCOMPANY0001', 100000000000000, CURRENT_TIMESTAMP)
   `).run();
 }
+
+function runLedgerMinorMigrationOnce() {
+  if (db.prepare("SELECT 1 FROM platform_settings WHERE setting_key = ?").get(LEDGER_MINOR_MIGRATION_KEY)) return;
+  try {
+    db.transaction(() => {
+      if (tableHasColumn("user_financial_accounts", "available_balance")) {
+        db.exec(`
+          UPDATE user_financial_accounts SET
+            available_balance_minor = CAST(ROUND(COALESCE(available_balance,0) * 100000000) AS INTEGER)
+        `);
+      }
+      if (tableHasColumn("user_financial_accounts", "referral_earnings_total")) {
+        db.exec(`
+          UPDATE user_financial_accounts SET
+            referral_earnings_total_minor = CAST(ROUND(COALESCE(referral_earnings_total,0) * 100000000) AS INTEGER)
+        `);
+      }
+      if (tableHasColumn("user_financial_accounts", "pending_withdrawal")) {
+        db.exec(`
+          UPDATE user_financial_accounts SET
+            pending_withdrawal_minor = CAST(ROUND(COALESCE(pending_withdrawal,0) * 100000000) AS INTEGER)
+        `);
+      }
+      if (tableHasColumn("user_financial_accounts", "p2p_escrow_locked")) {
+        db.exec(`
+          UPDATE user_financial_accounts SET
+            p2p_escrow_locked_minor = CAST(ROUND(COALESCE(p2p_escrow_locked,0) * 100000000) AS INTEGER)
+        `);
+      }
+      if (tableHasColumn("company_wallet", "available_balance")) {
+        db.exec(`
+          UPDATE company_wallet SET
+            available_balance_minor = CAST(ROUND(COALESCE(available_balance,0) * 100000000) AS INTEGER)
+          WHERE id = 1
+        `);
+      }
+      if (tableHasColumn("withdrawal_requests", "amount")) {
+        db.exec(`
+          UPDATE withdrawal_requests SET
+            amount_minor = CAST(ROUND(COALESCE(amount,0) * 100000000) AS INTEGER)
+        `);
+      }
+      if (tableHasColumn("p2p_orders", "amount")) {
+        db.exec(`
+          UPDATE p2p_orders SET
+            amount_minor = CAST(ROUND(COALESCE(amount,0) * 100000000) AS INTEGER)
+        `);
+      }
+      if (tableHasColumn("p2p_orders", "unit_price")) {
+        db.exec(`
+          UPDATE p2p_orders SET
+            unit_price_minor = CAST(ROUND(COALESCE(unit_price,0) * 100000000) AS INTEGER)
+        `);
+      }
+      db.prepare(`
+        INSERT INTO platform_settings (setting_key, value_json, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+      `).run(LEDGER_MINOR_MIGRATION_KEY, JSON.stringify({ migratedAt: new Date().toISOString() }));
+    })();
+    console.log("[ledger] INTEGER minor migration marker set (REAL→minor backfill if columns existed)");
+  } catch (error) {
+    console.warn("[ledger] minor migration failed:", error?.message || error);
+  }
+}
+
+function runLedgerDropRealColumnsOnce() {
+  if (db.prepare("SELECT 1 FROM platform_settings WHERE setting_key = ?").get(LEDGER_DROP_REAL_COLUMNS_KEY)) return;
+  try {
+    db.transaction(() => {
+      const dropPairs = [
+        ["user_financial_accounts", "available_balance"],
+        ["user_financial_accounts", "referral_earnings_total"],
+        ["user_financial_accounts", "pending_withdrawal"],
+        ["user_financial_accounts", "p2p_escrow_locked"],
+        ["company_wallet", "available_balance"],
+        ["withdrawal_requests", "amount"],
+        ["p2p_orders", "amount"],
+        ["p2p_orders", "unit_price"],
+      ];
+      for (const [tbl, col] of dropPairs) {
+        if (tableHasColumn(tbl, col)) {
+          db.exec(`ALTER TABLE ${tbl} DROP COLUMN ${col}`);
+        }
+      }
+      db.prepare(`
+        INSERT INTO platform_settings (setting_key, value_json, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+      `).run(LEDGER_DROP_REAL_COLUMNS_KEY, JSON.stringify({ droppedAt: new Date().toISOString() }));
+    })();
+    console.log("[ledger] legacy REAL ledger columns dropped where present");
+  } catch (error) {
+    console.warn("[ledger] DROP COLUMN migration failed (SQLite ≥ 3.35 필요):", error?.message || error);
+  }
+}
+
+runLedgerMinorMigrationOnce();
+runLedgerDropRealColumnsOnce();
 const defaultFeatures = [
   "trade",
   "sell",
@@ -629,6 +869,13 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use((req, res, next) => {
+  if (String(req.path || "").startsWith("/api/")) {
+    res.setHeader("X-Platform-Code", PLATFORM_CODE);
+    res.setHeader("X-Service-Line", SERVICE_LINE);
+  }
+  next();
+});
+app.use((req, res, next) => {
   if (!String(req.path || "").startsWith("/api/")) return next();
   const method = String(req.method || "GET").toUpperCase();
   const isMutating = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
@@ -700,6 +947,162 @@ function issueTokens(user) {
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   refreshTokenRepo.create({ userId: user.id, refreshToken, expiresAt });
   return { accessToken, refreshToken };
+}
+
+function clientIp(req) {
+  const xf = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  if (xf) return xf.slice(0, 128);
+  return String(req.socket?.remoteAddress || req.ip || "").slice(0, 128);
+}
+
+/** Unified audit trail (login, later: trades, admin). Never log secrets. */
+function appendPlatformAuditLog(req, { userId, eventType, payload = {} }) {
+  try {
+    const ip = clientIp(req);
+    const ua = String(req.headers["user-agent"] || "").slice(0, 500);
+    const json = JSON.stringify(mergeAuditPayload(payload));
+    db.prepare(`
+      INSERT INTO platform_audit_logs (user_id, event_type, payload_json, ip, user_agent, platform_code, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(userId ?? null, String(eventType || "unknown"), json, ip, ua, PLATFORM_CODE);
+  } catch (error) {
+    console.warn("[platform_audit_logs]", error?.message || error);
+  }
+}
+
+function appendPlatformAuditSystem({ userId = null, eventType, payload = {} }) {
+  try {
+    const json = JSON.stringify(mergeAuditPayload(payload));
+    db.prepare(`
+      INSERT INTO platform_audit_logs (user_id, event_type, payload_json, ip, user_agent, platform_code, created_at)
+      VALUES (?, ?, ?, '', '', ?, CURRENT_TIMESTAMP)
+    `).run(userId, String(eventType || "unknown"), json, PLATFORM_CODE);
+  } catch (error) {
+    console.warn("[platform_audit_logs]", error?.message || error);
+  }
+}
+
+function clampPlatformSlaMinutes(n) {
+  return Math.min(180, Math.max(5, Math.round(Number(n))));
+}
+
+function getEnvDefaultP2pSlaMinutes() {
+  const raw = Number(process.env.P2P_MATCH_SLA_MINUTES ?? 30);
+  const base = Number.isFinite(raw) ? raw : 30;
+  return clampPlatformSlaMinutes(base);
+}
+
+function getP2pMatchSlaMinutes() {
+  try {
+    const row = db.prepare("SELECT value_json FROM platform_settings WHERE setting_key = ?").get("p2p.match_sla_minutes");
+    if (!row?.value_json) return getEnvDefaultP2pSlaMinutes();
+    const j = JSON.parse(row.value_json);
+    const m = typeof j?.minutes === "number" ? j.minutes : Number(j?.minutes);
+    if (!Number.isFinite(m)) return getEnvDefaultP2pSlaMinutes();
+    return clampPlatformSlaMinutes(m);
+  } catch {
+    return getEnvDefaultP2pSlaMinutes();
+  }
+}
+
+function getP2pMatchSlaMs() {
+  return getP2pMatchSlaMinutes() * 60 * 1000;
+}
+
+function matchDeadlineIso(matchedAtStr) {
+  if (!matchedAtStr) return null;
+  const t = Date.parse(matchedAtStr);
+  if (!Number.isFinite(t)) return null;
+  return new Date(t + getP2pMatchSlaMs()).toISOString();
+}
+
+function expireStaleMatchedOrders() {
+  const slaMs = getP2pMatchSlaMs();
+  const slaMin = getP2pMatchSlaMinutes();
+  const now = Date.now();
+  const rows = db.prepare(`
+    SELECT id, matched_at, seller_user_id, amount_minor FROM p2p_orders WHERE status = 'matched' AND matched_at IS NOT NULL AND matched_at != ''
+  `).all();
+  for (const row of rows) {
+    const t = Date.parse(row.matched_at);
+    if (!Number.isFinite(t)) continue;
+    if (now - t < slaMs) continue;
+    const orderId = row.id;
+    const sellerId = Number(row.seller_user_id);
+    const mi = Math.trunc(Number(row.amount_minor ?? 0));
+    db.transaction(() => {
+      db.prepare(`UPDATE p2p_orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+      if (Number.isFinite(sellerId) && mi > 0) {
+        unlockSellerP2pEscrowByMinor(sellerId, BigInt(mi));
+      }
+    })();
+    appendP2pOrderEvent(orderId, null, "auto_cancel_match_timeout", mergeDomainPayload({
+      sla_minutes: slaMin,
+      note: "송금 확인(송금 완료 표시) 미처리",
+    }));
+    appendPlatformAuditSystem({
+      userId: null,
+      eventType: "p2p.order_auto_cancel_timeout",
+      payload: { orderId, sla_minutes: slaMin },
+    });
+  }
+}
+
+function newP2pOrderId() {
+  return `TG-P2P-${Date.now().toString(36)}-${crypto.randomBytes(5).toString("hex")}`;
+}
+
+function parseP2pAmount(value) {
+  return parseLedgerPositiveAmount(value);
+}
+
+function parseP2pPrice(value) {
+  const v = parseLedgerNonNegativePrice(value);
+  if (v === null) return null;
+  return v;
+}
+
+function appendP2pOrderEvent(orderId, actorUserId, action, detail = {}) {
+  try {
+    db.prepare(`
+      INSERT INTO p2p_order_events (order_id, actor_user_id, action, detail_json, created_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(orderId, actorUserId ?? null, String(action || ""), JSON.stringify(mergeDomainPayload(detail)));
+  } catch (error) {
+    console.warn("[p2p_order_events]", error?.message || error);
+  }
+}
+
+function mapP2pOrderRow(row, viewerUserId) {
+  const sellerId = Number(row.seller_user_id);
+  const buyerId = row.buyer_user_id != null ? Number(row.buyer_user_id) : null;
+  const vid = viewerUserId != null ? Number(viewerUserId) : NaN;
+  let my_role = null;
+  if (Number.isFinite(vid)) {
+    if (vid === sellerId) my_role = "seller";
+    else if (buyerId != null && vid === buyerId) my_role = "buyer";
+  }
+  const matchedAt = row.matched_at ?? null;
+  const buyerStarted = row.buyer_payment_started_at ?? null;
+  return {
+    id: row.id,
+    seller_user_id: sellerId,
+    buyer_user_id: buyerId,
+    coin: row.coin,
+    amount: financialMinorToMajor(row.amount_minor),
+    unit_price: financialMinorToMajor(row.unit_price_minor),
+    payment_method: row.payment_method,
+    status: row.status,
+    metadata_json: row.metadata_json,
+    platform_code: row.platform_code ?? PLATFORM_CODE,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    matched_at: matchedAt,
+    buyer_payment_started_at: buyerStarted,
+    match_deadline_at: row.status === "matched" && matchedAt ? matchDeadlineIso(matchedAt) : null,
+    match_sla_minutes: getP2pMatchSlaMinutes(),
+    my_role,
+  };
 }
 
 function authRequired(req, res, next) {
@@ -805,9 +1208,22 @@ function isDescendantByParentChain(targetId, ancestorId) {
   return false;
 }
 
+/** 본사·슈퍼 계열은 하부 단계·상위(parent) 변경을 허용 (레거시: role/stage만 있고 session_role 미설정인 계정 포함) */
+function isActorHeadOfficeAdmin(actorUser) {
+  if (!actorUser) return false;
+  const sr = String(actorUser.session_role || "");
+  if (sr === "hq_ops") return true;
+  const role = String(actorUser.role || "");
+  if (role.includes("슈퍼페이지")) return true;
+  const stage = normalizeStageLabelForAuth(actorUser.stage_label);
+  if (stage === "슈퍼페이지") return true;
+  if (stage === "본사 관리자" || stage === "본사 관계자") return true;
+  return false;
+}
+
 function canActorModifyTarget(actorUser, targetUser, nextStageLabel) {
+  if (isActorHeadOfficeAdmin(actorUser)) return true;
   const actorSessionRole = String(actorUser?.session_role || "");
-  if (actorSessionRole === "hq_ops") return true;
   if (actorSessionRole !== "sales") return false;
   const actorId = String(actorUser?.id || "");
   const targetId = String(targetUser?.id || "");
@@ -1174,12 +1590,134 @@ function getOrCreateFinancialAccount(userId) {
   let row = db.prepare("SELECT * FROM user_financial_accounts WHERE user_id = ?").get(userId);
   if (!row) {
     db.prepare(`
-      INSERT INTO user_financial_accounts (user_id, available_balance, referral_earnings_total, pending_withdrawal, updated_at)
-      VALUES (?, 0, 0, 0, CURRENT_TIMESTAMP)
+      INSERT INTO user_financial_accounts (
+        user_id,
+        available_balance_minor, referral_earnings_total_minor, pending_withdrawal_minor, p2p_escrow_locked_minor,
+        updated_at
+      )
+      VALUES (?, 0, 0, 0, 0, CURRENT_TIMESTAMP)
     `).run(userId);
     row = db.prepare("SELECT * FROM user_financial_accounts WHERE user_id = ?").get(userId);
   }
   return row;
+}
+
+function accountBalancesForApi(row) {
+  return {
+    availableBalance: financialMinorToMajor(row.available_balance_minor),
+    referralEarningsTotal: financialMinorToMajor(row.referral_earnings_total_minor),
+    pendingWithdrawal: financialMinorToMajor(row.pending_withdrawal_minor),
+    p2pEscrowLocked: financialMinorToMajor(row.p2p_escrow_locked_minor),
+  };
+}
+
+/** P2P 판매 호가 등록 시 출금 가능액에서 예치(동일 단위: 주문 수량). INTEGER 마이너(10^8) 원장. */
+function lockSellerP2pEscrowByMinor(sellerUserId, minor) {
+  let m;
+  try {
+    m = minorBigIntToSqlInt(minor);
+  } catch {
+    return false;
+  }
+  if (m <= 0) return false;
+  getOrCreateFinancialAccount(sellerUserId);
+  const info = db.prepare(`
+    UPDATE user_financial_accounts
+    SET available_balance_minor = available_balance_minor - ?,
+        p2p_escrow_locked_minor = p2p_escrow_locked_minor + ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ? AND available_balance_minor >= ?
+  `).run(m, m, sellerUserId, m);
+  return info.changes === 1;
+}
+
+function lockSellerP2pEscrow(sellerUserId, amount) {
+  const norm = normalizeLedgerAmount(amount);
+  if (!norm.ok) return false;
+  return lockSellerP2pEscrowByMinor(sellerUserId, norm.minor);
+}
+
+function unlockSellerP2pEscrowByMinor(sellerUserId, minor) {
+  let m;
+  try {
+    m = minorBigIntToSqlInt(minor);
+  } catch {
+    return;
+  }
+  if (m <= 0) return;
+  getOrCreateFinancialAccount(sellerUserId);
+  const info = db.prepare(`
+    UPDATE user_financial_accounts
+    SET available_balance_minor = available_balance_minor + ?,
+        p2p_escrow_locked_minor = p2p_escrow_locked_minor - ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ? AND p2p_escrow_locked_minor >= ?
+  `).run(m, m, sellerUserId, m);
+  if (info.changes !== 1) {
+    console.warn("[p2p_escrow] unlock skipped (locked < amount or no row)", sellerUserId, m);
+  }
+}
+
+function unlockSellerP2pEscrow(sellerUserId, amount) {
+  const norm = normalizeLedgerAmount(amount);
+  if (!norm.ok) return;
+  unlockSellerP2pEscrowByMinor(sellerUserId, norm.minor);
+}
+
+/** 매도 확정 완료 시 매수자 출금 가능 잔고에 코인(주문) 수량 반영. */
+function creditBuyerP2pSettlementByMinor(buyerUserId, minor) {
+  const uid = Number(buyerUserId);
+  if (!Number.isFinite(uid) || uid <= 0) return true;
+  let m;
+  try {
+    m = minorBigIntToSqlInt(minor);
+  } catch {
+    return false;
+  }
+  if (m <= 0) return true;
+  getOrCreateFinancialAccount(uid);
+  const info = db.prepare(`
+    UPDATE user_financial_accounts
+    SET available_balance_minor = available_balance_minor + ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ?
+  `).run(m, uid);
+  return info.changes === 1;
+}
+
+function creditBuyerP2pSettlement(buyerUserId, amount) {
+  const norm = normalizeLedgerAmount(amount, { allowZero: true });
+  if (!norm.ok || norm.minor === 0n) return true;
+  return creditBuyerP2pSettlementByMinor(buyerUserId, norm.minor);
+}
+
+/** 거래 완료 시 예치 락만 해제. 성공 시 true. */
+function consumeSellerP2pEscrowByMinor(sellerUserId, minor) {
+  let m;
+  try {
+    m = minorBigIntToSqlInt(minor);
+  } catch {
+    return false;
+  }
+  if (m <= 0) return true;
+  getOrCreateFinancialAccount(sellerUserId);
+  const info = db.prepare(`
+    UPDATE user_financial_accounts
+    SET p2p_escrow_locked_minor = p2p_escrow_locked_minor - ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ? AND p2p_escrow_locked_minor >= ?
+  `).run(m, sellerUserId, m);
+  if (info.changes !== 1) {
+    console.warn("[p2p_escrow] consume failed", sellerUserId, m);
+    return false;
+  }
+  return true;
+}
+
+function consumeSellerP2pEscrow(sellerUserId, amount) {
+  const norm = normalizeLedgerAmount(amount, { allowZero: true });
+  if (!norm.ok || norm.minor === 0n) return true;
+  return consumeSellerP2pEscrowByMinor(sellerUserId, norm.minor);
 }
 
 function getUserWallet(userId) {
@@ -1195,7 +1733,8 @@ function getUserWallet(userId) {
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+  /** 다른 로컬 서버(tetherget-backend 등)와 포트만으로 구분하기 어려울 때 확인용 */
+  res.json({ ok: true, service: "tetherget-mvp-api" });
 });
 
 app.get("/api/runtime-state", (_req, res) => {
@@ -1206,6 +1745,65 @@ app.get("/api/runtime-state", (_req, res) => {
     emergencyEta: state.emergencyEta,
     updatedAt: state.updatedAt,
   });
+});
+
+function getStoredMarketPriceFeedProviderId() {
+  try {
+    const row = db.prepare("SELECT value_json FROM platform_settings WHERE setting_key = ?").get(MARKET_PRICE_FEED_SETTING_KEY);
+    return parseStoredMarketPriceFeedProvider(row?.value_json);
+  } catch (error) {
+    console.warn("[market.price_feed] read failed:", error?.message || error);
+    return null;
+  }
+}
+
+function getMarketPriceFeedPolicyRow() {
+  try {
+    return db.prepare("SELECT value_json, updated_at, updated_by_user_id FROM platform_settings WHERE setting_key = ?").get(MARKET_PRICE_FEED_SETTING_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+function marketPriceFeedSettingsPayload() {
+  const row = getMarketPriceFeedPolicyRow();
+  const stored = parseStoredMarketPriceFeedProvider(row?.value_json);
+  const effective = resolvedPriceFeedProviderFromStored(stored);
+  return {
+    price_feed_provider: stored ?? "",
+    price_feed_provider_effective: effective,
+    price_feed_builtin_providers: listBuiltinPriceFeedProviders(),
+    env_only_price_feed_provider: envResolutionPriceFeedProviderId(),
+    price_feed_updated_at: row?.updated_at ?? null,
+    price_feed_updated_by: row?.updated_by_user_id ?? null,
+  };
+}
+
+const PRICE_FEED_CACHE_MS = Number(process.env.PRICE_FEED_CACHE_MS || 45000);
+let priceFeedCache = { at: 0, data: null };
+
+function clearPriceFeedCache() {
+  priceFeedCache = { at: 0, data: null };
+}
+
+async function getCachedMarketPrices() {
+  const now = Date.now();
+  if (priceFeedCache.data && now - priceFeedCache.at < PRICE_FEED_CACHE_MS) {
+    return priceFeedCache.data;
+  }
+  const stored = getStoredMarketPriceFeedProviderId();
+  const data = await buildPriceSnapshot(stored ? { provider: stored } : {});
+  priceFeedCache = { at: now, data };
+  return data;
+}
+
+app.get("/api/market/prices", async (_req, res) => {
+  try {
+    const snap = await getCachedMarketPrices();
+    res.json(snap);
+  } catch (error) {
+    res.status(500).json({ message: error?.message || "시세 조회에 실패했습니다." });
+  }
 });
 
 app.post("/api/auth/signup", (req, res) => {
@@ -1254,6 +1852,11 @@ app.post("/api/auth/signup", (req, res) => {
   getOrCreateFinancialAccount(user.id);
   getUserWallet(user.id);
   const tokens = issueTokens(updatedUser);
+  appendPlatformAuditLog(req, {
+    userId: updatedUser.id,
+    eventType: "auth.signup",
+    payload: { method: "email" },
+  });
   res.status(201).json({ ...tokens, user: updatedUser });
 });
 
@@ -1289,6 +1892,11 @@ app.post("/api/auth/google", async (req, res) => {
   if (existing) {
     const publicUser = toPublicUser(existing);
     const tokens = issueTokens(publicUser);
+    appendPlatformAuditLog(req, {
+      userId: publicUser.id,
+      eventType: "auth.login",
+      payload: { method: "google", flow: "existing_user" },
+    });
     return res.json({ ...tokens, user: publicUser });
   }
 
@@ -1334,6 +1942,11 @@ app.post("/api/auth/google", async (req, res) => {
   getOrCreateFinancialAccount(user.id);
   getUserWallet(user.id);
   const tokens = issueTokens(updatedUser);
+  appendPlatformAuditLog(req, {
+    userId: updatedUser.id,
+    eventType: "auth.signup",
+    payload: { method: "google" },
+  });
   return res.status(201).json({ ...tokens, user: updatedUser, oauth: "google" });
 });
 
@@ -1346,6 +1959,11 @@ app.post("/api/auth/login", (req, res) => {
   }
   const publicUser = toPublicUser(user);
   const tokens = issueTokens(publicUser);
+  appendPlatformAuditLog(req, {
+    userId: publicUser.id,
+    eventType: "auth.login",
+    payload: { method: "email" },
+  });
   res.json({ ...tokens, user: publicUser });
 });
 
@@ -1358,6 +1976,11 @@ app.post("/api/auth/test-login", (req, res) => {
   if (!user) return res.status(404).json({ message: "테스트 로그인 대상 계정을 찾을 수 없습니다." });
   const publicUser = toPublicUser(user);
   const tokens = issueTokens(publicUser);
+  appendPlatformAuditLog(req, {
+    userId: publicUser.id,
+    eventType: "auth.login",
+    payload: { method: "test_login" },
+  });
   return res.json({ ...tokens, user: publicUser, testLogin: true });
 });
 
@@ -1407,6 +2030,11 @@ app.post("/api/auth/wallet", (req, res) => {
   const walletOwner = findUserByWalletAddress(walletAddress, provider);
   if (walletOwner) {
     const tokens = issueTokens(toPublicUser(walletOwner));
+    appendPlatformAuditLog(req, {
+      userId: walletOwner.id,
+      eventType: "auth.login",
+      payload: { method: "wallet", linkedBy: "wallet", provider },
+    });
     return res.json({ ...tokens, user: toPublicUser(walletOwner), linkedBy: "wallet" });
   }
 
@@ -1480,6 +2108,11 @@ app.post("/api/auth/wallet", (req, res) => {
   getUserWallet(targetUser.id);
   const publicUser = toPublicUser(db.prepare("SELECT * FROM users WHERE id = ?").get(targetUser.id));
   const tokens = issueTokens(publicUser);
+  appendPlatformAuditLog(req, {
+    userId: publicUser.id,
+    eventType: "auth.login",
+    payload: { method: "wallet", linkedBy, provider },
+  });
   return res.json({ ...tokens, user: publicUser, linkedBy });
 });
 
@@ -1647,7 +2280,7 @@ app.get("/api/finance/me", authRequired, (req, res) => {
   const account = getOrCreateFinancialAccount(req.user.id);
   const wallet = getUserWallet(req.user.id);
   const recentWithdrawals = db.prepare(`
-    SELECT id, amount, status, destination_wallet_provider, destination_wallet_address, request_note, requested_at, processed_at, company_wallet_tx_id, reject_reason
+    SELECT id, amount_minor, status, destination_wallet_provider, destination_wallet_address, request_note, requested_at, processed_at, company_wallet_tx_id, reject_reason
     FROM withdrawal_requests
     WHERE user_id = ?
     ORDER BY requested_at DESC
@@ -1655,53 +2288,67 @@ app.get("/api/finance/me", authRequired, (req, res) => {
   `).all(req.user.id);
   res.json({
     account: {
-      availableBalance: Number(account.available_balance || 0),
-      referralEarningsTotal: Number(account.referral_earnings_total || 0),
-      pendingWithdrawal: Number(account.pending_withdrawal || 0),
+      ...accountBalancesForApi(account),
       updatedAt: account.updated_at || "",
     },
     wallet: {
       provider: wallet.wallet_provider || "",
       address: wallet.wallet_address || "",
     },
-    withdrawals: recentWithdrawals,
+    withdrawals: recentWithdrawals.map((w) => ({
+      ...w,
+      amount: financialMinorToMajor(w.amount_minor),
+    })),
   });
 });
 
 app.post("/api/finance/withdrawals", authRequired, (req, res) => {
-  const amount = Number(req.body?.amount || 0);
+  const norm = normalizeLedgerAmount(req.body?.amount);
   const note = String(req.body?.note || "").trim();
   const account = getOrCreateFinancialAccount(req.user.id);
   const wallet = getUserWallet(req.user.id);
   if (!wallet.wallet_address) {
     return res.status(400).json({ message: "출금 전에 지갑을 먼저 연결하세요." });
   }
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return res.status(400).json({ message: "출금 금액을 올바르게 입력하세요." });
+  if (!norm.ok) {
+    return res.status(400).json({ message: norm.message || "출금 금액을 올바르게 입력하세요." });
   }
-  if (amount > Number(account.available_balance || 0)) {
+  const avail = BigInt(String(Math.trunc(Number(account.available_balance_minor ?? 0))));
+  if (avail < norm.minor) {
     return res.status(400).json({ message: "출금 가능 잔고를 초과했습니다." });
   }
-  const result = db.prepare(`
-    INSERT INTO withdrawal_requests (
-      user_id, amount, status, destination_wallet_provider, destination_wallet_address, request_note, requested_at
-    ) VALUES (?, ?, 'pending', ?, ?, ?, CURRENT_TIMESTAMP)
-  `).run(req.user.id, amount, wallet.wallet_provider || "", wallet.wallet_address || "", note);
-  db.prepare(`
-    UPDATE user_financial_accounts
-    SET available_balance = available_balance - ?, pending_withdrawal = pending_withdrawal + ?, updated_at = CURRENT_TIMESTAMP
-    WHERE user_id = ?
-  `).run(amount, amount, req.user.id);
-  const updated = getOrCreateFinancialAccount(req.user.id);
-  res.status(201).json({
-    requestId: Number(result.lastInsertRowid),
-    message: "출금 신청이 접수되었습니다. 회사 지갑에서 순차 처리됩니다.",
-    account: {
-      availableBalance: Number(updated.available_balance || 0),
-      referralEarningsTotal: Number(updated.referral_earnings_total || 0),
-      pendingWithdrawal: Number(updated.pending_withdrawal || 0),
-    },
-  });
+  const m = minorBigIntToSqlInt(norm.minor);
+  try {
+    const requestId = db.transaction(() => {
+      const upd = db.prepare(`
+        UPDATE user_financial_accounts
+        SET available_balance_minor = available_balance_minor - ?,
+            pending_withdrawal_minor = pending_withdrawal_minor + ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND available_balance_minor >= ?
+      `).run(m, m, req.user.id, m);
+      if (upd.changes !== 1) {
+        throw new Error("INSUFFICIENT_BALANCE");
+      }
+      const ins = db.prepare(`
+        INSERT INTO withdrawal_requests (
+          user_id, amount_minor, status, destination_wallet_provider, destination_wallet_address, request_note, requested_at
+        ) VALUES (?, ?, 'pending', ?, ?, ?, CURRENT_TIMESTAMP)
+      `).run(req.user.id, m, wallet.wallet_provider || "", wallet.wallet_address || "", note);
+      return Number(ins.lastInsertRowid);
+    })();
+    const updated = getOrCreateFinancialAccount(req.user.id);
+    res.status(201).json({
+      requestId,
+      message: "출금 신청이 접수되었습니다. 회사 지갑에서 순차 처리됩니다.",
+      account: accountBalancesForApi(updated),
+    });
+  } catch (error) {
+    if (error?.message === "INSUFFICIENT_BALANCE") {
+      return res.status(400).json({ message: "출금 가능 잔고를 초과했습니다." });
+    }
+    throw error;
+  }
 });
 
 app.post("/api/kyc/me/submit", authRequired, (req, res) => {
@@ -1972,7 +2619,7 @@ app.get("/api/admin/finance/withdrawals", authRequired, adminRequired, (req, res
     SELECT
       wr.id,
       wr.user_id,
-      wr.amount,
+      wr.amount_minor,
       wr.status,
       wr.destination_wallet_provider,
       wr.destination_wallet_address,
@@ -1990,8 +2637,19 @@ app.get("/api/admin/finance/withdrawals", authRequired, adminRequired, (req, res
     ORDER BY wr.requested_at DESC
     LIMIT 100
   `).all(status, status);
-  const companyWallet = db.prepare("SELECT wallet_label, wallet_address, available_balance, updated_at FROM company_wallet WHERE id = 1").get();
-  res.json({ withdrawals: rows, companyWallet });
+  const companyWallet = db.prepare("SELECT wallet_label, wallet_address, available_balance_minor, updated_at FROM company_wallet WHERE id = 1").get();
+  res.json({
+    withdrawals: rows.map((w) => ({
+      ...w,
+      amount: financialMinorToMajor(w.amount_minor),
+    })),
+    companyWallet: companyWallet
+      ? {
+          ...companyWallet,
+          available_balance: financialMinorToMajor(companyWallet.available_balance_minor),
+        }
+      : null,
+  });
 });
 
 app.post("/api/admin/finance/withdrawals/:id/process", authRequired, adminRequired, (req, res) => {
@@ -2001,12 +2659,17 @@ app.post("/api/admin/finance/withdrawals/:id/process", authRequired, adminRequir
   const row = db.prepare("SELECT * FROM withdrawal_requests WHERE id = ?").get(requestId);
   if (!row) return res.status(404).json({ message: "출금 신청을 찾을 수 없습니다." });
   if (row.status !== "pending") return res.status(400).json({ message: "대기중 신청만 처리할 수 있습니다." });
-  const amount = Number(row.amount || 0);
-  const companyWallet = db.prepare("SELECT * FROM company_wallet WHERE id = 1").get();
+  const amountLm = normalizeLedgerFromSqlMinor(row.amount_minor);
+  if (!amountLm.ok) {
+    return res.status(400).json({ message: "저장된 출금 금액이 유효하지 않습니다. 관리자에게 문의하세요." });
+  }
+  const m = minorBigIntToSqlInt(amountLm.minor);
 
   const tx = db.transaction(() => {
     if (approve) {
-      if (Number(companyWallet.available_balance || 0) < amount) {
+      const companyWallet = db.prepare("SELECT * FROM company_wallet WHERE id = 1").get();
+      const companyAvail = BigInt(String(Math.trunc(Number(companyWallet?.available_balance_minor ?? 0))));
+      if (companyAvail < amountLm.minor) {
         throw new Error("회사 지갑 잔고가 부족합니다.");
       }
       const txId = `COMPANY-TX-${Date.now()}-${requestId}`;
@@ -2019,17 +2682,23 @@ app.post("/api/admin/finance/withdrawals/:id/process", authRequired, adminRequir
             reject_reason = ''
         WHERE id = ?
       `).run(req.user.id, txId, requestId);
-      db.prepare(`
+      const userUpd = db.prepare(`
         UPDATE user_financial_accounts
-        SET pending_withdrawal = CASE WHEN pending_withdrawal >= ? THEN pending_withdrawal - ? ELSE 0 END,
+        SET pending_withdrawal_minor = pending_withdrawal_minor - ?,
             updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ?
-      `).run(amount, amount, row.user_id);
-      db.prepare(`
+        WHERE user_id = ? AND pending_withdrawal_minor >= ?
+      `).run(m, row.user_id, m);
+      if (userUpd.changes !== 1) {
+        throw new Error("회원 출금 대기 잔액과 맞지 않습니다.");
+      }
+      const cwUpd = db.prepare(`
         UPDATE company_wallet
-        SET available_balance = available_balance - ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = 1
-      `).run(amount);
+        SET available_balance_minor = available_balance_minor - ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = 1 AND available_balance_minor >= ?
+      `).run(m, m);
+      if (cwUpd.changes !== 1) {
+        throw new Error("회사 지갑 잔고가 부족합니다.");
+      }
       return txId;
     }
     if (!rejectReason) {
@@ -2043,13 +2712,16 @@ app.post("/api/admin/finance/withdrawals/:id/process", authRequired, adminRequir
           reject_reason = ?
       WHERE id = ?
     `).run(req.user.id, rejectReason, requestId);
-    db.prepare(`
+    const rej = db.prepare(`
       UPDATE user_financial_accounts
-      SET available_balance = available_balance + ?,
-          pending_withdrawal = CASE WHEN pending_withdrawal >= ? THEN pending_withdrawal - ? ELSE 0 END,
+      SET available_balance_minor = available_balance_minor + ?,
+          pending_withdrawal_minor = pending_withdrawal_minor - ?,
           updated_at = CURRENT_TIMESTAMP
-      WHERE user_id = ?
-    `).run(amount, amount, amount, row.user_id);
+      WHERE user_id = ? AND pending_withdrawal_minor >= ?
+    `).run(m, m, row.user_id, m);
+    if (rej.changes !== 1) {
+      throw new Error("출금 대기 잔액과 맞지 않습니다.");
+    }
     return "";
   });
 
@@ -2058,7 +2730,7 @@ app.post("/api/admin/finance/withdrawals/:id/process", authRequired, adminRequir
     const updated = db.prepare("SELECT * FROM withdrawal_requests WHERE id = ?").get(requestId);
     res.json({
       message: approve ? "회사 지갑에서 출금 처리를 완료했습니다." : "출금 신청이 반려되었고 잔고가 복구되었습니다.",
-      withdrawal: updated,
+      withdrawal: { ...updated, amount: financialMinorToMajor(updated.amount_minor) },
       txId,
     });
   } catch (error) {
@@ -2068,25 +2740,22 @@ app.post("/api/admin/finance/withdrawals/:id/process", authRequired, adminRequir
 
 app.post("/api/admin/finance/users/:userId/referral-credit", authRequired, adminRequired, (req, res) => {
   const userId = Number(req.params.userId);
-  const amount = Number(req.body?.amount || 0);
+  const norm = normalizeLedgerAmount(req.body?.amount);
   if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ message: "유효한 회원 ID가 필요합니다." });
-  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ message: "유효한 수익 금액을 입력하세요." });
+  if (!norm.ok) return res.status(400).json({ message: norm.message || "유효한 수익 금액을 입력하세요." });
+  const mi = minorBigIntToSqlInt(norm.minor);
   getOrCreateFinancialAccount(userId);
   db.prepare(`
     UPDATE user_financial_accounts
-    SET available_balance = available_balance + ?,
-        referral_earnings_total = referral_earnings_total + ?,
+    SET available_balance_minor = available_balance_minor + ?,
+        referral_earnings_total_minor = referral_earnings_total_minor + ?,
         updated_at = CURRENT_TIMESTAMP
     WHERE user_id = ?
-  `).run(amount, amount, userId);
+  `).run(mi, mi, userId);
   const account = getOrCreateFinancialAccount(userId);
   res.json({
     message: "레퍼럴 수익이 잔고에 반영되었습니다.",
-    account: {
-      availableBalance: Number(account.available_balance || 0),
-      referralEarningsTotal: Number(account.referral_earnings_total || 0),
-      pendingWithdrawal: Number(account.pending_withdrawal || 0),
-    },
+    account: accountBalancesForApi(account),
   });
 });
 
@@ -2812,7 +3481,7 @@ app.patch("/api/admin/users/:id/profile", authRequired, (req, res) => {
     return res.status(503).json({ message: "관리자 안전모드가 활성화되어 변경 작업이 잠시 차단되었습니다." });
   }
   const actorId = Number(req.user?.id || 0);
-  const actorUser = actorId ? db.prepare("SELECT id, session_role, stage_label FROM users WHERE id = ?").get(actorId) : null;
+  const actorUser = actorId ? db.prepare("SELECT id, role, session_role, stage_label FROM users WHERE id = ?").get(actorId) : null;
   if (!actorUser) return res.status(401).json({ message: "세션 사용자를 찾을 수 없습니다. 다시 로그인해 주세요." });
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ message: "유효한 사용자 ID가 필요합니다." });
@@ -3101,6 +3770,463 @@ app.get("/api/admin/disputes/:id/events/verify", authRequired, adminRequired, (r
   const result = verifyDisputeEventChain(disputeId);
   res.json(result);
 });
+
+app.get("/api/admin/platform-audit-logs", authRequired, adminRequired, (req, res) => {
+  const limit = Math.min(200, Math.max(1, Number(req.query.limit || 80)));
+  const rows = db.prepare(`
+    SELECT id, user_id, event_type, payload_json, ip, user_agent, platform_code, created_at
+    FROM platform_audit_logs
+    ORDER BY id DESC
+    LIMIT ?
+  `).all(limit);
+  res.json({ logs: rows });
+});
+
+app.get("/api/p2p/orders", (_req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(_req.query.limit || 40)));
+  const rows = db.prepare(`
+    SELECT * FROM p2p_orders WHERE status = 'listed' ORDER BY created_at DESC LIMIT ?
+  `).all(limit);
+  res.json({ orders: rows.map((row) => mapP2pOrderRow(row, null)) });
+});
+
+app.get("/api/p2p/orders/me", authRequired, (req, res) => {
+  expireStaleMatchedOrders();
+  const uid = req.user.id;
+  const rows = db.prepare(`
+    SELECT * FROM p2p_orders
+    WHERE seller_user_id = ? OR buyer_user_id = ?
+    ORDER BY updated_at DESC
+    LIMIT 200
+  `).all(uid, uid);
+  res.json({ orders: rows.map((row) => mapP2pOrderRow(row, uid)) });
+});
+
+app.post("/api/p2p/orders", authRequired, (req, res) => {
+  const coin = String(req.body?.coin || "USDT").trim().slice(0, 32) || "USDT";
+  const amount = parseP2pAmount(req.body?.amount);
+  if (amount == null) return res.status(400).json({ message: "수량이 올바르지 않습니다." });
+  const unitPrice = parseP2pPrice(req.body?.unitPrice ?? req.body?.unit_price);
+  if (unitPrice == null) return res.status(400).json({ message: "단가가 올바르지 않습니다." });
+  const amountNorm = normalizeLedgerAmount(amount);
+  const unitNorm = normalizeLedgerAmount(unitPrice, { allowZero: true });
+  if (!amountNorm.ok || !unitNorm.ok) return res.status(400).json({ message: "수량 또는 단가가 올바르지 않습니다." });
+  const paymentMethod = String(req.body?.paymentMethod || req.body?.payment_method || "").trim().slice(0, 64);
+  const id = newP2pOrderId();
+  const sellerId = req.user.id;
+  const am = minorBigIntToSqlInt(amountNorm.minor);
+  const um = minorBigIntToSqlInt(unitNorm.minor);
+  try {
+    db.transaction(() => {
+      if (!lockSellerP2pEscrowByMinor(sellerId, amountNorm.minor)) {
+        throw new Error("INSUFFICIENT_BALANCE");
+      }
+      db.prepare(`
+        INSERT INTO p2p_orders (
+          id, seller_user_id, buyer_user_id, coin, amount_minor, unit_price_minor,
+          payment_method, status, metadata_json, platform_code, created_at, updated_at
+        ) VALUES (?, ?, NULL, ?, ?, ?, ?, 'listed', '{}', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(id, sellerId, coin, am, um, paymentMethod, PLATFORM_CODE);
+    })();
+  } catch (e) {
+    if (e?.message === "INSUFFICIENT_BALANCE") {
+      return res.status(400).json({ message: "출금 가능 잔고가 부족합니다. P2P 판매 호가는 동일 수량만큼 예치됩니다." });
+    }
+    throw e;
+  }
+  appendP2pOrderEvent(id, sellerId, "listed", { coin, amount: amountNorm.value, unit_price: unitNorm.value });
+  appendPlatformAuditLog(req, { userId: sellerId, eventType: "p2p.order_create", payload: { orderId: id, escrow_amount: amountNorm.value } });
+  const row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(id);
+  res.status(201).json({ order: mapP2pOrderRow(row, sellerId) });
+});
+
+app.post("/api/p2p/orders/:id/take", authRequired, (req, res) => {
+  const orderId = String(req.params.id || "");
+  const row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  if (row.status !== "listed") return res.status(400).json({ message: "이미 처리된 주문입니다." });
+  if (Number(row.seller_user_id) === Number(req.user.id)) {
+    return res.status(400).json({ message: "본인 게시 주문은 선택할 수 없습니다." });
+  }
+  const listedNorm = normalizeLedgerFromSqlMinor(row.amount_minor);
+  if (!listedNorm.ok || listedNorm.minor <= 0n) {
+    return res.status(400).json({ message: "호가 수량이 올바르지 않습니다." });
+  }
+  const listedAmount = listedNorm.value;
+  let takeNorm;
+  const rawTake = req.body?.amount ?? req.body?.takeAmount;
+  if (rawTake === undefined || rawTake === null || rawTake === "") {
+    takeNorm = listedNorm;
+  } else {
+    takeNorm = normalizeLedgerAmount(rawTake);
+    if (!takeNorm.ok) return res.status(400).json({ message: "매칭 수량이 올바르지 않습니다." });
+  }
+  if (takeNorm.minor <= 0n || takeNorm.minor > listedNorm.minor) {
+    return res.status(400).json({ message: "매칭 수량이 호가 범위를 벗어났습니다." });
+  }
+  const takeAmt = takeNorm.value;
+  const isFullTake = takeNorm.minor === listedNorm.minor;
+
+  if (isFullTake) {
+    db.prepare(`
+      UPDATE p2p_orders SET buyer_user_id = ?, status = 'matched', matched_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(req.user.id, orderId);
+    appendP2pOrderEvent(orderId, req.user.id, "buyer_take", { amount: listedAmount });
+    appendPlatformAuditLog(req, { userId: req.user.id, eventType: "p2p.order_take", payload: { orderId, amount: listedAmount } });
+    const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+    return res.json({ order: mapP2pOrderRow(next, req.user.id) });
+  }
+
+  const remainderMi = listedNorm.minor - takeNorm.minor;
+  if (remainderMi <= 0n) {
+    return res.status(400).json({ message: "매칭 수량 계산 오류입니다." });
+  }
+  const remainder = financialMinorToMajor(remainderMi);
+  const newId = newP2pOrderId();
+  const sellerId = row.seller_user_id;
+  const coin = row.coin;
+  const paymentMethod = row.payment_method;
+  const platformCode = row.platform_code ?? PLATFORM_CODE;
+  const upMi = minorBigIntToSqlInt(BigInt(Math.trunc(Number(row.unit_price_minor ?? 0))));
+  const takeMi = minorBigIntToSqlInt(takeNorm.minor);
+  const remMi = minorBigIntToSqlInt(remainderMi);
+
+  db.prepare(`
+    INSERT INTO p2p_orders (
+      id, seller_user_id, buyer_user_id, coin, amount_minor, unit_price_minor,
+      payment_method, status, metadata_json, platform_code,
+      matched_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'matched', '{}', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  `).run(newId, sellerId, req.user.id, coin, takeMi, upMi, paymentMethod, platformCode);
+
+  db.prepare(`
+    UPDATE p2p_orders SET amount_minor = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(remMi, orderId);
+
+  appendP2pOrderEvent(orderId, req.user.id, "listing_partial_take", mergeDomainPayload({
+    taken_amount: takeAmt,
+    remainder_amount: remainder,
+    matched_order_id: newId,
+  }));
+  appendP2pOrderEvent(newId, req.user.id, "buyer_take", mergeDomainPayload({
+    from_listing_id: orderId,
+    amount: takeAmt,
+  }));
+  appendPlatformAuditLog(req, {
+    userId: req.user.id,
+    eventType: "p2p.order_take_partial",
+    payload: { listingOrderId: orderId, matchedOrderId: newId, takeAmount: takeAmt, remainderAmount: remainder },
+  });
+
+  const matchedRow = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(newId);
+  const listingRow = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  res.json({
+    order: mapP2pOrderRow(matchedRow, req.user.id),
+    listingOrder: mapP2pOrderRow(listingRow, null),
+  });
+});
+
+app.post("/api/p2p/orders/:id/cancel", authRequired, (req, res) => {
+  const orderId = String(req.params.id || "");
+  const row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  if (Number(row.seller_user_id) !== Number(req.user.id)) {
+    return res.status(403).json({ message: "판매자만 취소할 수 있습니다." });
+  }
+  if (row.status !== "listed") return res.status(400).json({ message: "취소할 수 있는 상태가 아닙니다." });
+  const listedNorm = normalizeLedgerFromSqlMinor(row.amount_minor);
+  if (!listedNorm.ok) {
+    return res.status(400).json({ message: "호가 수량이 올바르지 않습니다." });
+  }
+  db.transaction(() => {
+    db.prepare(`UPDATE p2p_orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+    unlockSellerP2pEscrowByMinor(Number(row.seller_user_id), listedNorm.minor);
+  })();
+  appendP2pOrderEvent(orderId, req.user.id, "seller_cancel", {});
+  appendPlatformAuditLog(req, { userId: req.user.id, eventType: "p2p.order_cancel", payload: { orderId } });
+  const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  res.json({ order: mapP2pOrderRow(next, req.user.id) });
+});
+
+app.post("/api/p2p/orders/:id/payment-start", authRequired, (req, res) => {
+  expireStaleMatchedOrders();
+  const orderId = String(req.params.id || "");
+  let row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  if (row.status !== "matched") {
+    return res.status(400).json({ message: "매칭된 주문만 송금 신청할 수 있습니다." });
+  }
+  if (!row.matched_at) {
+    return res.status(400).json({ message: "매칭 시각이 없습니다. 관리자에게 문의하세요." });
+  }
+  const mt = Date.parse(row.matched_at);
+  if (!Number.isFinite(mt)) {
+    return res.status(400).json({ message: "매칭 시각이 유효하지 않습니다." });
+  }
+  if (Date.now() - mt >= getP2pMatchSlaMs()) {
+    expireStaleMatchedOrders();
+    row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+    if (row.status !== "matched") {
+      return res.status(400).json({ message: "송금 마감 시간이 지나 주문이 종료되었습니다." });
+    }
+    return res.status(400).json({ message: "송금 마감 시간이 지났습니다." });
+  }
+  if (row.buyer_user_id == null || Number(row.buyer_user_id) !== Number(req.user.id)) {
+    return res.status(403).json({ message: "매수자만 송금 신청할 수 있습니다." });
+  }
+  if (row.buyer_payment_started_at) {
+    const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+    return res.json({ order: mapP2pOrderRow(next, req.user.id) });
+  }
+  db.prepare(`
+    UPDATE p2p_orders SET buyer_payment_started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+  `).run(orderId);
+  appendP2pOrderEvent(orderId, req.user.id, "buyer_payment_start", {});
+  appendPlatformAuditLog(req, { userId: req.user.id, eventType: "p2p.order_payment_start", payload: { orderId } });
+  const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  res.json({ order: mapP2pOrderRow(next, req.user.id) });
+});
+
+app.post("/api/p2p/orders/:id/mark-paid", authRequired, (req, res) => {
+  expireStaleMatchedOrders();
+  const orderId = String(req.params.id || "");
+  let row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  if (row.status !== "matched") return res.status(400).json({ message: "매칭된 주문만 송금 완료를 표시할 수 있습니다." });
+  if (row.buyer_user_id == null || Number(row.buyer_user_id) !== Number(req.user.id)) {
+    return res.status(403).json({ message: "매수자만 송금 완료를 표시할 수 있습니다." });
+  }
+  if (!row.buyer_payment_started_at) {
+    return res.status(400).json({ message: "먼저 송금 신청을 진행해 주세요." });
+  }
+  if (!row.matched_at) {
+    return res.status(400).json({ message: "매칭 시각이 없습니다. 관리자에게 문의하세요." });
+  }
+  const mt = Date.parse(row.matched_at);
+  if (!Number.isFinite(mt)) {
+    return res.status(400).json({ message: "매칭 시각이 유효하지 않습니다." });
+  }
+  if (Date.now() - mt >= getP2pMatchSlaMs()) {
+    expireStaleMatchedOrders();
+    row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+    if (row.status !== "matched") {
+      return res.status(400).json({ message: "송금 마감 시간이 지나 주문이 종료되었습니다." });
+    }
+    return res.status(400).json({ message: "송금 마감 시간이 지났습니다." });
+  }
+  db.prepare(`UPDATE p2p_orders SET status = 'payment_sent', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+  appendP2pOrderEvent(orderId, req.user.id, "buyer_mark_paid", {});
+  appendPlatformAuditLog(req, { userId: req.user.id, eventType: "p2p.order_mark_paid", payload: { orderId } });
+  const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  res.json({ order: mapP2pOrderRow(next, req.user.id) });
+});
+
+app.post("/api/p2p/orders/:id/complete", authRequired, (req, res) => {
+  const orderId = String(req.params.id || "");
+  const row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  if (row.status !== "payment_sent") return res.status(400).json({ message: "송금 확인 후에만 완료 처리할 수 있습니다." });
+  if (Number(row.seller_user_id) !== Number(req.user.id)) {
+    return res.status(403).json({ message: "판매자만 완료 처리할 수 있습니다." });
+  }
+  const tradeLm = normalizeLedgerFromSqlMinor(row.amount_minor);
+  if (!tradeLm.ok) {
+    return res.status(409).json({ message: "주문 수량이 유효하지 않습니다. 관리자에게 문의하세요." });
+  }
+  const tradeAmt = tradeLm.value;
+  const buyerId = row.buyer_user_id != null ? Number(row.buyer_user_id) : NaN;
+  const coin = String(row.coin || "USDT");
+  try {
+    db.transaction(() => {
+      db.prepare(`UPDATE p2p_orders SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+      if (!consumeSellerP2pEscrowByMinor(Number(row.seller_user_id), tradeLm.minor)) {
+        throw new Error("ESCROW_MISMATCH");
+      }
+      if (Number.isFinite(buyerId) && buyerId > 0) {
+        if (!creditBuyerP2pSettlementByMinor(buyerId, tradeLm.minor)) {
+          throw new Error("BUYER_CREDIT_FAILED");
+        }
+      }
+    })();
+  } catch (e) {
+    if (e?.message === "ESCROW_MISMATCH") {
+      return res.status(409).json({ message: "예치(P2P 락)와 주문이 맞지 않습니다. 관리자에게 문의하세요." });
+    }
+    if (e?.message === "BUYER_CREDIT_FAILED") {
+      return res.status(500).json({ message: "매수자 잔고 반영에 실패했습니다." });
+    }
+    throw e;
+  }
+  appendP2pOrderEvent(orderId, req.user.id, "seller_complete", mergeDomainPayload({ coin, amount: tradeAmt, buyer_user_id: buyerId }));
+  if (Number.isFinite(buyerId) && buyerId > 0) {
+    appendP2pOrderEvent(orderId, buyerId, "buyer_receive_settlement", mergeDomainPayload({ coin, amount: tradeAmt }));
+  }
+  appendPlatformAuditLog(req, {
+    userId: req.user.id,
+    eventType: "p2p.order_complete",
+    payload: { orderId, coin, amount: tradeAmt, buyerUserId: Number.isFinite(buyerId) ? buyerId : null },
+  });
+  const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  res.json({ order: mapP2pOrderRow(next, req.user.id) });
+});
+
+app.post("/api/p2p/orders/:id/withdraw-match", authRequired, (req, res) => {
+  expireStaleMatchedOrders();
+  const orderId = String(req.params.id || "");
+  const row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  if (row.status !== "matched") {
+    return res.status(400).json({ message: "매칭된 주문만 철회할 수 있습니다. (송금 완료 후에는 관리자 또는 거래 완료 절차를 이용하세요.)" });
+  }
+  const uid = req.user.id;
+  const isSeller = Number(row.seller_user_id) === Number(uid);
+  const isBuyer = row.buyer_user_id != null && Number(row.buyer_user_id) === Number(uid);
+  if (!isSeller && !isBuyer) {
+    return res.status(403).json({ message: "당사자만 매칭을 철회할 수 있습니다." });
+  }
+  if (isBuyer && row.buyer_payment_started_at) {
+    return res.status(403).json({
+      message:
+        "송금 신청 후에는 매칭을 철회할 수 없습니다. 마감 전까지 송금 확인을 완료하거나, 시간 초과 시 자동 취소됩니다.",
+    });
+  }
+  const tradeLm = normalizeLedgerFromSqlMinor(row.amount_minor);
+  if (!tradeLm.ok) {
+    return res.status(400).json({ message: "주문 수량이 올바르지 않습니다." });
+  }
+  db.transaction(() => {
+    db.prepare(`UPDATE p2p_orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+    unlockSellerP2pEscrowByMinor(Number(row.seller_user_id), tradeLm.minor);
+  })();
+  const role = isBuyer ? "buyer" : "seller";
+  appendP2pOrderEvent(orderId, uid, "withdraw_match", mergeDomainPayload({ role }));
+  appendPlatformAuditLog(req, { userId: uid, eventType: "p2p.order_withdraw_match", payload: { orderId, role } });
+  const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  res.json({ order: mapP2pOrderRow(next, uid) });
+});
+
+app.get("/api/p2p/orders/:id/events", authRequired, (req, res) => {
+  const orderId = String(req.params.id || "");
+  const row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  const uid = req.user.id;
+  const isAdmin = String(req.user.role || "").includes("관리자");
+  const isSeller = Number(row.seller_user_id) === Number(uid);
+  const isBuyer = row.buyer_user_id != null && Number(row.buyer_user_id) === Number(uid);
+  if (!isAdmin && !isSeller && !isBuyer) return res.status(403).json({ message: "접근 권한이 없습니다." });
+  const events = db.prepare(`
+    SELECT id, order_id, actor_user_id, action, detail_json, created_at
+    FROM p2p_order_events WHERE order_id = ? ORDER BY id ASC
+  `).all(orderId);
+  res.json({ events });
+});
+
+app.get("/api/admin/p2p/orders", authRequired, adminRequired, (req, res) => {
+  const limit = Math.min(300, Math.max(1, Number(req.query.limit || 80)));
+  const statusFilter = String(req.query.status || "").trim();
+  const rows = statusFilter
+    ? db.prepare(`SELECT * FROM p2p_orders WHERE status = ? ORDER BY updated_at DESC LIMIT ?`).all(statusFilter, limit)
+    : db.prepare(`SELECT * FROM p2p_orders ORDER BY updated_at DESC LIMIT ?`).all(limit);
+  res.json({ orders: rows.map((r) => mapP2pOrderRow(r, null)) });
+});
+
+app.post("/api/admin/p2p/orders/:id/cancel", authRequired, adminRequired, (req, res) => {
+  const orderId = String(req.params.id || "");
+  const reason = String(req.body?.reason || "").trim().slice(0, 500);
+  const row = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  if (!row) return res.status(404).json({ message: "주문을 찾을 수 없습니다." });
+  const prev = row.status;
+  if (prev !== "matched" && prev !== "payment_sent") {
+    return res.status(400).json({ message: "매칭 또는 송금완료 상태만 관리자 취소할 수 있습니다." });
+  }
+  const tradeLm = normalizeLedgerFromSqlMinor(row.amount_minor);
+  if (!tradeLm.ok) {
+    return res.status(400).json({ message: "주문 수량이 올바르지 않습니다." });
+  }
+  db.transaction(() => {
+    db.prepare(`UPDATE p2p_orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(orderId);
+    unlockSellerP2pEscrowByMinor(Number(row.seller_user_id), tradeLm.minor);
+  })();
+  appendP2pOrderEvent(orderId, req.user.id, "admin_cancel", mergeDomainPayload({ reason: reason || undefined, previous_status: prev }));
+  appendPlatformAuditLog(req, {
+    userId: req.user.id,
+    eventType: "p2p.order_admin_cancel",
+    payload: { orderId, previous_status: prev, reason: reason || undefined },
+  });
+  const next = db.prepare("SELECT * FROM p2p_orders WHERE id = ?").get(orderId);
+  res.json({ order: mapP2pOrderRow(next, null) });
+});
+
+app.get("/api/admin/platform-settings", authRequired, adminRequired, (_req, res) => {
+  const minutes = getP2pMatchSlaMinutes();
+  const row = db.prepare("SELECT updated_at, updated_by_user_id FROM platform_settings WHERE setting_key = ?").get("p2p.match_sla_minutes");
+  res.json({
+    p2p_match_sla_minutes: minutes,
+    p2p_match_sla_updated_at: row?.updated_at ?? null,
+    p2p_match_sla_updated_by: row?.updated_by_user_id ?? null,
+    env_fallback_p2p_match_sla_minutes: getEnvDefaultP2pSlaMinutes(),
+    ...marketPriceFeedSettingsPayload(),
+  });
+});
+
+app.patch("/api/admin/platform-settings", authRequired, adminRequired, (req, res) => {
+  const body = req.body || {};
+  let priceFeedNorm = null;
+  if (Object.prototype.hasOwnProperty.call(body, "price_feed_provider")) {
+    priceFeedNorm = normalizeAdminPriceFeedProviderInput(body.price_feed_provider);
+    if (priceFeedNorm.error) {
+      return res.status(400).json({ message: priceFeedNorm.error });
+    }
+  }
+  if (body.p2p_match_sla_minutes !== undefined && body.p2p_match_sla_minutes !== null) {
+    const v = clampPlatformSlaMinutes(body.p2p_match_sla_minutes);
+    db.prepare(`
+      INSERT INTO platform_settings (setting_key, value_json, updated_by_user_id, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(setting_key) DO UPDATE SET
+        value_json = excluded.value_json,
+        updated_by_user_id = excluded.updated_by_user_id,
+        updated_at = CURRENT_TIMESTAMP
+    `).run("p2p.match_sla_minutes", JSON.stringify({ minutes: v }), req.user.id);
+    appendPlatformAuditLog(req, {
+      userId: req.user.id,
+      eventType: "platform_settings.updated",
+      payload: { key: "p2p.match_sla_minutes", minutes: v },
+    });
+  }
+  if (priceFeedNorm && !priceFeedNorm.skip) {
+    if (priceFeedNorm.value === "") {
+      db.prepare("DELETE FROM platform_settings WHERE setting_key = ?").run(MARKET_PRICE_FEED_SETTING_KEY);
+    } else {
+      db.prepare(`
+        INSERT INTO platform_settings (setting_key, value_json, updated_by_user_id, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(setting_key) DO UPDATE SET
+          value_json = excluded.value_json,
+          updated_by_user_id = excluded.updated_by_user_id,
+          updated_at = CURRENT_TIMESTAMP
+      `).run(MARKET_PRICE_FEED_SETTING_KEY, storageJsonForPriceFeedProvider(priceFeedNorm.value), req.user.id);
+    }
+    appendPlatformAuditLog(req, {
+      userId: req.user.id,
+      eventType: "platform_settings.updated",
+      payload: { key: MARKET_PRICE_FEED_SETTING_KEY, provider: priceFeedNorm.value === "" ? "inherit_env" : priceFeedNorm.value },
+    });
+    clearPriceFeedCache();
+  }
+  const minutes = getP2pMatchSlaMinutes();
+  const row = db.prepare("SELECT updated_at, updated_by_user_id FROM platform_settings WHERE setting_key = ?").get("p2p.match_sla_minutes");
+  res.json({
+    p2p_match_sla_minutes: minutes,
+    p2p_match_sla_updated_at: row?.updated_at ?? null,
+    p2p_match_sla_updated_by: row?.updated_by_user_id ?? null,
+    env_fallback_p2p_match_sla_minutes: getEnvDefaultP2pSlaMinutes(),
+    ...marketPriceFeedSettingsPayload(),
+  });
+});
+
+expireStaleMatchedOrders();
+setInterval(expireStaleMatchedOrders, 60000);
 
 app.listen(PORT, () => {
   console.log(`[tetherget-api] running on http://localhost:${PORT}`);
