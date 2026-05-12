@@ -1159,10 +1159,13 @@ function superAdminRequired(req, res, next) {
 }
 
 function adminRequired(req, res, next) {
-  if (!req.user?.role?.includes("관리자")) {
-    return res.status(403).json({ message: "관리자 권한이 필요합니다." });
-  }
-  next();
+  const role = String(req.user?.role || "");
+  const sr = String(req.user?.session_role || "").trim().toLowerCase();
+  if (role.includes("관리자")) return next();
+  if (sr === "hq_ops" || sr === "super_admin" || sr === "superadmin" || sr === "operator") return next();
+  const rl = role.toLowerCase();
+  if (rl.includes("admin") || rl.includes("operator") || rl === "hq" || rl.includes("hq_ops")) return next();
+  return res.status(403).json({ message: "관리자 권한이 필요합니다." });
 }
 
 function canViewAllMarketAuditLogs(user) {

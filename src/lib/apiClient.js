@@ -60,6 +60,7 @@ export function createApiClient({
         if (second.response.ok) return second.data;
         throw new Error(second.data?.message || `API ${path} failed`);
       }
+      /** 로컬 테스트 세션(액세스 토큰 없음)에서 admin API 401 시 전역 로그아웃 호출 방지 */
       if (hadAccessToken) onAuthFailure?.();
       throw new Error("세션이 만료되었습니다.");
     }

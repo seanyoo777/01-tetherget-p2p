@@ -6063,20 +6063,29 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   }, [memberUsers, visibleUsers, currentAdminActorId, selectedAdminUser?.id]);
 
   const monitorStageTargetIdRef = useRef("");
+  /** 선택 회원이 바뀔 때만 드롭다운을 동기화 — stageByUserId·memberUsers 갱신마다 덮어쓰면 선택 단계가 초기화되어 단계 적용이 막힘 */
   useEffect(() => {
-    const nextId = monitorCurrentUser ? String(monitorCurrentUser.id) : "";
     if (!monitorCurrentUser) {
       monitorStageTargetIdRef.current = "";
       setStageSelectionValue("");
       setPendingStageValue("");
       return;
     }
+    const nextId = String(monitorCurrentUser.id);
     if (monitorStageTargetIdRef.current !== nextId) {
       monitorStageTargetIdRef.current = nextId;
       setPendingStageValue("");
+      setStageSelectionValue(getEffectiveStage(monitorCurrentUser));
     }
-    setStageSelectionValue(getEffectiveStage(monitorCurrentUser));
-  }, [monitorCurrentUser?.id, monitorCurrentUser?.stageLabel, monitorCurrentUser?.stage_label, stageByUserId]);
+  }, [monitorCurrentUser?.id]);
+
+  useEffect(() => {
+    const stageConfirmPayload = { from: stageConfirmFromStage, to: stageConfirmTarget };
+    console.log("[stage-confirm-state]", {
+      stageConfirmOpen,
+      stageConfirmPayload,
+    });
+  }, [stageConfirmOpen, stageConfirmFromStage, stageConfirmTarget]);
 
   useEffect(() => {
     const id = selectedAdminUser?.id;
@@ -6338,14 +6347,34 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   }
 
   function requestApplyStage() {
-    if (!monitorCurrentUser) return;
+    const selectedUser = monitorCurrentUser
+      ? { id: monitorCurrentUser.id, nickname: monitorCurrentUser.nickname }
+      : null;
+    const selectedStage = String(stageSelectionValue || "").trim();
+    const fromSelect = selectedStage;
+    const nextStage = normalizeStageLabel(fromSelect || getEffectiveStage(monitorCurrentUser));
+    const canControlTarget = Boolean(
+      monitorCurrentUser &&
+        (String(monitorCurrentUser.id || "").startsWith("VD-") ||
+          canActorControlTargetLevel(monitorCurrentUser, nextStage))
+    );
+    console.log("[stage-apply-click]", {
+      selectedUser,
+      selectedStage,
+      nextStage,
+      isSelfTargetMember,
+      canControlTarget,
+      stageConfirmOpen,
+    });
+    if (!monitorCurrentUser) {
+      notify("선택된 회원이 없습니다.");
+      return;
+    }
     const isVirtualUser = String(monitorCurrentUser.id || "").startsWith("VD-");
     if (isSelfTargetMember) {
       notify("본인 계정의 단계는 변경할 수 없습니다.");
       return;
     }
-    const fromSelect = String(stageSelectionValue || "").trim();
-    const nextStage = normalizeStageLabel(fromSelect || getEffectiveStage(monitorCurrentUser));
     if (!nextStage) {
       notify("적용할 단계를 선택하세요.");
       return;
