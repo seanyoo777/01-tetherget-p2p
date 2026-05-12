@@ -48,17 +48,19 @@ export function createApiClient({
       return { response, data };
     };
 
-    const first = await send(auth ? getAccessToken?.() || "" : "");
+    const tokenForAuth = auth ? String(getAccessToken?.() || "").trim() : "";
+    const first = await send(auth ? tokenForAuth : "");
     if (first.response.ok) return first.data;
 
     if (auth && first.response.status === 401) {
+      const hadAccessToken = Boolean(tokenForAuth);
       const nextToken = await refreshAccessToken();
       if (nextToken) {
         const second = await send(nextToken);
         if (second.response.ok) return second.data;
         throw new Error(second.data?.message || `API ${path} failed`);
       }
-      onAuthFailure?.();
+      if (hadAccessToken) onAuthFailure?.();
       throw new Error("세션이 만료되었습니다.");
     }
 

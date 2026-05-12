@@ -1285,7 +1285,7 @@ function GeneralAlertPanel({ theme: t, notifications, readIds, setReadIds, onNav
   );
 }
 
-/** JWT/API가 영어 role(Member/user)·빈 값만 줄 때도 시드 병합이 적용되도록 */
+/** JWT/API가 비어 role(Member/user)·영문 값만 줄어도 시드 병합·JWT 덮어쓰기 적용되도록 */
 function isPlainMemberLegacyRole(role) {
   const r = String(role ?? "").trim();
   if (!r) return true;
@@ -1396,14 +1396,53 @@ function computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAu
     sessionRoleHint,
     salesLevel,
   });
+  let out = profile;
+  /** derive가 USER로만 남아도 JWT에 본사/영업이 있고 이메일이 일치하면 관리자 진입 허용 */
+  if (!out.canAccessAdmin && loggedIn && linkedGoogle && authToken) {
+    try {
+      const payload = decodeJwtPayload(authToken);
+      const pe = String(payload?.email || "").trim().toLowerCase();
+      const lg = String(linkedGoogle || "").trim().toLowerCase();
+      if (payload && pe && lg && pe === lg) {
+        const j = normalizeSessionRoleHint(payload.session_role);
+        if (j === SESSION_ROLE.HQ_OPS) {
+          out = {
+            ...out,
+            sessionRole: SESSION_ROLE.HQ_OPS,
+            salesLevel: null,
+            canAccessAdmin: true,
+            allowDestructiveAdminWrite: true,
+            hideTradingUi: true,
+            displayLabel: "본사 운영",
+          };
+        } else if (j === SESSION_ROLE.SALES) {
+          const sl =
+            payload.sales_level != null && Number.isFinite(Number(payload.sales_level))
+              ? Number(payload.sales_level)
+              : out.salesLevel ?? 1;
+          out = {
+            ...out,
+            sessionRole: SESSION_ROLE.SALES,
+            salesLevel: sl,
+            canAccessAdmin: true,
+            allowDestructiveAdminWrite: false,
+            hideTradingUi: false,
+            displayLabel: `영업 L${sl}`,
+          };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   try {
     if (typeof localStorage !== "undefined" && localStorage.getItem("tg_debug_admin") === "1") {
-      return { ...profile, canAccessAdmin: true };
+      return { ...out, canAccessAdmin: true };
     }
   } catch {
     /* ignore */
   }
-  return profile;
+  return out;
 }
 
 export default function App() {
@@ -2153,7 +2192,7 @@ export default function App() {
           localStorage.setItem(
             LOCAL_SESSION_KEY,
             JSON.stringify({
-              email: localUser.email || email,
+              email: String(localUser.email || email).trim().toLowerCase(),
               nickname: localUser.nickname || "",
               role: localUser.role || "회원",
               session_role: localUser.session_role ?? null,
@@ -2441,7 +2480,7 @@ export default function App() {
       });
       applyAuthSuccess(data, email);
       setAccountType("이메일 + 지갑 통합 계정");
-      setLinkedGoogle(email);
+      setLinkedGoogle(String(email).trim().toLowerCase());
       setMergeStatus("지갑 계정에 지메일 통합 완료");
       notify("지메일 연결 완료: 이메일/지갑 로그인 모두 같은 계정으로 인식됩니다.");
     } catch (error) {
@@ -5618,6 +5657,36 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const pendingStageLengthLogRef = useRef(false);
   const lang = useLang();
 
+  const memberUsers = useMemo(() => {
+    const authMapped = Array.isArray(authUsers) && authUsers.length ? authUsers.map((user, index) => mapAuthUserToMember(user, index)) : [];
+    const source = [...authMapped, ...virtualDownlineUsers];
+    const effectiveParentOf = (candidate) =>
+      userParentOverrides[candidate.id] != null ? userParentOverrides[candidate.id] : candidate.parent;
+    return source.map((user) => {
+      const childCount = source.filter((candidate) => String(effectiveParentOf(candidate)) === String(user.id)).length;
+      const idKey = String(user.id);
+      const fromApi = [user.stage_label, user.stageLabel].map((s) => String(s || "").trim()).find(Boolean);
+      const byRuntimeMap = String(stageByUserId[idKey] || "").trim();
+      const mergedStage = normalizeStageLabel(byRuntimeMap || fromApi || defaultStageLabelFromRole(user));
+      return { ...user, stageLabel: mergedStage, stage_label: mergedStage, children: childCount };
+    });
+  }, [authUsers, virtualDownlineUsers, stageByUserId, userParentOverrides]);
+  /** 로그인 관리자 1명만 집계에서 제외 — 동일 id 중복 행이 있어도 한 명만 빠지게(전체 카운트 급감 방지) */
+  const summaryScopeUsers = useMemo(() => {
+    const aid = String(currentAdminActorId ?? "");
+    if (!aid) return memberUsers;
+    let actorExcluded = false;
+    const out = [];
+    for (const u of memberUsers) {
+      if (String(u.id) === aid && !actorExcluded) {
+        actorExcluded = true;
+        continue;
+      }
+      out.push(u);
+    }
+    return out;
+  }, [memberUsers, currentAdminActorId]);
+
   useLayoutEffect(() => {
     if (!import.meta.env.DEV || !pendingStageLengthLogRef.current) return;
     pendingStageLengthLogRef.current = false;
@@ -5693,35 +5762,6 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     });
   }, [authUsers]);
 
-  const memberUsers = useMemo(() => {
-    const authMapped = Array.isArray(authUsers) && authUsers.length ? authUsers.map((user, index) => mapAuthUserToMember(user, index)) : [];
-    const source = [...authMapped, ...virtualDownlineUsers];
-    const effectiveParentOf = (candidate) =>
-      userParentOverrides[candidate.id] != null ? userParentOverrides[candidate.id] : candidate.parent;
-    return source.map((user) => {
-      const childCount = source.filter((candidate) => String(effectiveParentOf(candidate)) === String(user.id)).length;
-      const idKey = String(user.id);
-      const fromApi = [user.stage_label, user.stageLabel].map((s) => String(s || "").trim()).find(Boolean);
-      const byRuntimeMap = String(stageByUserId[idKey] || "").trim();
-      const mergedStage = normalizeStageLabel(byRuntimeMap || fromApi || defaultStageLabelFromRole(user));
-      return { ...user, stageLabel: mergedStage, stage_label: mergedStage, children: childCount };
-    });
-  }, [authUsers, virtualDownlineUsers, stageByUserId, userParentOverrides]);
-  /** 로그인 관리자 1명만 집계에서 제외 — 동일 id 중복 행이 있어도 한 명만 빠지게(전체 카운트 급감 방지) */
-  const summaryScopeUsers = useMemo(() => {
-    const aid = String(currentAdminActorId ?? "");
-    if (!aid) return memberUsers;
-    let actorExcluded = false;
-    const out = [];
-    for (const u of memberUsers) {
-      if (String(u.id) === aid && !actorExcluded) {
-        actorExcluded = true;
-        continue;
-      }
-      out.push(u);
-    }
-    return out;
-  }, [memberUsers, currentAdminActorId]);
   const searchableUsers = useMemo(() => {
     const q = adminUserSearch.toLowerCase().trim();
     const filtered = summaryScopeUsers.filter((u) => {
