@@ -1,0 +1,77 @@
+/**
+ * @tetherget/core — KYC / 보안 / 거래 정책 re-export (P2P에서 점진 import 용).
+ *
+ * @example
+ * import {
+ *   mergeKycAdminSwitches,
+ *   evaluateTradeCreationPreflightWithSignals,
+ *   collectDeviceFingerprintSignals,
+ *   hashDeviceFingerprintPreferred,
+ *   scoreMultiAccountRisk,
+ *   createTradeDraft,
+ *   evaluateBuyerPaymentSentClick,
+ *   requiresHighValuePushAndUiReconfirm,
+ * } from "./lib/coreRiskPolicy";
+ *
+ * const digest = await hashDeviceFingerprintPreferred(collectDeviceFingerprintSignals());
+ * const pre = evaluateTradeCreationPreflightWithSignals({
+ *   kycSwitches: mergeKycAdminSwitches({}),
+ *   buyer: { identityDocumentVerified: true },
+ *   seller: { identityDocumentVerified: true },
+ *   rawSignals: {
+ *     nowMs: Date.now(),
+ *     clientIp: clientIpFromServer,
+ *     ipBlacklist,
+ *     fingerprintDigest: digest,
+ *     deviceFingerprintBlacklist,
+ *     userUnderAutoBlock: false,
+ *     multiAccountScore: scoreMultiAccountRisk(correlationFromServer),
+ *   },
+ * });
+ */
+export {
+  KycLevel,
+  KYC_LEVEL,
+  clampKycLevel,
+  POLICY_HIGH_VALUE_KRW,
+  STRICT_USER_PROTECTION_POLICY_ID,
+  getKycRequirementsForLevel,
+  getEffectiveKycRequirements,
+  mergeStrictIdentityForAllTradesIntoRequirements,
+  getTradePartyKycChecklist,
+  describeAllTradesIdentitySwitchState,
+  defaultKycAdminSwitchesForStrictProtection,
+  mergeKycAdminSwitches,
+  isStrictIdentityRequiredForAllTrades,
+  evaluateTradeIdentityGate,
+  validateIdentityDocumentUpload,
+  encryptIdentityDocumentForVaultUpload,
+  importKycServerRsaPublicKeyFromPem,
+  collectDeviceFingerprintSignals,
+  hashDeviceFingerprintPreferred,
+  scoreMultiAccountRisk,
+  shouldBlockNewTradesFromMultiAccountRisk,
+  evaluateAutoBlock,
+  evaluateTradingAccess,
+  evaluateTradingAccessFromSignals,
+  isIpBlacklisted,
+  pruneExpiredBlacklistEntries,
+  upsertBlacklistEntry,
+  pruneExpiredDeviceFingerprintBlacklistEntries,
+  upsertDeviceFingerprintBlacklistEntry,
+  isDeviceFingerprintDigestBlacklisted,
+  mergeIpTrackingRecord,
+  createTradeDraft,
+  getSettlementPolicyForTrade,
+  evaluateBuyerPaymentSentClick,
+  isBuyerRemittanceAcknowledged,
+  evaluateHighValueNotice,
+  requiresHighValuePushAndUiReconfirm,
+  formatHighValueNoticeKrw,
+  evaluateTradeCreationPreflight,
+  evaluateTradeCreationPreflightWithSignals,
+  buildEscrowProtectionChecklist,
+  OffchainEscrowStage,
+  buyerAckToOffchainStage,
+  assertOffchainStageAtLeast,
+} from "@tetherget/core";

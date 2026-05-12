@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>베타 모니터 (공개 통계)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; background: #0f172a; color: #e2e8f0; }
+    h1 { font-size: 1.2rem; }
+    pre { background: #1e293b; padding: 1rem; border-radius: 12px; overflow: auto; font-size: 12px; }
+    .muted { color: #94a3b8; font-size: 0.85rem; }
+    button { margin-top: 0.75rem; padding: 0.5rem 1rem; border-radius: 8px; border: none; cursor: pointer; background: #2563eb; color: #fff; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>P2P 베타 — 공개 통계 샘플</h1>
+  <p class="muted">API: GET /api/public/beta-stats (인증 불필요). 관리자 요약은 GET /api/admin/beta/monitor-summary + Bearer 토큰.</p>
+  <button type="button" id="btn">불러오기</button>
+  <pre id="out">{}</pre>
+  <script>
+    var apiBase = "";
+    try {
+      apiBase = localStorage.getItem("tgx_beta_api_base") || "";
+    } catch (_) {}
+    if (!apiBase) {
+      apiBase = window.location.origin.replace(":5173", ":4000") || "http://localhost:4000";
+    }
+    document.getElementById("btn").onclick = async function () {
+      var url = apiBase.replace(/\/$/, "") + "/api/public/beta-stats";
+      try {
+        var r = await fetch(url);
+        var j = await r.json();
+        document.getElementById("out").textContent = JSON.stringify(j, null, 2);
+      } catch (e) {
+        document.getElementById("out").textContent = String(e);
+      }
+    };
+  </script>
+</body>
+</html>

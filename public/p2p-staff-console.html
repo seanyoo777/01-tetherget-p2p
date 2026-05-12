@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>P2P 직원 내부 콘솔 (Phase 20)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1024px; margin: 1rem auto; padding: 0 1rem; background: #0b1220; color: #e2e8f0; }
+    h1 { font-size: 1.2rem; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.75rem 0; }
+    .tabs button { padding: 0.4rem 0.75rem; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #e2e8f0; cursor: pointer; font-weight: 600; font-size: 0.8rem; }
+    .tabs button.on { background: #2563eb; border-color: #1d4ed8; color: #fff; }
+    .panel { display: none; }
+    .panel.on { display: block; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; margin-top: 0.65rem; color: #94a3b8; }
+    input, textarea { width: 100%; box-sizing: border-box; padding: 0.45rem 0.6rem; border-radius: 8px; border: 1px solid #334155; background: #111827; color: #f8fafc; font-size: 0.85rem; }
+    textarea { min-height: 120px; font-family: ui-monospace, monospace; font-size: 11px; }
+    .row { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.45rem; align-items: center; }
+    button.action { padding: 0.45rem 0.85rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; background: #2563eb; color: #fff; font-size: 0.8rem; }
+    button.action:disabled { opacity: 0.35; cursor: not-allowed; }
+    button.sec { background: #334155; }
+    pre { background: #111827; padding: 0.75rem; border-radius: 10px; overflow: auto; font-size: 11px; max-height: 360px; border: 1px solid #1e293b; margin-top: 0.5rem; }
+    .muted { color: #64748b; font-size: 0.78rem; margin: 0.35rem 0; }
+    .pill { font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 6px; font-weight: 700; background: #334155; margin-right: 0.25rem; }
+    code { color: #a5b4fc; }
+  </style>
+</head>
+<body>
+  <h1>P2P 직원 내부 콘솔</h1>
+  <p class="muted">관리자 JWT(<code>session_role</code>) + 스코프(<code>billing_read</code>/<code>billing_write</code> 등). 선택 헤더 <code>X-Ops-Region</code>(예: KR, APAC)으로 지역 게이트. OIDC: <code>GET /api/auth/oidc/staff/status</code>.</p>
+  <label>API Base</label>
+  <input id="base" placeholder="http://localhost:4000" />
+  <label>Access Token</label>
+  <input id="token" placeholder="eyJ..." autocomplete="off" />
+  <label>X-Ops-Region (선택, 대문자)</label>
+  <input id="regionHdr" placeholder="비우면 GLOBAL 등 전체 허용 토큰 동작" />
+  <div class="tabs" id="tabs"></div>
+  <div id="p-scopes" class="panel on">
+    <div class="row">
+      <button type="button" class="action" id="btnScopes">내 권한 조회</button>
+    </div>
+    <p class="muted" id="scopePills"></p>
+    <pre id="outScopes">{}</pre>
+  </div>
+  <div id="p-ops" class="panel">
+    <div class="row">
+      <button type="button" class="action" data-scope="ops" data-path="/api/admin/beta/dashboard-v2">dashboard-v2</button>
+      <button type="button" class="action sec" data-scope="ops" data-path="/api/admin/beta/slo-snapshot">slo-snapshot</button>
+      <button type="button" class="action sec" data-scope="ops" data-path="/api/ops/monitoring-v11">monitoring-v11</button>
+      <button type="button" class="action sec" data-scope="ops" data-path="/api/admin/p2p/platform-fee-ledger?limit=30">fee ledger</button>
+      <button type="button" class="action sec" data-scope="ops" data-path="/api/ops/exchange-sanity">exchange sanity</button>
+      <button type="button" class="action sec" data-scope="ops" data-path="/api/admin/ops/oncall-integrations">oncall 연동 설정</button>
+      <button type="button" class="action sec" data-scope="ops" data-path="/api/admin/ops/region-capabilities">리전·리플리카 힌트</button>
+      <button type="button" class="action sec" id="btnOidc">OIDC staff 상태</button>
+    </div>
+    <label>에스컬레이션 정책 조회/저장 (ops)</label>
+    <div class="row">
+      <button type="button" class="action" data-scope="ops" id="btnEscGet">GET 정책</button>
+      <button type="button" class="action sec" data-scope="ops" id="btnEscSave">PATCH 저장</button>
+    </div>
+    <label>runbook_url</label>
+    <input id="escRunbook" />
+    <label>slo_escalation_note</label>
+    <textarea id="escNote" placeholder="SLO 위반 시 에스컬레이션 단계(예: L1 Slack → L2 전화)"></textarea>
+    <label>oncall_roster (JSON 배열)</label>
+    <textarea id="escRoster" placeholder='[{"label":"주간","contact":"slack:#p2p-oncall","shift_hint":"월–금 09–18"}]'></textarea>
+    <pre id="outOps">{}</pre>
+  </div>
+  <div id="p-fb" class="panel">
+    <div class="row">
+      <button type="button" class="action" data-scope="feedback" data-path="/api/admin/beta/feedback?status=new&limit=40">신규 피드백</button>
+      <button type="button" class="action sec" data-scope="feedback" id="btnFbCsv">CSV 내려받기</button>
+    </div>
+    <pre id="outFb">{}</pre>
+  </div>
+  <div id="p-cohort" class="panel">
+    <div class="row">
+      <button type="button" class="action" data-scope="cohort" data-path="/api/admin/beta/cohorts">코호트 멤버 샘플</button>
+      <button type="button" class="action sec" data-scope="cohort" data-path="/api/admin/beta/cohort-policies">코호트 정책</button>
+    </div>
+    <pre id="outCohort">{}</pre>
+  </div>
+  <div id="p-mon" class="panel">
+    <div class="row">
+      <button type="button" class="action" data-scope="monetization_read" data-path="/api/admin/beta/monetization">수익화(관리)</button>
+      <button type="button" class="action sec" id="btnHint">monetization-hint (공개)</button>
+    </div>
+    <p class="muted">수익화 값 변경은 <code>monetization_write</code> 권한이 필요합니다 — REST 클라이언트로 <code>PATCH /api/admin/beta/monetization</code> 사용.</p>
+    <pre id="outMon">{}</pre>
+  </div>
+  <div id="p-bill" class="panel">
+    <div class="row">
+      <button type="button" class="action" data-scope="billing_read" data-path="/api/admin/billing/webhook-outbox?limit=40">웹훅 outbox (전체)</button>
+      <button type="button" class="action sec" data-scope="billing_read" data-path="/api/admin/billing/webhook-outbox?status=failed&limit=40">실패(DLQ)</button>
+      <button type="button" class="action sec" data-scope="billing_read" id="btnRecon">일별 대사(최근 14일)</button>
+      <button type="button" class="action sec" data-scope="billing_read" data-path="/api/admin/billing/invoices?limit=20">인보이스 목록</button>
+      <button type="button" class="action sec" data-scope="billing_write" id="btnOutboxBatch">대기 배치 전송</button>
+    </div>
+    <p class="muted">재전송: <code>POST /api/admin/billing/webhook-outbox/:id/retry</code> — 필요 시 REST 클라이언트 사용.</p>
+    <pre id="outBill">{}</pre>
+  </div>
+  <div id="p-audit" class="panel">
+    <div class="row">
+      <button type="button" class="action" data-scope="audit" data-path="/api/admin/platform-audit-logs?limit=30&event_prefix=p2p.">감사로그 (p2p.)</button>
+      <button type="button" class="action sec" data-scope="audit" id="btnReplay">replay NDJSON (since_id=0)</button>
+    </div>
+    <pre id="outAudit">{}</pre>
+  </div>
+  <script>
+    var SCOPES = [];
+    function apiBase() {
+      try {
+        var s = localStorage.getItem("tgx_staff_api_base");
+        if (s) return s.replace(/\/$/, "");
+      } catch (_) {}
+      var b = document.getElementById("base").value.trim();
+      if (b) return b.replace(/\/$/, "");
+      return (window.location.origin || "").replace(":5173", ":4000").replace(/\/$/, "") || "http://localhost:4000";
+    }
+    function tok() { return document.getElementById("token").value.trim(); }
+    function headersAuth(extra) {
+      var h = Object.assign({ Authorization: "Bearer " + tok() }, extra || {});
+      var rg = document.getElementById("regionHdr") && document.getElementById("regionHdr").value.trim();
+      if (rg) h["X-Ops-Region"] = rg.toUpperCase();
+      return h;
+    }
+    async function getAuth(path) {
+      var r = await fetch(apiBase() + path, { headers: headersAuth() });
+      var t = await r.text();
+      var j; try { j = JSON.parse(t); } catch (_) { j = t; }
+      return { status: r.status, json: j };
+    }
+    async function patchAuth(path, body) {
+      var r = await fetch(apiBase() + path, {
+        method: "PATCH",
+        headers: headersAuth({ "Content-Type": "application/json" }),
+        body: JSON.stringify(body),
+      });
+      var t = await r.text();
+      var j; try { j = JSON.parse(t); } catch (_) { j = t; }
+      return { status: r.status, json: j };
+    }
+    function hasScope(s) { return SCOPES.indexOf(s) >= 0; }
+    function applyScopeUi() {
+      document.querySelectorAll("[data-scope]").forEach(function (el) {
+        var s = el.getAttribute("data-scope");
+        el.disabled = !hasScope(s);
+      });
+      var pills = document.getElementById("scopePills");
+      if (!SCOPES.length) { pills.textContent = "권한 미로드 — 「내 권한 조회」 클릭"; return; }
+      pills.innerHTML = SCOPES.map(function (x) { return "<span class=\"pill\">" + x + "</span>"; }).join(" ");
+    }
+    function showPre(id, x) { document.getElementById(id).textContent = JSON.stringify(x, null, 2); }
+    function activatePanel(id) {
+      document.querySelectorAll(".panel").forEach(function (p) { p.classList.remove("on"); });
+      document.querySelectorAll(".tabs button").forEach(function (b) { b.classList.remove("on"); });
+      var p = document.getElementById(id);
+      if (p) p.classList.add("on");
+    }
+    var tabSpec = [
+      { id: "p-scopes", label: "내 권한" },
+      { id: "p-ops", label: "운영·SLO·원장" },
+      { id: "p-bill", label: "정산·웹훅" },
+      { id: "p-audit", label: "감사" },
+      { id: "p-fb", label: "피드백" },
+      { id: "p-cohort", label: "코호트" },
+      { id: "p-mon", label: "수익화" },
+    ];
+    var tb = document.getElementById("tabs");
+    tabSpec.forEach(function (t) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = t.label;
+      b.onclick = function () {
+        activatePanel(t.id);
+        b.classList.add("on");
+        document.querySelectorAll(".tabs button").forEach(function (x) { if (x !== b) x.classList.remove("on"); });
+        b.classList.add("on");
+      };
+      tb.appendChild(b);
+    });
+    tb.querySelector("button").classList.add("on");
+
+    document.getElementById("base").value = apiBase();
+    document.getElementById("btnScopes").onclick = async function () {
+      var x = await getAuth("/api/admin/me/admin-scopes");
+      if (x.status === 200 && x.json && Array.isArray(x.json.scopes)) SCOPES = x.json.scopes;
+      applyScopeUi();
+      showPre("outScopes", x);
+    };
+    document.querySelectorAll("[data-path]").forEach(function (btn) {
+      btn.onclick = async function () {
+        var path = btn.getAttribute("data-path");
+        var x = await getAuth(path);
+        var tid = "outOps";
+        if (path.indexOf("feedback") >= 0) tid = "outFb";
+        else if (path.indexOf("cohort") >= 0 || path.indexOf("cohorts") >= 0) tid = "outCohort";
+        else if (path.indexOf("monetization") >= 0) tid = "outMon";
+        else if (path.indexOf("billing") >= 0 || path.indexOf("reconciliation") >= 0) tid = "outBill";
+        else if (path.indexOf("platform-audit") >= 0) tid = "outAudit";
+        showPre(tid, x);
+      };
+    });
+    document.getElementById("btnRecon").onclick = async function () {
+      var d = new Date();
+      var to = d.toISOString().slice(0, 10);
+      var f = new Date(d.getTime() - 14 * 864e5);
+      var from = f.toISOString().slice(0, 10);
+      var x = await getAuth("/api/admin/p2p/reconciliation/daily?from=" + encodeURIComponent(from) + "&to=" + encodeURIComponent(to));
+      showPre("outBill", x);
+    };
+    document.getElementById("btnOidc").onclick = async function () {
+      var r = await fetch(apiBase() + "/api/auth/oidc/staff/status");
+      var t = await r.text();
+      var j; try { j = JSON.parse(t); } catch (_) { j = t; }
+      showPre("outOps", { status: r.status, json: j });
+    };
+    document.getElementById("btnOutboxBatch").onclick = async function () {
+      var r = await fetch(apiBase() + "/api/admin/billing/webhook-outbox/process-pending", {
+        method: "POST",
+        headers: headersAuth({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ batch: 10 }),
+      });
+      var t = await r.text();
+      var j; try { j = JSON.parse(t); } catch (_) { j = t; }
+      showPre("outBill", { status: r.status, json: j });
+    };
+    document.getElementById("btnReplay").onclick = async function () {
+      var r = await fetch(apiBase() + "/api/admin/audit/replay-export?since_id=0&limit=200&event_prefix=p2p.", {
+        headers: headersAuth(),
+      });
+      var text = await r.text();
+      showPre("outAudit", { status: r.status, ndjson_lines: text.split("\n").filter(Boolean).length, sample: text.slice(0, 4000) });
+    };
+    document.getElementById("btnEscGet").onclick = async function () {
+      var x = await getAuth("/api/admin/ops/escalation-policy");
+      if (x.status === 200 && x.json) {
+        document.getElementById("escRunbook").value = x.json.runbook_url || "";
+        document.getElementById("escNote").value = x.json.slo_escalation_note || "";
+        document.getElementById("escRoster").value = JSON.stringify(x.json.oncall_roster || [], null, 2);
+      }
+      showPre("outOps", x);
+    };
+    document.getElementById("btnEscSave").onclick = async function () {
+      var roster;
+      try { roster = JSON.parse(document.getElementById("escRoster").value || "[]"); } catch (e) {
+        showPre("outOps", { error: "oncall_roster JSON 파싱 실패", detail: String(e) });
+        return;
+      }
+      var x = await patchAuth("/api/admin/ops/escalation-policy", {
+        runbook_url: document.getElementById("escRunbook").value,
+        slo_escalation_note: document.getElementById("escNote").value,
+        oncall_roster: roster,
+      });
+      showPre("outOps", x);
+    };
+    document.getElementById("btnFbCsv").onclick = async function () {
+      var r = await fetch(apiBase() + "/api/admin/beta/feedback/export?format=csv&limit=300", {
+        headers: headersAuth(),
+      });
+      var blob = await r.blob();
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "beta-feedback.csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showPre("outFb", { csv_status: r.status });
+    };
+    document.getElementById("btnHint").onclick = async function () {
+      var r = await fetch(apiBase() + "/api/public/monetization-hint");
+      var t = await r.text();
+      var j; try { j = JSON.parse(t); } catch (_) { j = t; }
+      showPre("outMon", { status: r.status, json: j });
+    };
+    try { localStorage.setItem("tgx_staff_api_base", apiBase()); } catch (_) {}
+    applyScopeUi();
+  </script>
+</body>
+</html>

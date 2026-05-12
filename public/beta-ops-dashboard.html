@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>베타 운영 대시보드 (Phase 18)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 1.5rem auto; padding: 0 1rem; background: #0b1220; color: #e2e8f0; }
+    h1 { font-size: 1.25rem; }
+    label { display: block; font-size: 0.8rem; font-weight: 700; margin-top: 0.75rem; color: #94a3b8; }
+    input { width: 100%; box-sizing: border-box; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid #334155; background: #111827; color: #f8fafc; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: center; }
+    button { padding: 0.5rem 1rem; border-radius: 8px; border: none; cursor: pointer; font-weight: 800; background: #2563eb; color: #fff; }
+    button.secondary { background: #334155; }
+    button.warn { background: #b45309; }
+    pre { background: #111827; padding: 1rem; border-radius: 12px; overflow: auto; font-size: 11px; max-height: 420px; border: 1px solid #1e293b; }
+    .muted { color: #64748b; font-size: 0.8rem; margin-top: 0.5rem; }
+    .pill { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 6px; font-weight: 700; }
+    .ok { background: #14532d; color: #bbf7d0; }
+    .bad { background: #7f1d1d; color: #fecaca; }
+    code { color: #a5b4fc; }
+  </style>
+</head>
+<body>
+  <h1>P2P 베타 운영 (퍼널·코호트·CRM보내기)</h1>
+  <p class="muted">관리자 JWT로 보호된 API는 Bearer 필요. Phase 18부터 엔드포인트별 <strong>RBAC 스코프</strong>(ops·feedback·cohort·monetization_*)가 적용됩니다 — 직원용 탭 UI는 <code>/p2p-staff-console.html</code>. SLO 알림은 <code>BETA_SLO_ALERT_ENABLED=1</code> + <code>ADMIN_WEBHOOK_URL</code>(및 선택 Slack URL) 설정 시 동작.</p>
+  <label>API Base (예: http://localhost:4000)</label>
+  <input id="base" placeholder="http://localhost:4000" />
+  <label>Access Token (Bearer 본문만)</label>
+  <input id="token" placeholder="eyJ..." autocomplete="off" />
+  <label>
+    <input type="checkbox" id="live" style="width:auto;margin-right:0.35rem" />
+    15초마다 monitoring + SLO 자동 갱신
+  </label>
+  <div class="row">
+    <button type="button" id="dash">dashboard-v2</button>
+    <button type="button" id="mon" class="secondary">monitoring-v11</button>
+    <button type="button" id="slo" class="warn">slo-snapshot</button>
+    <button type="button" id="bp" class="secondary">beta-program (public)</button>
+    <button type="button" id="lb" class="secondary">league cache (public)</button>
+    <button type="button" id="ex" class="secondary">exchange sanity</button>
+    <button type="button" id="fb" class="secondary">beta feedback (new)</button>
+    <button type="button" id="funnel" class="secondary">onboarding funnel</button>
+    <button type="button" id="coh" class="secondary">cohorts</button>
+    <button type="button" id="excsv" class="secondary">feedback CSV export</button>
+    <button type="button" id="monz" class="secondary">monetization (admin)</button>
+    <button type="button" id="cpol" class="secondary">cohort policies</button>
+    <button type="button" id="mhint" class="secondary">monetization hint (public)</button>
+  </div>
+  <p class="muted" id="sloPill"></p>
+  <pre id="out">{}</pre>
+  <script>
+    var liveTimer = null;
+    function apiBase() {
+      try {
+        var s = localStorage.getItem("tgx_beta_api_base");
+        if (s) return s.replace(/\/$/, "");
+      } catch (_) {}
+      var b = document.getElementById("base").value.trim();
+      if (b) return b.replace(/\/$/, "");
+      return (window.location.origin || "").replace(":5173", ":4000").replace(/\/$/, "") || "http://localhost:4000";
+    }
+    function tok() {
+      return document.getElementById("token").value.trim();
+    }
+    async function getAuth(path) {
+      var r = await fetch(apiBase() + path, { headers: { Authorization: "Bearer " + tok() } });
+      var t = await r.text();
+      try { return { status: r.status, json: JSON.parse(t) }; } catch (_) { return { status: r.status, json: t }; }
+    }
+    async function getPublic(path) {
+      var r = await fetch(apiBase() + path);
+      var t = await r.text();
+      try { return { status: r.status, json: JSON.parse(t) }; } catch (_) { return { status: r.status, json: t }; }
+    }
+    function showSloPill(slo) {
+      var el = document.getElementById("sloPill");
+      if (!slo || !slo.slo) { el.textContent = ""; return; }
+      var ok = slo.slo.all_ok;
+      el.innerHTML = "SLO: <span class=\"pill " + (ok ? "ok" : "bad") + "\">" + (ok ? "all_ok" : "attention") + "</span> lag=" + (slo.signals.escrow_indexer_block_lag != null ? slo.signals.escrow_indexer_block_lag : "—") + " push_failed=" + slo.signals.push_outbound_failed;
+    }
+    function render(x) {
+      document.getElementById("out").textContent = JSON.stringify(x, null, 2);
+      if (x && x.json && x.json.beta_slo) showSloPill(x.json.beta_slo);
+      else if (x && x.json && x.json.slo) showSloPill(x.json);
+      else showSloPill(null);
+    }
+    document.getElementById("base").value = apiBase();
+    document.getElementById("dash").onclick = async function () {
+      render(await getAuth("/api/admin/beta/dashboard-v2"));
+    };
+    document.getElementById("mon").onclick = async function () {
+      render(await getAuth("/api/ops/monitoring-v11"));
+    };
+    document.getElementById("slo").onclick = async function () {
+      render(await getAuth("/api/admin/beta/slo-snapshot"));
+    };
+    document.getElementById("bp").onclick = async function () {
+      render(await getPublic("/api/public/beta-program"));
+    };
+    document.getElementById("lb").onclick = async function () {
+      render(await getPublic("/api/public/league-leaderboard"));
+    };
+    document.getElementById("ex").onclick = async function () {
+      render(await getAuth("/api/ops/exchange-sanity"));
+    };
+    document.getElementById("fb").onclick = async function () {
+      render(await getAuth("/api/admin/beta/feedback?status=new&limit=50"));
+    };
+    document.getElementById("funnel").onclick = async function () {
+      render(await getAuth("/api/admin/beta/onboarding-funnel"));
+    };
+    document.getElementById("coh").onclick = async function () {
+      render(await getAuth("/api/admin/beta/cohorts"));
+    };
+    document.getElementById("excsv").onclick = async function () {
+      var r = await fetch(apiBase() + "/api/admin/beta/feedback/export?format=csv&limit=500", {
+        headers: { Authorization: "Bearer " + tok() },
+      });
+      var blob = await r.blob();
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "beta-feedback-export.csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    document.getElementById("monz").onclick = async function () {
+      render(await getAuth("/api/admin/beta/monetization"));
+    };
+    document.getElementById("cpol").onclick = async function () {
+      render(await getAuth("/api/admin/beta/cohort-policies"));
+    };
+    document.getElementById("mhint").onclick = async function () {
+      render(await getPublic("/api/public/monetization-hint"));
+    };
+    document.getElementById("live").onchange = function () {
+      if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+      if (document.getElementById("live").checked) {
+        liveTimer = setInterval(async function () {
+          var x = await getAuth("/api/ops/monitoring-v11");
+          render(x);
+        }, 15000);
+      }
+    };
+    try {
+      localStorage.setItem("tgx_beta_api_base", apiBase());
+    } catch (_) {}
+  </script>
+</body>
+</html>

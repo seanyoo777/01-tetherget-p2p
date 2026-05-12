@@ -1,0 +1,230 @@
+================================================================================
+관리자 진입 관련 코드 스냅샷 (통째 복사용)
+소스: tetherget-mvp-main/src/App.jsx — 발췌만 포함, 단독 실행 불가
+참고: currentPage·React Router route 없음. console.log("[tg-admin-click]") 없음.
+================================================================================
+
+--- [1435:1444] activePage ---
+
+  const [activePage, setActivePage] = useState(() => {
+    try {
+      const v = localStorage.getItem(TG_MAIN_SCREEN_KEY);
+      const ok = ["trade", "myinfo", "mytrades", "friends", "messenger", "p2p", "admin", "support"];
+      if (v && ok.includes(v)) return v;
+    } catch {
+      /* ignore */
+    }
+    return "trade";
+  });
+
+--- [1635:1716] meAuthUser · sessionProfile · canAccessAdmin · isSuperAdmin · primaryNavItems · pageForMain · navActiveKey ---
+
+  const meAuthUser = useMemo(() => {
+    if (!loggedIn || !linkedGoogle) return null;
+    const em = String(linkedGoogle).trim().toLowerCase();
+    return authUsers.find((user) => String(user.email || "").trim().toLowerCase() === em) || null;
+  }, [loggedIn, authUsers, linkedGoogle]);
+
+  const sessionProfile = useMemo(
+    () => computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAuthUser, authToken),
+    [loggedIn, currentRole, linkedGoogle, meAuthUser, authToken]
+  );
+
+  /** 영업(sales)·본사(hq_ops) 등 sessionRoles.canAccessAdmin 과 동일 — 등급에 맞으면 관리자 탭 표시 */
+  const canAccessAdmin = Boolean(sessionProfile.canAccessAdmin);
+  const isSuperAdmin = sessionProfile.allowDestructiveAdminWrite || sessionProfile.sessionRole === SESSION_ROLE.HQ_OPS;
+  /** 이메일 일치 행만 사용 — 첫 번째 유저 폴백 시 타인 role 로 세션·관리자 판정이 깨짐 */
+  const currentAdminActorId = useMemo(() => {
+    const lg = String(linkedGoogle || "").trim().toLowerCase();
+    if (!lg) return null;
+    const matched = authUsers.find((user) => String(user.email || "").trim().toLowerCase() === lg);
+    return matched?.id ?? null;
+  }, [authUsers, linkedGoogle]);
+  useEffect(() => {
+    if (!loggedIn || currentAdminActorId == null) return;
+    const me = authUsers.find((user) => String(user.id) === String(currentAdminActorId));
+    if (!me) return;
+    const nextRole = String(me.role || "");
+    if (!nextRole || nextRole === currentRole) return;
+    const looksElevated = (r) => {
+      const s = String(r || "");
+      return (
+        s.includes("관리자")
+        || s.includes("영업")
+        || s.includes("본사")
+        || s.includes("슈퍼")
+        || s.includes("운영")
+      );
+    };
+    /** API가 회원만 주고 시드·JWT가 관리자인 경우 덮어쓰지 않음 */
+    if (nextRole === "회원" && looksElevated(currentRole)) return;
+    if (looksElevated(currentRole) && !looksElevated(nextRole)) return;
+    setCurrentRole(nextRole);
+  }, [loggedIn, authUsers, currentAdminActorId, currentRole]);
+
+  /** 관리자 패널 액터 ID — authUsers 매칭 없을 때 시드 행으로 보강 */
+  const adminPanelActorId = useMemo(() => {
+    if (currentAdminActorId != null) return currentAdminActorId;
+    if (meAuthUser?.id != null) return meAuthUser.id;
+    const em = String(linkedGoogle || "").trim().toLowerCase();
+    if (!em) return null;
+    const seed = buildAuthUsersState().find((u) => String(u.email || "").trim().toLowerCase() === em);
+    return seed?.id ?? null;
+  }, [currentAdminActorId, meAuthUser, linkedGoogle]);
+
+  /** 비로그인: 거래 · 판매등록 · 고객센터만 */
+  const primaryNavItems = useMemo(() => {
+    const guest = [
+      { key: "trade", label: lang.menuTrade },
+      { key: "sell", label: lang.sellRegister },
+      { key: "support", label: lang.support },
+    ];
+    if (!loggedIn) return guest;
+    return [
+      { key: "trade", label: lang.menuTrade },
+      { key: "sell", label: lang.sellRegister },
+      { key: "myinfo", label: lang.myInfo },
+      { key: "mytrades", label: lang.myTrades },
+      { key: "friends", label: "친구" },
+      { key: "messenger", label: "메신저" },
+      { key: "admin", label: lang.admin },
+      { key: "support", label: lang.support },
+    ];
+  }, [lang, loggedIn]);
+
+  const pageForMain = useMemo(() => {
+    if (loggedIn) return activePage;
+    return activePage === "support" ? "support" : "trade";
+  }, [loggedIn, activePage]);
+
+  const navActiveKey = useMemo(() => {
+    if (!loggedIn) return pageForMain === "support" ? "support" : "trade";
+    return activePage;
+  }, [loggedIn, activePage, pageForMain]);
+
+--- [2536:2571] openPage 전체 ---
+
+  function openPage(key) {
+    const guestAllowed = key === "trade" || key === "support" || key === "sell";
+    if (!loggedIn && !guestAllowed) {
+      notify("로그인 후 이용할 수 있습니다.");
+      return;
+    }
+    if (key === "sell") {
+      requireLogin(() => setSellOpen(true));
+      return;
+    }
+    if (key === "admin") {
+      if (!loggedIn) {
+        setLoginOpen(true);
+        notify("로그인이 필요합니다.");
+        return;
+      }
+      const accessProfile = computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAuthUser, authToken);
+      if (import.meta.env.DEV) {
+        console.debug("[tg-admin] openPage(admin) → setActivePage(\"admin\")", {
+          canAccessAdmin: accessProfile.canAccessAdmin,
+          activeNavWillBe: "admin",
+        });
+      }
+      flushSync(() => {
+        setMenuOpen(false);
+        setTradePushOpen(false);
+        setGeneralNotifOpen(false);
+        setActivePage("admin");
+      });
+      if (!accessProfile.canAccessAdmin) {
+        notify("관리자 권한이 필요합니다.");
+      }
+      return;
+    }
+    setActivePage(key);
+  }
+
+--- [3307:3336] 헤더 데스크톱 네비(관리자 버튼 포함) ---
+
+          <nav
+            className="relative z-[301] mx-auto hidden min-h-0 min-w-0 max-w-full flex-1 justify-center pointer-events-auto md:flex md:flex-wrap md:gap-x-1 md:gap-y-0.5 md:overflow-x-hidden md:overflow-y-visible"
+          >
+            {primaryNavItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openPage(item.key);
+                }}
+                className={`relative z-[302] shrink-0 cursor-pointer whitespace-nowrap rounded-md font-semibold leading-none ${
+                  item.key === "admin" && loggedIn
+                    ? "px-1.5 py-0.5 text-[10px] sm:text-[12px]"
+                    : loggedIn
+                      ? "px-2 py-0.5 text-[11px] sm:text-[13px]"
+                      : "px-2 py-1.5 text-sm sm:text-[15px]"
+                } ${navActiveKey === item.key ? t.main : `${t.muted} hover:opacity-80`}`}
+              >
+                {item.key === "admin"
+                  ? language === "KR"
+                    ? "관리자"
+                    : language === "EN"
+                      ? "Admin"
+                      : item.label
+                  : item.label}
+              </button>
+            ))}
+          </nav>
+
+--- [3589:3614] 모바일 메뉴(동일 openPage) ---
+
+        {menuOpen && (
+          <div className={`border-t px-4 py-3 md:hidden ${t.header}`}>
+            {primaryNavItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMenuOpen(false);
+                  openPage(item.key);
+                }}
+                className={`block w-full rounded-xl px-4 py-3 text-left text-base font-semibold ${
+                  navActiveKey === item.key ? t.main : ""
+                }`}
+              >
+                {item.key === "admin"
+                  ? language === "KR"
+                    ? "관리자"
+                    : language === "EN"
+                      ? "Admin"
+                      : item.label
+                  : item.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+--- [3681:3698] 관리자 페이지 렌더 조건 ---
+
+        {loggedIn && pageForMain === "admin" && canAccessAdmin ? (
+          <AdminReferralPanel theme={t} notify={notify} isSuperAdmin={isSuperAdmin} apiClient={apiClient} authToken={authToken} authUsers={authUsers} setAuthUsers={setAuthUsers} buyerKyc={buyerKyc} setBuyerKyc={setBuyerKyc} friends={friends} chatRooms={chatRooms} sellerDepositNotice={sellerDepositNotice} setSellerDepositNotice={setSellerDepositNotice} escrowPolicy={escrowPolicy} setEscrowPolicy={setEscrowPolicy} disputeCases={disputeCases} approveDisputeCase={approveDisputeCase} finalizeDisputeByMain={finalizeDisputeByMain} currentAdminActorId={adminPanelActorId} finalApprovalPinInput={finalApprovalPinInput} setFinalApprovalPinInput={setFinalApprovalPinInput} finalApprovalOtpInput={finalApprovalOtpInput} setFinalApprovalOtpInput={setFinalApprovalOtpInput} newPolicyPinInput={newPolicyPinInput} setNewPolicyPinInput={setNewPolicyPinInput} selectedDisputeIdForTimeline={selectedDisputeIdForTimeline} setSelectedDisputeIdForTimeline={setSelectedDisputeIdForTimeline} selectedDisputeEvents={selectedDisputeEvents} setSelectedDisputeEvents={setSelectedDisputeEvents} timelineActionFilter={timelineActionFilter} setTimelineActionFilter={setTimelineActionFilter} timelineFromDate={timelineFromDate} setTimelineFromDate={setTimelineFromDate} timelineToDate={timelineToDate} setTimelineToDate={setTimelineToDate} adminMediaTypeFilter={adminMediaTypeFilter} setAdminMediaTypeFilter={setAdminMediaTypeFilter} adminMediaFriendFilter={adminMediaFriendFilter} setAdminMediaFriendFilter={setAdminMediaFriendFilter} adminActionLogs={adminActionLogs} appendAdminAction={appendAdminAction} setAdminActionLogs={setAdminActionLogs} adminMember={adminMember} setAdminMember={setAdminMember} adminParent={adminParent} setAdminParent={setAdminParent} adminReceivedRate={adminReceivedRate} setAdminReceivedRate={setAdminReceivedRate} adminRate={adminRate} setAdminRate={setAdminRate} adminMemo={adminMemo} setAdminMemo={setAdminMemo} adminUserSearch={adminUserSearch} setAdminUserSearch={setAdminUserSearch} selectedAdminUser={selectedAdminUser} setSelectedAdminUser={setSelectedAdminUser} selectedChildUser={selectedChildUser} setSelectedChildUser={setSelectedChildUser} securityFilter={securityFilter} setSecurityFilter={setSecurityFilter} blockReason={blockReason} setBlockReason={setBlockReason} />
+        ) : null}
+        {loggedIn && pageForMain === "admin" && !canAccessAdmin ? (
+          <div className={`mx-auto max-w-lg px-4 py-16 text-center ${t.cardSoft ?? ""}`}>
+            <div className={`text-lg font-black ${t.page ?? ""}`}>관리자 화면을 열 수 없습니다</div>
+            <p className={`mt-2 text-sm ${t.subtext ?? ""}`}>
+              이 계정은 관리자 메뉴 권한이 없거나, 서버에서 받은 역할 정보와 로컬 시드가 맞지 않을 수 있습니다. 시드 계정(예: sales@tetherget.com / sales1234)으로 다시 로그인해 보세요.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActivePage("trade")}
+              className={`mt-6 rounded-2xl px-6 py-3 text-sm font-black ${t.main ?? ""}`}
+            >
+              거래 화면으로
+            </button>
+          </div>
+        ) : null}
+
+================================================================================
+끝
+================================================================================

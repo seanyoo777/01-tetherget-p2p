@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tetherget — 종합 보고서 복사</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; background: #f8fafc; }
+    .memo-category {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 1.25rem 1.5rem 1.5rem;
+      box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+    }
+    .memo-category + .memo-category { margin-top: 2rem; }
+    .memo-category h1 { font-size: 1.15rem; margin: 0 0 0.35rem; color: #0f172a; }
+    .memo-category .sub { font-size: 0.8rem; color: #64748b; margin: 0 0 1rem; }
+    .copy-btn {
+      font-size: 1rem; font-weight: 800; padding: 0.85rem 1.25rem; cursor: pointer;
+      border-radius: 12px; border: none; color: #fff; width: 100%;
+    }
+    .copy-btn--md { background: #2563eb; }
+    .copy-btn--md:hover { background: #1d4ed8; }
+    .copy-btn--ko { background: #0d9488; }
+    .copy-btn--ko:hover { background: #0f766e; }
+    .copy-btn:active { transform: scale(0.99); }
+    .memo-status { margin-top: 0.65rem; font-size: 0.88rem; color: #334155; min-height: 1.25em; }
+    textarea.memo-ta {
+      width: 100%; margin-top: 1rem; padding: 0.85rem; border-radius: 10px; border: 1px solid #cbd5e1;
+      resize: vertical; box-sizing: border-box; background: #f1f5f9;
+    }
+    textarea.memo-ta--md {
+      min-height: 640px; font-family: ui-monospace, monospace; font-size: 11.5px; line-height: 1.45;
+    }
+    textarea.memo-ta--ko {
+      min-height: 520px; font-family: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      font-size: 13px; line-height: 1.55; white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <section class="memo-category" aria-labelledby="memo-title">
+    <h1 id="memo-title">Tetherget — 종합 보고서 (표·마크다운)</h1>
+    <p class="sub">위 카드는 <strong>표·마크다운 전체</strong>, 아래 카드는 <strong>한글 요약</strong>입니다. file:// 에서 복사가 막히면 각 칸에서 Ctrl+A 후 Ctrl+C 하세요. 동일 본문: tetherget-mvp-main/public/memo-copy.html · 개발_메모_복사.html (갱신 시 셋 동시).</p>
+    <button type="button" id="copyBtn" class="copy-btn copy-btn--md">전체 복사 (표·마크다운)</button>
+    <div id="status" class="memo-status" aria-live="polite"></div>
+    <textarea id="preview" class="memo-ta memo-ta--md" readonly spellcheck="false" aria-label="복사될 전체 텍스트 미리보기"></textarea>
+  </section>
+
+  <section class="memo-category" aria-labelledby="memo-ko-title">
+    <h1 id="memo-ko-title">한글 종합 요약 (창에서 복사)</h1>
+    <p class="sub">위와 같은 내용을 표 없이 문장으로만 정리했습니다. <strong>한글 요약 복사</strong> 버튼을 누르면 아래 글 전체가 클립보드에 들어갑니다.</p>
+    <button type="button" id="copyBtnKo" class="copy-btn copy-btn--ko">한글 요약 복사</button>
+    <div id="statusKo" class="memo-status" aria-live="polite"></div>
+    <textarea id="previewKo" class="memo-ta memo-ta--ko" readonly spellcheck="false" aria-label="한글 요약 미리보기"></textarea>
+  </section>
+
+  <script>
+    const MEMO = `# Tetherget — 종합 보고서 (지시 → 결과)  [버전: 2026-05-11 · P2P 6단계 + exchange(MVP /exchange·모바일탭·referral재수출) + core/referral 반영]
+
+복사본 동기화: MEMO_COPY.html · tetherget-mvp-main/public/memo-copy.html · 개발_메모_복사.html (정책·코드 변경 시 셋 함께 수정)
+코어 정책 번들 ID: STRICT_USER_PROTECTION_POLICY_ID (= tetherget/user-protection/2026-05-v1, packages/core/src/kyc/strictPolicy.ts)
+
+---
+
+## 요약
+
+- **온체인**: Base 비수탁 에스크로, 멀티시그·SuperAdmin, 프론트 wagmi 연동.
+- **모노레포**: tetherget-platform(Turbo+pnpm), @tetherget/core(TypeScript). MVP는 file: 링크로 core 연결(Turbo가 루트 밖 workspace 패키지 불허).
+- **강경 사용자 보호**: 전 거래 신분증(관리자 스위치), Buyer만 송금확인, 300만원+ 푸시+앱 재확인, 송금자=Buyer KYC로 지연/즉시·친구 즉시, IP·지문·블랙리스트·다중계정·사고 자동차단.
+- **P2P UI (4단계)**: **p2pRiskBridge.js** — 매칭·송금확인·고액 모달·정산 안내; **/owner** 스위치(localStorage).
+- **P2P 5단계 (완료)**: **브리지** — buildDefaultP2pRawSignals, preflightSellerNewListing, preflightMatchedTradeContinue, 관리자 KYC UI + /owner.
+- **P2P 6단계 (완료)**: **서버** server/risk/p2pCoreGate.js — 판매·take·payment-start·mark-paid 에 **@tetherget/core** 동일 게이트; **mark-paid** 본문 고액 플래그 서버 재검증; **KYC 스위치** SQLite **platform_settings**(키 **kyc.admin_switches_v1**) + GET/PUT API; 클라 로그인 시 GET 동기화·관리자 PUT; **onchainP2pBridge.js** — buyerAck UX ↔ **confirmReceipt** 패턴; **League 준비** — policy 상수 + **isLeaguePriceSnapshotStale**.
+- **거래소 패키지 (활성·확장)**: **@tetherget/exchange** — Bitget **ticker + books5/15** 공개 WS; **ExchangeDeskShell**이 **mode**(live·paper·league)·**TossHeroMetrics**·**TossOrderBook**·**TossMiniPriceChart**·**TossOrderPanel**·**ExchangeDeskLayout**(데스크 3열); 모바일 **TossMobileMarketTabs**(차트↔호가) + 주문 **sticky**·safe-area; **integration/fromCore.js**에 **wagmi·KYC·지문 + referral**(allocateReferralPool 등) 재수출; 텔레메트리 **buildExchangeTelemetrySnapshot**; MVP 경로 **/exchange** (**ExchangeRoute.jsx**·main.jsx 분기·prebuild turbo exchange); **ExchangeTradeShell** → DeskShell 래퍼.
+- **레퍼럴 (core/referral)**: **P2P** 징수 거래 수수료 **전액**을 레퍼럴 풀로 간주; **League** 참가비의 **10%**를 풀; 관리자가 **1~N단계** 만분율(bps 합=10_000) 자유 설정·단계 상한 없음; **allocateReferralPool** + **buildReferralAuditEntry** 로 분배·감사 로그; 예시 **packages/core/examples/referralPool.example.ts**.
+- **실행 공백 → 7단계**: 주문↔온체인 escrow ID 자동 매핑·인덱서, 푸시 발송 로그 DB, Redis/League 세션 엔진, 서버 게이트 단위 테스트; 레퍼럴 분배 스냅샷·감사 테이블 영속화; 거래소는 UI 데모 경로 **/exchange** 까지 연결됨 — 접근제어·실주문 API·관측 파이프는 선택 과제.
+
+---
+
+### A. 온체인 P2P (Base, 비수탁 에스크로)
+
+| 지시 | 결과 |
+|------|------|
+| USDT 락·수령확인·분쟁·수수료 | contracts/src/EscrowContract.sol (매수1%+매도1% 락 기준 200bps→treasury 등) |
+| resolveDispute 권한 | disputeResolver 또는 superAdmin |
+| 멀티시그 2-of-3 + SuperAdmin | MultiSigWallet.sol, Escrow superAdmin |
+| 프론트 | OnchainEscrowPanel.jsx, wagmiConfig(Base), 이벤트/폴링, 분쟁 UI |
+| buyer 수령 확인 | **confirmReceipt(uint256 id)** — 동일 단계를 오프체인 mark-paid 와 타임라인 정렬해 연동(§P, **onchainP2pBridge.js**) |
+
+---
+
+### B. Monorepo (Turborepo + pnpm + core)
+
+| 지시 | 결과 |
+|------|------|
+| 플랫폼 루트 | tetherget-platform/, packages: core·p2p·league·oneai·**exchange**(DeskShell·Bitget 시세/호가 WS·mode·텔레메트리·tsc 빌드) |
+| core 구조 | types, constants, api, auth, wallet, **kyc**, **security**, **transaction**, **league**(10분 경기 시세·스냅샷 준비), **referral**(풀·N단계 분배·감사) |
+| 레거시 보존 | tetherget-mvp-main 대량 삭제 없음, 점진 연결 |
+
+---
+
+### C. @tetherget/core ↔ P2P
+
+| 지시 | 결과 |
+|------|------|
+| 의존성 | package.json: "@tetherget/core": "file:../tetherget-platform/packages/core" |
+| 번들 | vite.config.js: alias @tetherget/core → packages/core/src |
+| 빌드 순서 | prebuild: pnpm turbo build --filter=@tetherget/core → check:vite-api-base → vite build |
+
+---
+
+### D. 빌드·검증
+
+| 항목 | 결과 |
+|------|------|
+| core | packages/core: npm run build (tsc) |
+| MVP | tetherget-mvp-main: npm run build (prebuild 포함) 통과 기준 |
+
+---
+
+### E. 확정 강경 정책 ↔ 코드 (요약 표)
+
+| 확정 정책 | 구현(모듈·심볼) |
+|----------|----------------|
+| 모든 거래 신분증, 관리자 ON/OFF | KycAdminSwitches.requireVerifiedIdentityForAllTrades; isStrictIdentityRequiredForAllTrades; evaluateTradeIdentityGate; getEffectiveKycRequirements + mergeStrictIdentityForAllTradesIntoRequirements |
+| Buyer만 송금확인 완료 | evaluateBuyerPaymentSentClick(actingUserId===buyerUserId, buyerIdentityDocumentVerified, …) |
+| 300만원+ 푸시 + 앱 재확인 | POLICY_HIGH_VALUE_KRW; evaluateHighValueNotice; **requiresHighValuePushAndUiReconfirm**(UI 분기); 고액 시 pushNotificationAcknowledged===true AND userConfirmedHighValueModal; formatHighValueNoticeKrw |
+| 송금자=Buyer 레벨 → 지연/즉시, 친구 즉시 | getSettlementPolicyForTrade(trade.buyerKycLevel만); POLICY_REMITTER_MIN_KYC_INSTANT / FRIEND_INSTANT; POLICY_DELAYED_TRANSFER_HOURS |
+| Security 통합 | collectDeviceFingerprintSignals, hashDeviceFingerprintPreferred; mergeIpTrackingRecord; isIpBlacklisted + blacklistManager; deviceBlacklist(isDeviceFingerprintDigestBlacklisted 등); scoreMultiAccountRisk + shouldBlockNewTradesFromMultiAccountRisk; evaluateAutoBlock; evaluateTradingAccess; **evaluateTradingAccessFromSignals** |
+| 에스크로 UX·체크리스트 | OffchainEscrowStage, buyerAckToOffchainStage, assertOffchainStageAtLeast; **buildEscrowProtectionChecklist** |
+| 거래 생성 프리플라이트(원시 보안 시그널) | **evaluateTradeCreationPreflightWithSignals**(KYC + TradingAccessRawSignals → evaluateTradingAccessFromSignals) |
+| P2P 진입 | **coreRiskPolicy.js** → @tetherget/core re-export(JSDoc 예시); 화면은 **p2pRiskBridge.js**(§K)가 프리플라이트·송금완료·고액 모달 경유 |
+
+---
+
+### F. core/kyc — 주요 파일·함수
+
+| 파일 | 핵심 |
+|------|------|
+| levels.ts | KycLevel enum, KYC_LEVEL, clampKycLevel |
+| adminSwitches.ts | mergeKycAdminSwitches, isStrictIdentityRequiredForAllTrades, canUseIdentityUpload |
+| tradeIdentityGate.ts | evaluateTradeIdentityGate(buyer/seller identityDocumentVerified) |
+| requirements.ts | getKycRequirementsForLevel, getEffectiveKycRequirements, mergeStrictIdentityForAllTradesIntoRequirements, getTradePartyKycChecklist |
+| strictPolicy.ts | STRICT_USER_PROTECTION_POLICY_ID, describeAllTradesIdentitySwitchState, defaultKycAdminSwitchesForStrictProtection |
+| upload.ts | validateIdentityDocumentUpload, buildKycDocumentMetadata, KYC_UPLOAD_LIMITS |
+| cryptoClient.ts | encryptIdentityDocumentForVaultUpload, importKycServerRsaPublicKeyFromPem |
+
+---
+
+### G. core/security — 주요 파일·함수
+
+| 파일 | 핵심 |
+|------|------|
+| fingerprint.ts | DeviceFingerprint, collectDeviceFingerprintSignals, hashDeviceFingerprintPreferred |
+| ipPolicy.ts | IpBlacklistEntry, IpTrackingRecord, isIpBlacklisted |
+| ipTracking.ts | mergeIpTrackingRecord |
+| blacklistManager.ts | pruneExpiredBlacklistEntries, upsertBlacklistEntry, listPermanentBlacklistEntries |
+| deviceBlacklist.ts | DeviceFingerprintBlacklistEntry, isDeviceFingerprintDigestBlacklisted, upsertDeviceFingerprintBlacklistEntry, pruneExpired… |
+| multiAccount.ts | scoreMultiAccountRisk, shouldBlockNewTradesFromMultiAccountRisk |
+| incidentAutoBlock.ts | evaluateAutoBlock, DEFAULT_AUTO_BLOCK_POLICY |
+| tradingAccess.ts | evaluateTradingAccess |
+| tradingAccessSignals.ts | evaluateTradingAccessFromSignals( IP + 지문 블랙리스트 + 다중계정 + 자동차단 ) |
+
+---
+
+### H. core/transaction — 주요 파일·함수
+
+| 파일 | 핵심 |
+|------|------|
+| types.ts | TradeDraft, EscrowLinkState, BuyerPaymentAcknowledgement |
+| tradeFactory.ts | createTradeDraft |
+| tradeIdentityPreflight.ts | evaluateTradeCreationPreflight; **evaluateTradeCreationPreflightWithSignals** |
+| escrowFlow.ts | evaluateBuyerPaymentSentClick(고액: pushNotificationAcknowledged + userConfirmedHighValueModal), advanceAfterSellerConfirmsBank, isBuyerRemittanceAcknowledged |
+| highValue.ts | evaluateHighValueNotice, **requiresHighValuePushAndUiReconfirm**, formatHighValueNoticeKrw, DEFAULT_HIGH_VALUE_THRESHOLDS |
+| settlementPolicy.ts | getSettlementPolicyForTrade, DEFAULT_SETTLEMENT_CONFIG |
+| escrowStages.ts | OffchainEscrowStage, buyerAckToOffchainStage, assertOffchainStageAtLeast |
+| escrowFullFlow.ts | buildEscrowProtectionChecklist(UI용 한국어 단계) |
+
+---
+
+### I. constants/policy.ts (수치 단일 소스)
+
+- POLICY_HIGH_VALUE_KRW = 3_000_000
+- POLICY_REMITTER_MIN_KYC_INSTANT, POLICY_REMITTER_MIN_KYC_FRIEND_INSTANT
+- POLICY_DELAYED_TRANSFER_HOURS (= 24)
+- **LEAGUE_MATCH_WINDOW_SECONDS** (= 600), **LEAGUE_PRICE_SNAPSHOT_MAX_AGE_SECONDS** (= 120) — League 10분 경기용
+
+---
+
+### J. 한계 (6단계 이후 남은 것)
+
+- **온체인 정렬**: 주문 ID ↔ **EscrowContract** escrowId 자동 기록(metadata)·체인 인덱서·실패 시 재시도 큐
+- **푸시 운영**: 발송·수신 **영속 로그**와 API **pushNotificationAcknowledged** 상호 대조(현재는 게이트만 동일 규칙)
+- **리스크 시그널**: 서버가 클라와 동일 digest/IP를 쓰려면 **x-tgx-risk-signals** 등 헤더·엣지 실IP 주입 고도화
+- **League 런타임**: 코어 상수·스냅샷 스테일 검사 외 **매치 세션·체결 엔진**은 미구현
+
+---
+
+### K. ~~4단계~~ P2P 화면 연동 (완료 요약)
+
+| 항목 | 구현 |
+|------|------|
+| 브리지 모듈 | **src/lib/p2pRiskBridge.js** — load/save KYC 스위치, **buildDefaultP2pRawSignals**, preflightTakeListing, **preflightMatchedTradeContinue**, **preflightSellerNewListing**, checkBuyerMarkPaid, settlementHintForRow, matchedOrderToTradeDraft; **saveKycAdminSwitchesPartial** 후 DOM **CustomEvent("tgx-kyc-switches-changed")** |
+| 거래 탭 TradeList | 매칭(take) 전 preflightTakeListing; **판매 등록** 전 preflightSellerNewListing; **송금 신청(payment-start)** 전 preflightMatchedTradeContinue; 송금완료 고액 모달 후 API; 정산·고액 안내 |
+| 내 거래 MyTradesOnly | 동일(송금 신청·송금완료); **myUserId** props |
+| coreRiskPolicy.js | clampKycLevel export + 코어 re-export |
+| 메인 관리자 → KYC | **App.jsx** — 스위치 **localStorage + SQLite(platform_settings)**; **PUT /api/admin/platform/kyc-admin-switches**; 로그인 시 **GET** 으로 브리지 동기 |
+| 오너 콘솔 /owner | **OwnerSuperApp.jsx** — 스위치 토글 + **automatedReviewEnabled**(KYC 자동 심사) |
+
+DEV: 스위치 미저장 시 loadKycAdminSwitches가 신분증 필수를 완화할 수 있음(브리지 주석). 프로덕션은 저장 없으면 강경 기본.
+
+---
+
+### O. P2P 5단계 — 목표 대비 매핑 (요약)
+
+| 5단계 목표 | 구현 위치 |
+|-----------|-----------|
+| 관리자 KYC ON/OFF UI | 메인 **관리자·KYC** 탭 + **/owner** (동일 키) |
+| Buyer 송금확인 + 고액 모달·푸시 | **checkBuyerMarkPaid** + TradeList/MyTradesOnly 모달 → **evaluateBuyerPaymentSentClick** |
+| 레벨(지연/즉시) | **settlementHintForRow** ← **getSettlementPolicyForTrade**(주문 행 buyer_kyc_level 등) |
+| Security 강제 | 매칭·판매등록·송금신청 각각 **evaluateTradeCreationPreflightWithSignals** 또는 **evaluateTradingAccessFromSignals**(판매 등록 시 매도자만 신분증 검사) |
+| 정책 중앙 관리 | **p2pRiskBridge.js** 단일 진입(프리플라이트·스위치·송금확인) |
+
+---
+
+### P. P2P 6단계 — 서버·DB·온체인·League 코어 (요약)
+
+| 목표 | 구현 |
+|------|------|
+| 서버 API 게이트 | **server/risk/p2pCoreGate.js** — loadKycAdminSwitches(DB), gateSellerCreatesListing, gateTakeListing, gateMatchedTradeContinue, gateBuyerMarkPaid; 코어 **evaluateTradeCreationPreflightWithSignals** / **evaluateBuyerPaymentSentClick** |
+| 고액 mark-paid | POST 본문 **pushNotificationAcknowledged**, **userConfirmedHighValueModal** — 서버가 고액 구간에서 재검증; UI 모달에 서버 재검증 안내 |
+| KYC 스위치 중앙 저장 | **platform_settings** 키 **kyc.admin_switches_v1**; **GET /api/platform/kyc-admin-switches** · **PUT /api/admin/platform/kyc-admin-switches** |
+| 신분증 플래그(서버) | **kyc_profiles** + 회사 승인 문자열(승인 포함) 등으로 **isUserIdentityVerified** |
+| 온체인 연동 패턴 | **src/lib/onchainP2pBridge.js** — **buildConfirmReceiptCall**, EscrowContract **confirmReceipt** 설명 |
+| League 10분 경기 준비 | **packages/core** — **LEAGUE_MATCH_WINDOW_SECONDS**, **LEAGUE_PRICE_SNAPSHOT_MAX_AGE_SECONDS**; **isLeaguePriceSnapshotStale**, **describeLeagueTenMinuteMatchPolicy** |
+
+---
+
+### L. P2P import 예시 (coreRiskPolicy.js)
+
+import {
+  mergeKycAdminSwitches,
+  evaluateTradeCreationPreflightWithSignals,
+  collectDeviceFingerprintSignals,
+  hashDeviceFingerprintPreferred,
+  scoreMultiAccountRisk,
+  createTradeDraft,
+  evaluateBuyerPaymentSentClick,
+  requiresHighValuePushAndUiReconfirm,
+  getSettlementPolicyForTrade,
+  buildEscrowProtectionChecklist,
+} from "./lib/coreRiskPolicy";
+
+// preflight: rawSignals에 IP·블랙리스트·지문 digest·multiAccountScore·userUnderAutoBlock 채움
+// 송금확인: requiresHighValuePushAndUiReconfirm(trade.amountFiat, trade.currency) 가 true면 push + 모달 플래그 필수
+
+---
+
+### M. 참고 예시 코드 (빌드 제외)
+
+packages/core/examples/p2pStrictProtection.example.ts — preflight·송금확인·정산·체크리스트 패턴 샘플  
+packages/core/examples/referralPool.example.ts — 레퍼럴 풀·분배·감사 로그 패턴 샘플
+
+---
+
+### Q. @tetherget/exchange (Toss 데스크 · Bitget · 모의 · League)
+
+| 항목 | 결과 |
+|------|------|
+| 패키지 경로 | tetherget-platform/packages/exchange |
+| 빌드 | pnpm turbo build --filter=@tetherget/exchange (core 의존) |
+| 실시간 시세 | **BitgetSpotTickerConnection** / **useBitgetSpotTicker** — SPOT **ticker**, **attachBitgetPublicPing** |
+| 실시간 호가 | **BitgetSpotOrderBookConnection** / **useBitgetOrderBook** — **books5** 또는 **books15** |
+| 메인 화면 | **ExchangeDeskShell** — **mode** prop; 상단 **TossHeroMetrics**; 좌 **TossOrderBook** · 중 **TossMiniPriceChart** · 우 **TossOrderPanel**; **useMinWidth(960)** 로 레이아웃 분기 |
+| 모바일 | **TossMobileMarketTabs** — 차트·호가 전환; 하단 주문 **sticky** + **safe-area-inset** |
+| 모의 체결 | **usePaperSpotPortfolio**, **applyMarketBuy** / **applyMarketSell** (live도 UI만 구분·체결은 연결 전까지 동일 시뮬 가능) |
+| core 연동 | **evaluateSpotTradingAccess**; **fromCore.js** — **wagmi·KYC·지문** + **referral**(**validateReferralDistributionBps**, **allocateReferralPool**, **buildReferralAuditEntry**, **p2pReferralPoolFromTradeFeeMinor** 등) 재수출 |
+| League | **mode=league** 시 Bitget 미구독; **leagueTicker**·**leagueOrderBook**·**leagueSessionId** props |
+| 관리자 모니터링 | **monitoring/exchangeTelemetry.ts** — **buildExchangeTelemetrySnapshot**; DeskShell **onTelemetrySnapshot** 콜백으로 스트림 |
+| 레거시 단일열 | **ExchangeTradeShell** → 내부적으로 **ExchangeDeskShell mode=paper** |
+| MVP 라우트 | **tetherget-mvp-main**: **package.json** **file:@tetherget/exchange**, **vite** 별칭, **prebuild** **turbo build --filter=@tetherget/exchange**, **main.jsx** 에서 경로 **/exchange** → **ExchangeRoute** (**ExchangeDeskShell** paper 데모) |
+
+---
+
+### S. 최근 보고 대상 작업 (프롬프트 2건 요약)
+
+| # | 주제 | 결과 |
+|---|------|------|
+| **1** | **Toss 스타일 거래소 본격화** | Hero·호가·차트·대형 매수매도·Bitget WS·**mode**·모바일 탭·sticky 주문; MVP 로컬 주소 http://localhost:5173/exchange 에서 **ExchangeDeskShell** 확인 가능. |
+| **2** | **exchange ↔ core 통합 확대** | **fromCore.js** 에 **referral** 심볼 추가 재수출 — 거래소 앱에서 지갑·KYC·보안·**레퍼럴 풀/분배/감사** 를 한 import 경로로 묶어 사용. |
+
+---
+
+### R. core/referral — 레퍼럴 풀·분배·감사
+
+| 항목 | 결과 |
+|------|------|
+| 위치 | packages/core/src/referral/, **@tetherget/core** 에서 re-export |
+| 풀 정의 | **P2P**: **p2pReferralPoolFromTradeFeeMinor** — 징수된 거래 수수료 금액 **전체**가 풀(정책상 수수료의 100%가 레퍼럴 풀). **League**: **leagueReferralPoolFromEntryFeeMinor** — 참가비의 **10%**가 풀. |
+| 분배 | **ReferralDistribution**: **Map tier→bps**, 합계 **REFERRAL_BPS_SCALE**(10_000)=100%; **validateReferralDistributionBps**; 단계 수 **무제한**(성능 O(T log T)). |
+| 지급 | **allocateReferralPool** — 추천 체인 배열(1단계=직접 추천인)·풀 minor(bigint); 체인 부족·미연결 단계 몫은 **toTreasuryMinor**; 나눗셈 **roundingDustMinor** 별도 기록. |
+| 감사 | **buildReferralAuditEntry** — 분배 스냅샷·수령자별 금액·treasury·dust (**ReferralAuditEntry** JSON 직렬화). |
+| 문구 | **describeReferralPoolPolicyKo** — 대시보드용 한글 요약. |
+
+---
+
+### N. 다음(7단계) 제안
+
+1. **온체인 매핑**: **p2p_orders.metadata_json** 에 **onchain_escrow_id** 자동 기록; mark-paid 완료 후 Buyer **confirmReceipt** UX 노출 조건 명시.
+2. **푸시 운영 로그**: 발송·수신 테이블과 **pushNotificationAcknowledged** 감사 일치.
+3. **League**: 시세 스냅샷 저장·**isLeaguePriceSnapshotStale** 로 체결 거부·10분 세션 상태기.
+4. **테스트**: server/risk/p2pCoreGate·API 라우트 통합 테스트; 고액 mark-paid 페이로드 분기.
+5. **workspace**: Git 루트 상향 시 MVP를 workspace:* 로 단일화(선택).
+6. **거래소 노출**: (이전 제안 항목 중) **연결됨** — 경로 **/exchange** 데모; 남은 과제는 로그인 가드·실주문 API.
+7. **거래소 관측**(선택): 텔레메트리 스냅샷을 관리자 API에 적재·대시보드(WS 상태·호가 깊이·모의 잔고).
+8. **레퍼럴 영속화**(선택): 관리자 분배율 버전 테이블·**ReferralAuditEntry** append-only·실제 지급 트랜잭션 ID 연계.
+`;
+
+    const MEMO_KO = `Tetherget 종합 보고서 (한글 요약) — 2026-05-11 · P2P 6단계 + exchange(/exchange·모바일탭·referral재수출) + core/referral 반영
+
+【1. 목적】
+온체인 P2P와 오프체인 매칭을 묶은 MVP에서, 운영·감사·개발이 동일한 기준을 쓰도록 강경 사용자 보호 정책을 TypeScript 코어(@tetherget/core)에 모았고, 레거시 P2P 앱(tetherget-mvp-main)은 삭제 없이 file 링크와 Vite 별칭으로 그 코어를 불러 쓰게 했습니다.
+
+【2. 레포 구조】
+tetherget-platform이 Turborepo와 pnpm의 루트이고, 그 안에 packages/core와 packages/exchange 등이 있습니다. **exchange**는 Toss식 **데스크 화면**(호가·미니 차트·히어로 메트릭·큰 매수매도 버튼), Bitget **시세+호가** 웹소켓, **live·paper·league** 모드, 모바일에서 **차트와 호가 탭 전환**과 **하단 고정 주문**, 관리자용 **텔레메트리 스냅샷**, 코어 **지갑·KYC·지문·레퍼럴** 재수출을 포함합니다. MVP 앱에는 경로 **/exchange** 로 데모 화면이 붙어 있습니다. Turbo는 저장소 루트 밖의 패키지를 워크스페이스 의존성으로 묶지 못하므로, 한 단계 위에 있는 tetherget-mvp-main은 workspace가 아니라 package.json의 file: 경로로 코어·exchange를 참조합니다. 빌드 시 prebuild에서 exchange 패키지까지 turbo로 빌드한 뒤 Vite 프로덕션 빌드를 돌립니다.
+
+【3. 온체인】
+에스크로 계약으로 USDT를 락하고, 구매자 측 수령 확인으로 흐름이 이어지며 분쟁·수수료 규칙이 코드에 있습니다. 멀티시그와 SuperAdmin이 분쟁 해결 등 최종 운영 권한을 가집니다. 프론트는 Base 등 체인 설정과 지갑·패널·이벤트 구독으로 연동합니다.
+
+【4. 확정 보호 정책이 코드에 드러나는 방식】
+첫째, 모든 거래에서 신분증 검증을 강제할지는 관리자 스위치 묶음으로 제어하고, 켜져 있으면 매수·매도 양쪽 모두 서버가 내려준 검증 완료 플래그가 있어야 거래가 진행됩니다. 둘째, 법정화폐를 보낸 구매자만「송금확인 완료」를 누를 수 있으며 본인·신분증 조건을 동시에 만족해야 합니다. 셋째, 원화 기준 삼백만 원 이상이면 푸시 알림과 앱 안의 재확인을 각각 통과했는지 코드가 따로 검사하며, 화면에서는 requiresHighValuePushAndUiReconfirm으로 고액 구간을 갈라 쓰면 됩니다. 넷째, 지연이체와 즉시 송금 경로는 송금자를 구매자로 두고 구매자의 KYC 숫자 레벨만 보고 결정하며, 친구 매칭일 때는 즉시 송금에 필요한 최소 레벨을 낮춘 별도 기준이 적용됩니다. 다섯째, 보안은 IP·지문·블랙리스트·다중계정·자동차단을 묶었고, 거래 만들기 전에는 evaluateTradeCreationPreflightWithSignals로 신분증 게이트와 원시 보안 입력값을 한 번에 검사할 수 있습니다.
+
+【5. 코어 모듈 이름만 짚으면】
+신분증과 레벨·스위치는 kyc, 보안 시그널은 security, 거래·고액·정산은 transaction, 정책 상수는 constants/policy입니다. 6단계에서 League 10분 경기 준비용 상수와 **league** 폴더(시세 스냅샷 스테일 검사)가 추가되었습니다. **거래소**는 **@tetherget/exchange**의 **ExchangeDeskShell**로 묶이며, League에서는 시세·호가만 주입하면 같은 레이아웃을 재사용합니다. **레퍼럴**은 **referral** 폴더에서 P2P 수수료 전액·League 참가비 10%를 풀로 두고, 관리자가 정한 다단계 분배율로 나눈 뒤 **감사 엔트리**로 남깁니다.
+
+【6. P2P에서의 쓰임】
+클라이언트는 **p2pRiskBridge.js** 로 프리플라이트·송금확인·스위치를 묶고, **6단계**에서는 Node API(**server/risk/p2pCoreGate.js**)가 동일한 코어 함수로 판매 등록·매칭·송금 신청·송금 완료 표시를 다시 검증합니다. KYC 스위치는 SQLite **platform_settings** 에 두고 GET·PUT API로 읽고 쓰며, 로그인한 메인 앱이 GET으로 localStorage를 맞춥니다. 고액 송금 완료는 모달에서 체크한 뒤 API 본문에 플래그를 실어 보내고 서버가 한 번 더 검증합니다. 온체인에서는 **onchainP2pBridge.js** 가 오프체인 단계와 **confirmReceipt** 호출 패턴을 연결하는 예시를 담습니다.
+
+【7. 아직 비운】
+주문과 에스크로 ID의 **완전 자동 매핑**, 체인 인덱서, 푸시 **발송·수신 영속 로그**, 엣지 실IP·디바이스 digest 의 서버측 완전 동기, League **매치 세션 엔진** 본체는 남았습니다.
+
+【8. 다음(7단계)】
+메타데이터에 onchain_escrow_id 를 심고 confirmReceipt UX 조건을 명확히 하며, 푸시 로그·League 런타임·서버 게이트 테스트를 보강하는 순서를 권장합니다. MVP에 exchange 데모 라우트를 열거나, 거래소 텔레메트리·레퍼럴 감사 로그를 관리자 저장소와 연결할 수 있습니다.
+
+【최근 2건 요약】
+첫째, Toss식 거래소 UI와 Bitget 연동·모바일 탭·sticky 주문을 정리했고 경로 **/exchange** 로 볼 수 있습니다. 둘째, exchange 패키지가 코어의 **레퍼럴 풀·분배·감사** 함수까지 한 번에 가져가도록 **fromCore** 재수출을 넓혔습니다.
+
+【부록】
+이 HTML의 위쪽 버튼은 표와 마크다운이 포함된 전체 보고서이고, 아래쪽 버튼은 이 한글 요약만 복사합니다. 파일은 MEMO_COPY.html, tetherget-mvp-main/public/memo-copy.html, 개발_메모_복사.html 세 곳을 같이 맞추세요. 한글 파일명으로 열기 어려우면 ASCII 파일명이나 npm run dev 후 http://localhost:5173/memo-copy.html 을 사용하세요.
+`;
+
+    function wireCopy(text, button, statusEl, textareaEl) {
+      textareaEl.value = text;
+      button.addEventListener("click", async () => {
+        statusEl.textContent = "";
+        try {
+          await navigator.clipboard.writeText(text);
+          statusEl.textContent = "복사됨.";
+        } catch {
+          textareaEl.select();
+          textareaEl.setSelectionRange(0, text.length);
+          try {
+            document.execCommand("copy");
+            statusEl.textContent = "복사됨 (대체 방식).";
+          } catch {
+            statusEl.textContent = "클립보드 차단됨 - 아래 칸에서 Ctrl+A, Ctrl+C 하세요.";
+          }
+        }
+      });
+    }
+
+    wireCopy(
+      MEMO,
+      document.getElementById("copyBtn"),
+      document.getElementById("status"),
+      document.getElementById("preview")
+    );
+    wireCopy(
+      MEMO_KO,
+      document.getElementById("copyBtnKo"),
+      document.getElementById("statusKo"),
+      document.getElementById("previewKo")
+    );
+  </script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>7단계 완료 보고 · 복사용</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 2rem auto; padding: 0 1rem; background: #f1f5f9; color: #0f172a; }
+    h1 { font-size: 1.15rem; margin: 0 0 0.5rem; }
+    p.sub { font-size: 0.85rem; color: #64748b; margin: 0 0 1.25rem; line-height: 1.5; }
+    section {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 1rem 1.15rem 1.15rem;
+      margin-bottom: 1rem;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+    }
+    section h2 { font-size: 0.9rem; margin: 0 0 0.65rem; color: #334155; }
+    button.copy-btn {
+      width: 100%;
+      font-size: 0.95rem;
+      font-weight: 700;
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      background: #2563eb;
+    }
+    button.copy-btn:hover { background: #1d4ed8; }
+    button.copy-btn:active { transform: scale(0.99); }
+    button.copy-btn--teal { background: #0d9488; }
+    button.copy-btn--teal:hover { background: #0f766e; }
+    button.copy-btn--slate { background: #475569; }
+    button.copy-btn--slate:hover { background: #334155; }
+    .status { margin-top: 0.5rem; font-size: 0.82rem; color: #475569; min-height: 1.2em; }
+    footer { font-size: 0.75rem; color: #94a3b8; margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <h1>7단계 완료 보고 · 분석용 복사</h1>
+  <p class="sub">본문 저장소는 넣지 않았습니다. 필요한 블록만 버튼으로 클립보드에 넣어 다른 도구에서 분석하세요. 상세는 tetherget-mvp-main/보고서.md · 루트 P2P_STATUS_REPORT.md 를 참고하면 됩니다.</p>
+
+  <section aria-labelledby="s1">
+    <h2 id="s1">한 줄 요약</h2>
+    <button type="button" class="copy-btn" data-key="oneLine">복사</button>
+    <div class="status" id="st1" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="s2">
+    <h2 id="s2">완료 항목 (체크리스트 형태)</h2>
+    <button type="button" class="copy-btn copy-btn--teal" data-key="done">복사</button>
+    <div class="status" id="st2" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="s3">
+    <h2 id="s3">주요 변경 경로 (파일)</h2>
+    <button type="button" class="copy-btn copy-btn--slate" data-key="paths">복사</button>
+    <div class="status" id="st3" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="s4">
+    <h2 id="s4">남은 과제 (분석 시 비교용)</h2>
+    <button type="button" class="copy-btn" data-key="gaps">복사</button>
+    <div class="status" id="st4" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="s5">
+    <h2 id="s5">전체 블록 한 번에</h2>
+    <button type="button" class="copy-btn copy-btn--teal" data-key="all">복사</button>
+    <div class="status" id="st5" aria-live="polite"></div>
+  </section>
+
+  <footer>로컬: npm run dev 후 http://localhost:5173/phase7-report-copy.html · 원본 동기: 필요 시 public 폴더만 배포</footer>
+
+  <script>
+    var BLOCKS = {
+      oneLine:
+        "[7단계 완료 한 줄] API PATCH onchain-escrow + 주문 메타 onchain_escrow_id | UI P2pOnchainEscrowBlock confirmReceipt | 고액 mark-paid 로그 p2p_high_value_ack_logs | IP risk_ip_denylist 게이트 합산 | KYC 스위치 45초 폴링",
+      done:
+        "[7단계 완료 항목]\n" +
+        "- PATCH /api/p2p/orders/:id/onchain-escrow (matched|payment_sent, 당사자)\n" +
+        "- metadata_json: onchain_escrow_id, linked_at, 선택 tx_hash\n" +
+        "- P2pOnchainEscrowBlock: 체인 escrows 읽기, Funded+buyer 지갑 일치 시 confirmReceipt\n" +
+        "- p2p_high_value_ack_logs: 고액 시 mark-paid 플래그·추정 KRW 기록\n" +
+        "- risk_ip_denylist: buildRawSignals IP 블랙리스트 합산\n" +
+        "- App: KYC admin switches 45s poll + tgx-kyc-switches-changed",
+      paths:
+        "[주요 경로]\n" +
+        "tetherget-mvp-main/server/index.js\n" +
+        "tetherget-mvp-main/server/risk/p2pCoreGate.js\n" +
+        "tetherget-mvp-main/src/App.jsx\n" +
+        "tetherget-mvp-main/src/p2p/P2pOnchainEscrowBlock.jsx\n" +
+        "tetherget-mvp-main/보고서.md\n" +
+        "P2P_STATUS_REPORT.md (repo root)",
+      gaps:
+        "[7단계 잔여]\n" +
+        "- createEscrow TX 자동 감지 → onchain_escrow_id 자동 기록(인덱서)\n" +
+        "- 실제 푸시 FCM·발송·수신 로그 테이블\n" +
+        "- 레퍼럴 수수료 정산·감사 DB 연동\n" +
+        "- League 런타임·스냅샷 저장소\n" +
+        "- KYC 스위치 SSE(폴링 보완)"
+    };
+    BLOCKS.all =
+      BLOCKS.oneLine + "\n\n" + BLOCKS.done + "\n\n" + BLOCKS.paths + "\n\n" + BLOCKS.gaps;
+
+    function wire() {
+      document.querySelectorAll("button.copy-btn[data-key]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var key = btn.getAttribute("data-key");
+          var text = BLOCKS[key];
+          var stId = btn.parentElement.querySelector(".status");
+          stId.textContent = "";
+          if (!text) return;
+          navigator.clipboard.writeText(text).then(
+            function () {
+              stId.textContent = "복사됨.";
+            },
+            function () {
+              stId.textContent = "복사 실패 — 브라우저 권한 또는 수동 선택.";
+            }
+          );
+        });
+      });
+    }
+    wire();
+  </script>
+</body>
+</html>
