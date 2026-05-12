@@ -9,6 +9,8 @@ import {
   mergeApiUsersWithLocal,
   REGISTRY_CHANGED_EVENT,
 } from "./testAccountRegistry";
+import { canAccessAdminSafe } from "./admin/canAccessAdminSafe.js";
+import { AdminShell } from "./admin/AdminShell.jsx";
 import {
   updateUserLevel,
   buildReferralTree,
@@ -1474,7 +1476,7 @@ export default function App() {
   const [activePage, setActivePage] = useState(() => {
     try {
       const v = localStorage.getItem(TG_MAIN_SCREEN_KEY);
-      const ok = ["trade", "myinfo", "mytrades", "friends", "messenger", "p2p", "admin", "support"];
+      const ok = ["trade", "myinfo", "mytrades", "friends", "messenger", "p2p", "admin", "admin-denied", "support"];
       if (v && ok.includes(v)) return v;
     } catch {
       /* ignore */
@@ -1685,6 +1687,44 @@ export default function App() {
   /** 영업(sales)·본사(hq_ops) 등 sessionRoles.canAccessAdmin 과 동일 — 등급에 맞으면 관리자 탭 표시 */
   const canAccessAdmin = Boolean(sessionProfile.canAccessAdmin);
   const isSuperAdmin = sessionProfile.allowDestructiveAdminWrite || sessionProfile.sessionRole === SESSION_ROLE.HQ_OPS;
+  const adminGateUser = useMemo(() => {
+    let jwtRole = "";
+    let jwtSessionRole = "";
+    try {
+      if (authToken && linkedGoogle) {
+        const p = decodeJwtPayload(authToken);
+        const pe = String(p?.email || "").trim().toLowerCase();
+        const em = String(linkedGoogle || "").trim().toLowerCase();
+        if (pe && em && pe === em) {
+          jwtRole = String(p.role || "");
+          jwtSessionRole = String(p.session_role || "");
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return {
+      email: String(linkedGoogle || "").trim().toLowerCase(),
+      role: String(meAuthUser?.role || currentRole || jwtRole || "").trim(),
+      session_role: meAuthUser?.session_role != null && meAuthUser.session_role !== "" ? meAuthUser.session_role : jwtSessionRole || null,
+      isSuperAdmin,
+    };
+  }, [linkedGoogle, currentRole, meAuthUser, isSuperAdmin, authToken]);
+  const adminGateAllowed = useMemo(() => canAccessAdminSafe(adminGateUser), [adminGateUser]);
+  const [adminShellMenu, setAdminShellMenu] = useState("dashboard");
+  const adminShellLegacyTab = useMemo(() => {
+    const map = {
+      dashboard: "dashboard",
+      member: "member",
+      referral: "memberOps",
+      stage: "member",
+      trade: "audit",
+      settlement: "dispute",
+      settings: "ops",
+    };
+    return map[adminShellMenu] || "dashboard";
+  }, [adminShellMenu]);
+  const showAdminNav = Boolean(adminGateAllowed || sessionProfile.canAccessAdmin);
   /** 이메일 일치 행만 사용 — 첫 번째 유저 폴백 시 타인 role 로 세션·관리자 판정이 깨짐 */
   const currentAdminActorId = useMemo(() => {
     const lg = String(linkedGoogle || "").trim().toLowerCase();
@@ -1732,17 +1772,18 @@ export default function App() {
       { key: "support", label: lang.support },
     ];
     if (!loggedIn) return guest;
-    return [
+    const items = [
       { key: "trade", label: lang.menuTrade },
       { key: "sell", label: lang.sellRegister },
       { key: "myinfo", label: lang.myInfo },
       { key: "mytrades", label: lang.myTrades },
       { key: "friends", label: "친구" },
       { key: "messenger", label: "메신저" },
-      { key: "admin", label: lang.admin },
-      { key: "support", label: lang.support },
     ];
-  }, [lang, loggedIn]);
+    if (showAdminNav) items.push({ key: "admin", label: lang.admin });
+    items.push({ key: "support", label: lang.support });
+    return items;
+  }, [lang, loggedIn, showAdminNav]);
 
   const pageForMain = useMemo(() => {
     if (loggedIn) return activePage;
@@ -1751,6 +1792,7 @@ export default function App() {
 
   const navActiveKey = useMemo(() => {
     if (!loggedIn) return pageForMain === "support" ? "support" : "trade";
+    if (activePage === "admin-denied") return "admin";
     return activePage;
   }, [loggedIn, activePage, pageForMain]);
 
@@ -1906,7 +1948,7 @@ export default function App() {
   }, [authToken, apiClient]);
 
   useEffect(() => {
-    if (!authToken || !canAccessAdmin) return;
+    if (!authToken || !(canAccessAdmin || adminGateAllowed)) return;
     apiClient.request("/api/admin/escrow-policy", { auth: true })
       .then((data) => {
         if (data?.policy) setEscrowPolicy(data.policy);
@@ -1915,7 +1957,7 @@ export default function App() {
     apiClient.request("/api/admin/disputes", { auth: true })
       .then((data) => setDisputeCases(Array.isArray(data.disputes) ? data.disputes : []))
       .catch(() => {});
-  }, [authToken, canAccessAdmin, apiClient]);
+  }, [authToken, canAccessAdmin, adminGateAllowed, apiClient]);
 
   useEffect(() => {
     if (!authToken) return;
@@ -2588,22 +2630,23 @@ export default function App() {
         notify("로그인이 필요합니다.");
         return;
       }
-      const accessProfile = computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAuthUser, authToken);
+      const allowed = canAccessAdminSafe(adminGateUser);
       if (import.meta.env.DEV) {
-        console.debug("[tg-admin] openPage(admin) → setActivePage(\"admin\")", {
-          canAccessAdmin: accessProfile.canAccessAdmin,
-          activeNavWillBe: "admin",
+        console.log("[tg-admin-open]", {
+          allowed,
+          email: adminGateUser?.email,
+          role: adminGateUser?.role,
+          session_role: adminGateUser?.session_role,
+          isSuperAdmin: adminGateUser?.isSuperAdmin,
+          nextPage: allowed ? "admin" : "admin-denied",
         });
       }
       flushSync(() => {
         setMenuOpen(false);
         setTradePushOpen(false);
         setGeneralNotifOpen(false);
-        setActivePage("admin");
+        setActivePage(allowed ? "admin" : "admin-denied");
       });
-      if (!accessProfile.canAccessAdmin) {
-        notify("관리자 권한이 필요합니다.");
-      }
       return;
     }
     setActivePage(key);
@@ -2634,9 +2677,8 @@ export default function App() {
       return;
     }
     if (dest === "admin") {
-      const p = computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAuthUser, authToken);
-      setActivePage("admin");
-      if (!p.canAccessAdmin) notify("관리자 권한이 필요합니다.");
+      const allowed = canAccessAdminSafe(adminGateUser);
+      setActivePage(allowed ? "admin" : "admin-denied");
       return;
     }
     setActivePage("trade");
@@ -3717,15 +3759,101 @@ export default function App() {
           />
         ) : null}
         {loggedIn && pageForMain === "p2p" ? <P2PInfo theme={t} /> : null}
-        {loggedIn && pageForMain === "admin" && canAccessAdmin ? (
-          <AdminReferralPanel theme={t} notify={notify} isSuperAdmin={isSuperAdmin} apiClient={apiClient} authToken={authToken} authUsers={authUsers} setAuthUsers={setAuthUsers} buyerKyc={buyerKyc} setBuyerKyc={setBuyerKyc} friends={friends} chatRooms={chatRooms} sellerDepositNotice={sellerDepositNotice} setSellerDepositNotice={setSellerDepositNotice} escrowPolicy={escrowPolicy} setEscrowPolicy={setEscrowPolicy} disputeCases={disputeCases} approveDisputeCase={approveDisputeCase} finalizeDisputeByMain={finalizeDisputeByMain} currentAdminActorId={adminPanelActorId} finalApprovalPinInput={finalApprovalPinInput} setFinalApprovalPinInput={setFinalApprovalPinInput} finalApprovalOtpInput={finalApprovalOtpInput} setFinalApprovalOtpInput={setFinalApprovalOtpInput} newPolicyPinInput={newPolicyPinInput} setNewPolicyPinInput={setNewPolicyPinInput} selectedDisputeIdForTimeline={selectedDisputeIdForTimeline} setSelectedDisputeIdForTimeline={setSelectedDisputeIdForTimeline} selectedDisputeEvents={selectedDisputeEvents} setSelectedDisputeEvents={setSelectedDisputeEvents} timelineActionFilter={timelineActionFilter} setTimelineActionFilter={setTimelineActionFilter} timelineFromDate={timelineFromDate} setTimelineFromDate={setTimelineFromDate} timelineToDate={timelineToDate} setTimelineToDate={setTimelineToDate} adminMediaTypeFilter={adminMediaTypeFilter} setAdminMediaTypeFilter={setAdminMediaTypeFilter} adminMediaFriendFilter={adminMediaFriendFilter} setAdminMediaFriendFilter={setAdminMediaFriendFilter} adminActionLogs={adminActionLogs} appendAdminAction={appendAdminAction} setAdminActionLogs={setAdminActionLogs} adminMember={adminMember} setAdminMember={setAdminMember} adminParent={adminParent} setAdminParent={setAdminParent} adminReceivedRate={adminReceivedRate} setAdminReceivedRate={setAdminReceivedRate} adminRate={adminRate} setAdminRate={setAdminRate} adminMemo={adminMemo} setAdminMemo={setAdminMemo} adminUserSearch={adminUserSearch} setAdminUserSearch={setAdminUserSearch} selectedAdminUser={selectedAdminUser} setSelectedAdminUser={setSelectedAdminUser} selectedChildUser={selectedChildUser} setSelectedChildUser={setSelectedChildUser} securityFilter={securityFilter} setSecurityFilter={setSecurityFilter} blockReason={blockReason} setBlockReason={setBlockReason} />
+        {loggedIn && pageForMain === "admin" && adminGateAllowed ? (
+          <AdminShell
+            theme={t}
+            title="관리자"
+            subtitle="운영 · 회원 · 거래 · 정산"
+            userLabel={`${nickname || "—"} · ${linkedGoogle || "—"}`}
+            activeMenu={adminShellMenu}
+            onMenuChange={setAdminShellMenu}
+            onExit={() => setActivePage("trade")}
+          >
+            <AdminReferralPanel
+              theme={t}
+              notify={notify}
+              isSuperAdmin={isSuperAdmin}
+              apiClient={apiClient}
+              authToken={authToken}
+              authUsers={authUsers}
+              setAuthUsers={setAuthUsers}
+              buyerKyc={buyerKyc}
+              setBuyerKyc={setBuyerKyc}
+              friends={friends}
+              chatRooms={chatRooms}
+              sellerDepositNotice={sellerDepositNotice}
+              setSellerDepositNotice={setSellerDepositNotice}
+              escrowPolicy={escrowPolicy}
+              setEscrowPolicy={setEscrowPolicy}
+              disputeCases={disputeCases}
+              approveDisputeCase={approveDisputeCase}
+              finalizeDisputeByMain={finalizeDisputeByMain}
+              currentAdminActorId={adminPanelActorId}
+              finalApprovalPinInput={finalApprovalPinInput}
+              setFinalApprovalPinInput={setFinalApprovalPinInput}
+              finalApprovalOtpInput={finalApprovalOtpInput}
+              setFinalApprovalOtpInput={setFinalApprovalOtpInput}
+              newPolicyPinInput={newPolicyPinInput}
+              setNewPolicyPinInput={setNewPolicyPinInput}
+              selectedDisputeIdForTimeline={selectedDisputeIdForTimeline}
+              setSelectedDisputeIdForTimeline={setSelectedDisputeIdForTimeline}
+              selectedDisputeEvents={selectedDisputeEvents}
+              setSelectedDisputeEvents={setSelectedDisputeEvents}
+              timelineActionFilter={timelineActionFilter}
+              setTimelineActionFilter={setTimelineActionFilter}
+              timelineFromDate={timelineFromDate}
+              setTimelineFromDate={setTimelineFromDate}
+              timelineToDate={timelineToDate}
+              setTimelineToDate={setTimelineToDate}
+              adminMediaTypeFilter={adminMediaTypeFilter}
+              setAdminMediaTypeFilter={setAdminMediaTypeFilter}
+              adminMediaFriendFilter={adminMediaFriendFilter}
+              setAdminMediaFriendFilter={setAdminMediaFriendFilter}
+              adminActionLogs={adminActionLogs}
+              appendAdminAction={appendAdminAction}
+              setAdminActionLogs={setAdminActionLogs}
+              adminMember={adminMember}
+              setAdminMember={setAdminMember}
+              adminParent={adminParent}
+              setAdminParent={setAdminParent}
+              adminReceivedRate={adminReceivedRate}
+              setAdminReceivedRate={setAdminReceivedRate}
+              adminRate={adminRate}
+              setAdminRate={setAdminRate}
+              adminMemo={adminMemo}
+              setAdminMemo={setAdminMemo}
+              adminUserSearch={adminUserSearch}
+              setAdminUserSearch={setAdminUserSearch}
+              selectedAdminUser={selectedAdminUser}
+              setSelectedAdminUser={setSelectedAdminUser}
+              selectedChildUser={selectedChildUser}
+              setSelectedChildUser={setSelectedChildUser}
+              securityFilter={securityFilter}
+              setSecurityFilter={setSecurityFilter}
+              blockReason={blockReason}
+              setBlockReason={setBlockReason}
+              useExternalAdminNav
+              legacyTabFromShell={adminShellLegacyTab}
+            />
+          </AdminShell>
         ) : null}
-        {loggedIn && pageForMain === "admin" && !canAccessAdmin ? (
+        {loggedIn && pageForMain === "admin" && !adminGateAllowed ? (
           <div className={`mx-auto max-w-lg px-4 py-16 text-center ${t.cardSoft ?? ""}`}>
-            <div className={`text-lg font-black ${t.page ?? ""}`}>관리자 화면을 열 수 없습니다</div>
-            <p className={`mt-2 text-sm ${t.subtext ?? ""}`}>
-              이 계정은 관리자 메뉴 권한이 없거나, 서버에서 받은 역할 정보와 로컬 시드가 맞지 않을 수 있습니다. 시드 계정(예: sales@tetherget.com / sales1234)으로 다시 로그인해 보세요.
-            </p>
+            <div className={`text-lg font-black ${t.page ?? ""}`}>관리자 권한이 없습니다</div>
+            <p className={`mt-2 text-sm ${t.subtext ?? ""}`}>이 계정으로는 관리자 화면을 열 수 없습니다.</p>
+            <button
+              type="button"
+              onClick={() => setActivePage("trade")}
+              className={`mt-6 rounded-2xl px-6 py-3 text-sm font-black ${t.main ?? ""}`}
+            >
+              거래 화면으로
+            </button>
+          </div>
+        ) : null}
+        {loggedIn && pageForMain === "admin-denied" ? (
+          <div className={`mx-auto max-w-lg px-4 py-16 text-center ${t.cardSoft ?? ""}`}>
+            <div className={`text-lg font-black ${t.page ?? ""}`}>관리자 권한이 없습니다</div>
+            <p className={`mt-2 text-sm ${t.subtext ?? ""}`}>로그인은 유지됩니다. 다른 메뉴를 이용해 주세요.</p>
             <button
               type="button"
               onClick={() => setActivePage("trade")}
@@ -5509,7 +5637,7 @@ function P2PInfo({ theme }) {
   return <section className="mx-auto max-w-7xl px-4 py-8"><div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}><h2 className="text-2xl font-black">P2P 운영 구조</h2><div className="mt-5 grid gap-4 md:grid-cols-3"><Info title="판매자 예치" text="판매자는 거래금액, 수수료, 가스비, 취소비용을 포함해 예치합니다." theme={theme} /><Info title="구매자 송금" text="구매자는 선택한 통화 종류 기준으로 송금 후 증빙을 업로드합니다." theme={theme} /><Info title="릴리즈" text="구매확인, 친구등록, 레벨정책, 지연이체 조건에 따라 코인이 지급됩니다." theme={theme} /></div></div></section>;
 }
 
-function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken, authUsers, setAuthUsers, buyerKyc, setBuyerKyc, friends, chatRooms, sellerDepositNotice, setSellerDepositNotice, escrowPolicy, setEscrowPolicy, disputeCases, approveDisputeCase, finalizeDisputeByMain, currentAdminActorId, finalApprovalPinInput, setFinalApprovalPinInput, finalApprovalOtpInput, setFinalApprovalOtpInput, newPolicyPinInput, setNewPolicyPinInput, selectedDisputeIdForTimeline, setSelectedDisputeIdForTimeline, selectedDisputeEvents, setSelectedDisputeEvents, timelineActionFilter, setTimelineActionFilter, timelineFromDate, setTimelineFromDate, timelineToDate, setTimelineToDate, adminMediaTypeFilter, setAdminMediaTypeFilter, adminMediaFriendFilter, setAdminMediaFriendFilter, adminActionLogs, appendAdminAction, setAdminActionLogs, adminMember, setAdminMember, adminParent, setAdminParent, adminReceivedRate, setAdminReceivedRate, adminRate, setAdminRate, adminMemo, setAdminMemo, adminUserSearch, setAdminUserSearch, selectedAdminUser, setSelectedAdminUser, selectedChildUser, setSelectedChildUser, securityFilter, setSecurityFilter, blockReason, setBlockReason }) {
+function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken, authUsers, setAuthUsers, buyerKyc, setBuyerKyc, friends, chatRooms, sellerDepositNotice, setSellerDepositNotice, escrowPolicy, setEscrowPolicy, disputeCases, approveDisputeCase, finalizeDisputeByMain, currentAdminActorId, finalApprovalPinInput, setFinalApprovalPinInput, finalApprovalOtpInput, setFinalApprovalOtpInput, newPolicyPinInput, setNewPolicyPinInput, selectedDisputeIdForTimeline, setSelectedDisputeIdForTimeline, selectedDisputeEvents, setSelectedDisputeEvents, timelineActionFilter, setTimelineActionFilter, timelineFromDate, setTimelineFromDate, timelineToDate, setTimelineToDate, adminMediaTypeFilter, setAdminMediaTypeFilter, adminMediaFriendFilter, setAdminMediaFriendFilter, adminActionLogs, appendAdminAction, setAdminActionLogs, adminMember, setAdminMember, adminParent, setAdminParent, adminReceivedRate, setAdminReceivedRate, adminRate, setAdminRate, adminMemo, setAdminMemo, adminUserSearch, setAdminUserSearch, selectedAdminUser, setSelectedAdminUser, selectedChildUser, setSelectedChildUser, securityFilter, setSecurityFilter, blockReason, setBlockReason, useExternalAdminNav = false, legacyTabFromShell = null }) {
   const [timelineVerifyResult, setTimelineVerifyResult] = useState("");
   const [kycDocs, setKycDocs] = useState([]);
   const [kycViewReason, setKycViewReason] = useState("");
@@ -5557,6 +5685,10 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   });
   const [opsActionLoading, setOpsActionLoading] = useState("");
   const [adminViewTab, setAdminViewTab] = useState("dashboard");
+  useEffect(() => {
+    if (!legacyTabFromShell) return;
+    setAdminViewTab(legacyTabFromShell);
+  }, [legacyTabFromShell]);
   const [selectedOpsUserId, setSelectedOpsUserId] = useState("");
   const [selectedSecurityUserId, setSelectedSecurityUserId] = useState("");
   const [opsSnapshots, setOpsSnapshots] = useState([]);
@@ -7709,10 +7841,12 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   }
 
   useEffect(() => {
+    if (!authToken) return;
     loadWebhookEvents();
-  }, []);
+  }, [authToken]);
 
   useEffect(() => {
+    if (!authToken) return;
     loadApprovalAuditReport();
     loadRecentReportHashes();
     loadOpsRiskSummary();
@@ -7721,7 +7855,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     loadMarketCatalogAudit();
     loadEmergencyState();
     loadPlatformSettings();
-  }, []);
+  }, [authToken]);
 
   useEffect(() => {
     if (!webhookAutoRefresh) return;
@@ -7942,6 +8076,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
+        {!useExternalAdminNav ? (
         <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -7965,6 +8100,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             ))}
           </div>
         </div>
+        ) : null}
 
         <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.card}`}>
           <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
@@ -8017,6 +8153,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               </button>
             ) : null}
           </div>
+          {!useExternalAdminNav ? (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
             <button onClick={() => setAdminViewTab("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dashboard") ? theme.main : theme.input}`}>대시보드</button>
             <button onClick={() => setAdminViewTab("member")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("member") ? theme.main : theme.input}`}>회원관리</button>
@@ -8027,6 +8164,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <button onClick={() => setAdminViewTab("ops")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("ops") ? theme.main : theme.input}`}>감사/복구</button>
             <button onClick={() => setAdminViewTab("audit")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("audit") ? theme.main : theme.input}`}>플랫폼로그</button>
           </div>
+          ) : null}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-1 pt-2">
             <div className={`text-[11px] ${theme.muted}`}>
               목업 회원 DB: 가상 하부 <b>{VIRTUAL_DOWNLINE_MEMBER_COUNT}명</b> · 발급/시드 테스트 계정은 유지됩니다.
