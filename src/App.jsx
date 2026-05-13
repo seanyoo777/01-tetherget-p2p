@@ -13,6 +13,21 @@ import { canAccessAdminSafe } from "./admin/canAccessAdminSafe.js";
 import { AdminShell } from "./admin/AdminShell.jsx";
 import { AdminSectionBoundary } from "./admin/AdminSectionBoundary.jsx";
 import { UteSurfacePanel } from "./admin/panels/UteSurfacePanel.jsx";
+import { DashboardPanel } from "./admin/panels/DashboardPanel.jsx";
+import { SecurityPanel } from "./admin/panels/SecurityPanel.jsx";
+import { KycPanel } from "./admin/panels/KycPanel.jsx";
+import { DisputePanel } from "./admin/panels/DisputePanel.jsx";
+import { AdminActionLogStrip } from "./admin/panels/AdminActionLogStrip.jsx";
+import { MemberOpsGridPanel } from "./admin/panels/MemberOpsGridPanel.jsx";
+import { MemberOpsMemoPanel } from "./admin/panels/MemberOpsMemoPanel.jsx";
+import { MemberOpsMediaPanel } from "./admin/panels/MemberOpsMediaPanel.jsx";
+import { MemberGridPanel } from "./admin/panels/MemberGridPanel.jsx";
+import { MemberDetailPanel } from "./admin/panels/MemberDetailPanel.jsx";
+import { MemberDirectDownlinePanel } from "./admin/panels/MemberDirectDownlinePanel.jsx";
+import { MemberHierarchyPanel } from "./admin/panels/MemberHierarchyPanel.jsx";
+import { MemberStatsPanel } from "./admin/panels/MemberStatsPanel.jsx";
+import { MemberAssignChildPanel } from "./admin/panels/MemberAssignChildPanel.jsx";
+import { MemberActionRowPanel } from "./admin/panels/MemberActionRowPanel.jsx";
 import { ADMIN_SHELL_TO_PANEL_TAB, ADMIN_PANEL_TAB_IDS } from "./admin/adminMenuIds.js";
 import {
   updateUserLevel,
@@ -8098,61 +8113,21 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
-        {!useExternalAdminNav ? (
-        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-lg font-black">관리자 메인 카테고리</div>
-              <div className={`text-xs ${theme.muted}`}>카테고리를 누르면 해당 기능 화면으로 이동합니다.</div>
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {adminCategories.map((category) => (
-              <button
-                key={category.key}
-                onClick={() => setAdminViewTab(category.key)}
-                className={`rounded-2xl border p-4 text-left transition hover:scale-[1.01] ${theme.input}`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="text-base font-black">{category.title}</div>
-                  <span className={`rounded-full px-2 py-1 text-[11px] font-black text-white ${category.color}`}>이동</span>
-                </div>
-                <div className={`mt-2 text-xs leading-5 ${theme.muted}`}>{category.desc}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-        ) : null}
+        <DashboardPanel
+          segment="categories"
+          theme={theme}
+          visible={isAdminTab("dashboard")}
+          useExternalAdminNav={useExternalAdminNav}
+          adminCategories={adminCategories}
+          setAdminViewTab={setAdminViewTab}
+        />
 
-        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.card}`}>
-          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="text-sm font-black">
-                운영 알림 요약{" "}
-                <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-black text-amber-300">MOCK</span>
-              </div>
-              <div className={`mt-1 text-xs ${theme.muted}`}>실제 알림·승인 큐 API 연동 전, 레이아웃과 우선순위 점검용입니다.</div>
-            </div>
-          </div>
-          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {MOCK_ADMIN_BRIEFS.map((b) => (
-              <li
-                key={b.id}
-                className={`rounded-2xl border p-3 text-left ${
-                  b.tone === "warn"
-                    ? "border-amber-500/40 bg-amber-500/5"
-                    : b.tone === "info"
-                      ? "border-sky-500/35 bg-sky-500/5"
-                      : theme.input
-                }`}
-              >
-                <div className="text-xs font-black">{b.title}</div>
-                <div className={`mt-1 text-[11px] leading-snug ${theme.subtext}`}>{b.body}</div>
-                <div className={`mt-2 text-[10px] font-bold ${theme.muted}`}>{b.at}</div>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <DashboardPanel
+          segment="briefs"
+          theme={theme}
+          visible={isAdminTab("dashboard")}
+          adminBriefs={MOCK_ADMIN_BRIEFS}
+        />
 
         <UteSurfacePanel theme={theme} uteSurfaceMetrics={uteSurfaceMetrics} visible={isAdminTab("uteSurface")} />
 
@@ -9193,180 +9168,57 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         </div>
         </AdminSectionBoundary>
 
-        <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.card}`}>
-          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-xl font-black">{lang.adminStorage}</div>
-              <div className={`text-sm ${theme.subtext}`}>내 하부 기준 총거래량 · 레퍼럴 수익 · 기간별 수익 · 출금가능액</div>
-            </div>
-            <button onClick={() => notify("withdraw")} className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}>{lang.withdrawRequest}</button>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className={theme.muted}>{lang.totalVolume}</div>
-              <div className="mt-2 text-2xl font-black">${number(myTotalVolume)}</div>
-              <div className={`mt-1 text-xs ${theme.muted}`}>직접 레퍼럴 거래량 기준</div>
-            </div>
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className={theme.muted}>{lang.referralProfit}</div>
-              <div className="mt-2 text-2xl font-black">${number(myReferralProfit)}</div>
-              <div className={`mt-1 text-xs ${theme.muted}`}>직접 하부 거래 수익 합산</div>
-            </div>
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className={theme.muted}>{lang.withdrawable}</div>
-              <div className="mt-2 text-2xl font-black text-emerald-500">${number(myWithdrawable)}</div>
-              <div className={`mt-1 text-xs ${theme.muted}`}>정산 가능 금액</div>
-            </div>
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className={theme.muted}>{lang.pendingSettlement}</div>
-              <div className="mt-2 text-2xl font-black text-amber-500">${number(myPendingProfit)}</div>
-              <div className={`mt-1 text-xs ${theme.muted}`}>검증/락업 대기</div>
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className={theme.muted}>{lang.weeklyProfit}</div>
-              <div className="mt-2 text-xl font-black">${number(myWeeklyProfit)}</div>
-            </div>
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className={theme.muted}>{lang.monthlyProfit}</div>
-              <div className="mt-2 text-xl font-black">${number(myMonthlyProfit)}</div>
-            </div>
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className={theme.muted}>{lang.managedChildren}</div>
-              <div className="mt-2 text-xl font-black">{myDirectUsers.length}명</div>
-            </div>
-          </div>
-        </div>
+        <DashboardPanel
+          segment="storage"
+          theme={theme}
+          visible={isAdminTab("dashboard")}
+          lang={lang}
+          notify={notify}
+          formatNumber={number}
+          myTotalVolume={myTotalVolume}
+          myReferralProfit={myReferralProfit}
+          myWithdrawable={myWithdrawable}
+          myPendingProfit={myPendingProfit}
+          myWeeklyProfit={myWeeklyProfit}
+          myMonthlyProfit={myMonthlyProfit}
+          myDirectUsers={myDirectUsers}
+        />
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-member" sectionLabel="회원 관리">
         <div ref={memberTreeSectionRef} className={`${isAdminTab("member") ? "" : "hidden "}grid h-[calc(100vh-350px)] gap-2 overflow-hidden md:grid-cols-[280px_minmax(0,1fr)]`}>
-          <div className={`rounded-2xl p-2 ${theme.cardSoft}`}>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-lg font-black">{lang.childList}</div>
-                <div className={`text-xs ${theme.muted}`}>내 하부 가상 {VIRTUAL_DOWNLINE_MEMBER_COUNT}명 · 단계별 분포 분석</div>
-              </div>
-              <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-black text-white">{visibleUsers.length}명</span>
-            </div>
-            <div
-              className={
-                memberStageFilterExpanded
-                  ? "mb-2 flex flex-wrap gap-1.5"
-                  : "mb-1 flex max-h-[5.5rem] flex-wrap gap-1.5 overflow-hidden"
-              }
-            >
-              <button
-                type="button"
-                onClick={() => setMemberStageFilter("전체")}
-                className={`shrink-0 rounded-xl border px-2.5 py-1.5 text-center text-xs font-black whitespace-nowrap ${memberStageFilter === "전체" ? theme.main : theme.input}`}
-              >
-                <div>전체</div>
-                <div>{summaryScopeUsers.length}</div>
-              </button>
-              {downlineStageSummaryEntries.map(([stage, count]) => (
-                <button
-                  key={stage}
-                  type="button"
-                  onClick={() => setMemberStageFilter(stage)}
-                  className={`shrink-0 rounded-xl border px-2.5 py-1.5 text-center text-xs font-black whitespace-nowrap ${memberStageFilter === stage ? theme.main : theme.input}`}
-                >
-                  <div>{stage}</div>
-                  <div>{count}</div>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setMemberStageFilterExpanded((v) => !v)}
-              className={`mb-2 w-full rounded-xl border px-3 py-2 text-center text-[11px] font-black ${theme.input}`}
-            >
-              {memberStageFilterExpanded ? "▲ 감추기" : "▼ 모든 단계 보기"}
-            </button>
-            {stageSummaryHealth.mismatch && (
-              <div className="mb-2 rounded-xl border border-red-500/40 bg-red-500/10 px-2 py-1 text-[11px] font-black text-red-300">
-                단계 집계 점검 필요: 합계 {stageSummaryHealth.total} / 기대 {stageSummaryHealth.expected}
-              </div>
-            )}
-            <label className={`mb-2 flex items-center gap-2 text-[11px] font-black ${theme.muted}`}>
-              <input
-                type="checkbox"
-                checked={showAdminDebug}
-                onChange={(e) => setShowAdminDebug(e.target.checked)}
-              />
-              관리자 디버그 체크
-            </label>
-            {showAdminDebug && (
-              <div className={`mb-2 rounded-xl border p-2 text-[11px] ${theme.input}`}>
-                <div>전체 회원 수(엔진): {adminStats.totalUsers}</div>
-                <div>레벨별 회원 수 합계: {adminStats.levelCountSum}</div>
-                <div>실제 users.length: {engineUsers.length}</div>
-                <div>불일치 여부: {adminStats.levelCountMismatch ? "불일치" : "정상"}</div>
-                <div>트리 무결성 검사: {treeIntegrity.ok ? "통과" : `실패 (${treeIntegrity.errors.length})`}</div>
-                <div>직접 하부(선택): {monitorCurrentUser ? getDirectDownlines(monitorCurrentUser.id, engineUsers).length : 0}</div>
-                <div>전체 하부(선택): {monitorCurrentUser ? getAllDownlines(monitorCurrentUser.id, engineUsers).length : 0}</div>
-                <div>슈퍼페이지 회원 수: {getUsersByLevel(ADMIN_STAGE_LABEL.SUPER_PAGE, engineUsers).length}</div>
-              </div>
-            )}
-
-            <div className="mb-2 grid gap-1.5 md:grid-cols-[1fr_auto]">
-              <input
-                value={adminUserSearch}
-                onChange={(e) => setAdminUserSearch(e.target.value)}
-                className={`w-full rounded-2xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                placeholder="닉네임 · ID · 이메일 · 지갑 · 단계(LEVEL 1~10, 본사) 검색"
-              />
-              <select
-                value={memberListSort}
-                onChange={(e) => setMemberListSort(e.target.value)}
-                className={`rounded-2xl border px-2 py-2 text-xs font-black outline-none ${theme.input}`}
-              >
-                <option value="joined_desc">가입순 (최신)</option>
-                <option value="joined_asc">가입순 (오래된)</option>
-                <option value="children_desc">하부 많은순</option>
-                <option value="children_asc">하부 적은순</option>
-                <option value="trades_desc">거래 많은순</option>
-                <option value="trades_asc">거래 적은순</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              {pagedVisibleUsers.map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => selectUser(user)}
-                  className={`w-full rounded-xl border p-2.5 text-left transition ${selectedAdminUser?.id === user.id ? theme.main : theme.input}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-black">{user.nickname}</div>
-                    <div className={`rounded-full px-2 py-1 text-xs font-black ${user.status === "주의" ? "bg-red-600 text-white" : "bg-emerald-600 text-white"}`}>{user.status}</div>
-                  </div>
-                  <div className="mt-1 text-xs opacity-80">{user.id} · 상위: {user.parent}</div>
-                  <div className="mt-1 text-xs opacity-80">현재 단계: {getEffectiveStage(user)}</div>
-                  <div className="mt-1 text-xs opacity-80">배분 {user.childRate}% · 거래 {number(user.trades)}건 · 하부 {user.children}명</div>
-                </button>
-              ))}
-            </div>
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <button
-                onClick={() => setMemberUserPage((prev) => Math.max(1, prev - 1))}
-                disabled={memberUserPage <= 1}
-                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberUserPage <= 1 ? "bg-slate-500 text-white" : theme.input}`}
-              >
-                이전
-              </button>
-              <div className={`text-[11px] ${theme.muted}`}>{memberUserPage} / {memberUserTotalPages}</div>
-              <button
-                onClick={() => setMemberUserPage((prev) => Math.min(memberUserTotalPages, prev + 1))}
-                disabled={memberUserPage >= memberUserTotalPages}
-                className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberUserPage >= memberUserTotalPages ? "bg-slate-500 text-white" : theme.input}`}
-              >
-                다음
-              </button>
-            </div>
-          </div>
+          <MemberGridPanel
+            theme={theme}
+            childListLabel={lang.childList}
+            virtualDownlineMemberCount={VIRTUAL_DOWNLINE_MEMBER_COUNT}
+            visibleUsersCount={visibleUsers.length}
+            memberStageFilterExpanded={memberStageFilterExpanded}
+            setMemberStageFilterExpanded={setMemberStageFilterExpanded}
+            memberStageFilter={memberStageFilter}
+            setMemberStageFilter={setMemberStageFilter}
+            downlineStageSummaryEntries={downlineStageSummaryEntries}
+            summaryScopeUsersCount={summaryScopeUsers.length}
+            stageSummaryHealth={stageSummaryHealth}
+            showAdminDebug={showAdminDebug}
+            setShowAdminDebug={setShowAdminDebug}
+            adminStats={adminStats}
+            engineUsersLength={engineUsers.length}
+            treeIntegrity={treeIntegrity}
+            debugDirectDownlineCount={monitorCurrentUser ? getDirectDownlines(monitorCurrentUser.id, engineUsers).length : 0}
+            debugAllDownlineCount={monitorCurrentUser ? getAllDownlines(monitorCurrentUser.id, engineUsers).length : 0}
+            superPageMemberCount={getUsersByLevel(ADMIN_STAGE_LABEL.SUPER_PAGE, engineUsers).length}
+            adminUserSearch={adminUserSearch}
+            setAdminUserSearch={setAdminUserSearch}
+            memberListSort={memberListSort}
+            setMemberListSort={setMemberListSort}
+            pagedVisibleUsers={pagedVisibleUsers}
+            selectUser={selectUser}
+            selectedAdminUser={selectedAdminUser}
+            getEffectiveStage={getEffectiveStage}
+            formatNumber={number}
+            memberUserPage={memberUserPage}
+            setMemberUserPage={setMemberUserPage}
+            memberUserTotalPages={memberUserTotalPages}
+          />
 
           <div className="grid h-full gap-2 overflow-hidden">
             <div className={`rounded-2xl p-2.5 ${theme.cardSoft} overflow-hidden`}>
@@ -9374,141 +9226,41 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
 
               {monitorCurrentUser ? (
                 <>
-                  <div ref={hierarchyPathSectionRef} className="mt-3 rounded-2xl border p-3">
-                    <div className="mb-3 rounded-xl border border-white/10 bg-black/15 p-2.5">
-                      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-xs font-black">하부 트리 · 회원 검색</div>
-                        <button
-                          type="button"
-                          onClick={() => setAdminUserSearch(hierarchyQuickSearch)}
-                          className={`rounded-lg border px-2 py-1 text-[10px] font-black ${theme.input}`}
-                        >
-                          이 검색어를 왼쪽 목록에도 적용
-                        </button>
-                      </div>
-                      <input
-                        value={hierarchyQuickSearch}
-                        onChange={(e) => setHierarchyQuickSearch(e.target.value)}
-                        className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                        placeholder="ID · 닉네임 · 이메일 · 상위 · 단계(예: LEVEL 1, VD-004)"
-                        aria-label="하부 트리 회원 검색"
-                      />
-                      {hierarchyQuickMatches.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {hierarchyQuickMatches.map((u) => (
-                            <button
-                              key={u.id}
-                              type="button"
-                              onClick={() => jumpToTreeMember(u)}
-                              className={`rounded-full border px-2.5 py-1 text-[10px] font-black ${theme.input}`}
-                            >
-                              {u.nickname} · {u.id} · {String(u.stageLabel || "").slice(0, 6)}
-                            </button>
-                          ))}
-                        </div>
-                      ) : hierarchyQuickSearch.trim() ? (
-                        <div className={`mt-2 text-[11px] ${theme.muted}`}>일치하는 회원이 없습니다.</div>
-                      ) : (
-                        <div className={`mt-1.5 text-[10px] ${theme.muted}`}>검색 결과에서 회원을 누르면 트리 경로가 해당 회원으로 이동합니다.</div>
-                      )}
-                    </div>
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="text-sm font-black">회원 단계 지정</div>
-                      <div className="flex items-center gap-1 text-xs">
-                        <span className={`rounded-full border px-2 py-0.5 font-black ${theme.main}`}>
-                          선택 회원: {monitorCurrentUser.nickname} ({getEffectiveStage(monitorCurrentUser)})
-                        </span>
-                        <span className={`rounded-full border px-2 py-0.5 font-black ${theme.input}`}>직계 하부 {monitorDirectChildrenCount}명</span>
-                        <span className={`rounded-full border px-2 py-0.5 font-black ${theme.input}`}>전체 하위 {monitorDescendantCount}명</span>
-                      </div>
-                    </div>
-                    <div className="mb-2 grid gap-1.5 md:grid-cols-[1fr_auto_auto]">
-                      <select
-                        value={stageSelectionValue || getEffectiveStage(monitorCurrentUser)}
-                        onChange={(e) => setStageSelectionValue(e.target.value)}
-                        disabled={isSelfTargetMember}
-                        className={`rounded-xl border px-2.5 py-1.5 text-sm font-black outline-none ${theme.input}`}
-                      >
-                        {ADMIN_STAGE_OPTIONS.map((stageName) => (
-                          <option key={stageName} value={stageName}>
-                            {stageName}
-                          </option>
-                        ))}
-                      </select>
-                      <button type="button" onClick={requestApplyStage} disabled={isSelfTargetMember} className={`rounded-xl px-3 py-1.5 text-sm font-black ${isSelfTargetMember ? "bg-slate-500 text-white" : theme.main}`}>
-                        단계 적용
-                      </button>
-                      <button type="button" onClick={saveSelectedStage} className={`rounded-xl border px-3 py-1.5 text-sm font-black ${isSelfTargetMember ? "bg-slate-500 text-white" : theme.input}`} disabled={isSelfTargetMember}>
-                        저장/확인
-                      </button>
-                    </div>
-                    <div className="mb-2 flex flex-wrap items-stretch gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void applyMonitorAdminAssignment(true)}
-                        disabled={
-                          isSelfTargetMember
-                          || !(isSuperAdmin || String(monitorCurrentUser.id || "").startsWith("VD-"))
-                          || isAdminAssignedUser(monitorCurrentUser)
-                        }
-                        className={`rounded-xl px-3 py-1.5 text-xs font-black ${
-                          isSelfTargetMember || isAdminAssignedUser(monitorCurrentUser) ? "bg-slate-600 text-white" : "bg-indigo-600 text-white"
-                        }`}
-                      >
-                        관리자 지정 ON
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void applyMonitorAdminAssignment(false)}
-                        disabled={
-                          isSelfTargetMember
-                          || !(isSuperAdmin || String(monitorCurrentUser.id || "").startsWith("VD-"))
-                          || !isAdminAssignedUser(monitorCurrentUser)
-                        }
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-black ${theme.input}`}
-                      >
-                        관리자 해제 OFF
-                      </button>
-                      <div className={`min-w-[160px] flex-1 rounded-xl border px-2 py-1.5 text-[10px] leading-snug ${theme.muted}`}>
-                        <span className="font-black text-white/90">안내:</span> 실회원 저장은 슈퍼관리자만 가능합니다. <span className="text-amber-200/90">VD- 가상 회원</span>은 버튼 클릭 시 즉시 로컬 반영됩니다.
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {monitorPath.map((userId, index) => {
-                        const nodeUser = memberUsers.find((u) => String(u.id) === String(userId));
-                        return (
-                          <button
-                            key={`${userId}-${index}`}
-                            onClick={() => moveToHierarchyDepth(index)}
-                            className={`rounded-full border px-2 py-1 text-[11px] font-black ${index === monitorPath.length - 1 ? theme.main : theme.input}`}
-                          >
-                            {nodeUser?.nickname || userId}
-                          </button>
-                        );
-                      })}
-                      {monitorPath.length > 1 && (
-                        <button
-                          onClick={() => moveToHierarchyDepth(monitorPath.length - 2)}
-                          className={`rounded-full border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                        >
-                          한 단계 위로
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  <MemberHierarchyPanel
+                    ref={hierarchyPathSectionRef}
+                    theme={theme}
+                    setAdminUserSearch={setAdminUserSearch}
+                    hierarchyQuickSearch={hierarchyQuickSearch}
+                    setHierarchyQuickSearch={setHierarchyQuickSearch}
+                    hierarchyQuickMatches={hierarchyQuickMatches}
+                    jumpToTreeMember={jumpToTreeMember}
+                    monitorCurrentUser={monitorCurrentUser}
+                    getEffectiveStage={getEffectiveStage}
+                    monitorDirectChildrenCount={monitorDirectChildrenCount}
+                    monitorDescendantCount={monitorDescendantCount}
+                    stageSelectionValue={stageSelectionValue}
+                    setStageSelectionValue={setStageSelectionValue}
+                    isSelfTargetMember={isSelfTargetMember}
+                    adminStageOptions={ADMIN_STAGE_OPTIONS}
+                    requestApplyStage={requestApplyStage}
+                    saveSelectedStage={saveSelectedStage}
+                    isSuperAdmin={isSuperAdmin}
+                    applyMonitorAdminAssignment={applyMonitorAdminAssignment}
+                    isAdminAssignedUser={isAdminAssignedUser}
+                    monitorPath={monitorPath}
+                    memberUsers={memberUsers}
+                    moveToHierarchyDepth={moveToHierarchyDepth}
+                  />
 
-                  <div className="mt-2 grid gap-2 text-sm md:grid-cols-2">
-                    <DetailBox label="닉네임" value={monitorCurrentUser?.nickname || "-"} theme={theme} />
-                    <DetailBox label="회원 ID" value={monitorCurrentUser?.id || "-"} theme={theme} />
-                    <DetailBox label="이메일" value={monitorCurrentUser?.email || "-"} theme={theme} />
-                    <DetailBox label="지갑" value={monitorCurrentUser?.wallet || "-"} theme={theme} />
-                    <DetailBox label="상위" value={getEffectiveParent(monitorCurrentUser)} theme={theme} />
-                    <DetailBox label="가입일" value={monitorCurrentUser?.joined || "-"} theme={theme} />
-                    <DetailBox label="현재 단계" value={getEffectiveStage(monitorCurrentUser)} theme={theme} />
-                    <DetailBox label="관리자 지정" value={isAdminAssignedUser(monitorCurrentUser) ? "지정됨" : "미지정"} theme={theme} />
-                    <DetailBox label="누적 거래" value={`${number(monitorCurrentUser?.trades || 0)}건`} theme={theme} />
-                    <DetailBox label="누적 거래액" value={`$${number(monitorCurrentUser?.volume || 0)}`} theme={theme} />
-                  </div>
+                  <MemberDetailPanel
+                    theme={theme}
+                    DetailBox={DetailBox}
+                    monitorCurrentUser={monitorCurrentUser}
+                    getEffectiveStage={getEffectiveStage}
+                    getEffectiveParent={getEffectiveParent}
+                    isAdminAssignedUser={isAdminAssignedUser}
+                    formatNumber={number}
+                  />
 
                   {isSelfTargetMember && (
                     <div className={`mt-1 rounded-xl border px-3 py-2 text-xs ${theme.input}`}>
@@ -9548,195 +9300,64 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     </div>
                   )}
 
-                  <div className="mt-2 grid gap-2 md:grid-cols-[1fr_auto]">
-                    <input
-                      value={downlineTargetUserId}
-                      onChange={(e) => setDownlineTargetUserId(e.target.value.trim().toUpperCase())}
-                      disabled={isSelfTargetMember}
-                      placeholder="하위 유저 ID 입력 (예: TG-MEMBER-015)"
-                      className={`rounded-2xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}
-                    />
-                    <button onClick={assignDownlineUser} disabled={isSelfTargetMember} className={`rounded-2xl border px-4 py-2 text-sm font-black ${isSelfTargetMember ? "bg-slate-500 text-white" : theme.input}`}>
-                      하위 유저 지정
-                    </button>
-                  </div>
+                  <MemberAssignChildPanel
+                    theme={theme}
+                    downlineTargetUserId={downlineTargetUserId}
+                    setDownlineTargetUserId={setDownlineTargetUserId}
+                    isSelfTargetMember={isSelfTargetMember}
+                    assignDownlineUser={assignDownlineUser}
+                  />
 
-                  <div className="mt-2 grid gap-1.5 md:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!selectedChildren.length) {
-                          notify("등록된 하부가 없습니다.");
-                          return;
-                        }
-                        directDownlineListRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-                      }}
-                      className={`rounded-xl px-3 py-2.5 text-sm font-black ${theme.main}`}
-                    >
-                      하부 {selectedChildren.length}명 보기
-                    </button>
-                    <button
-                      onClick={() => notify(`${monitorCurrentUser.nickname} 닉네임/정보 수정 화면`)}
-                      className={`rounded-xl border px-3 py-2.5 text-sm font-black ${theme.input}`}
-                    >
-                      정보 수정
-                    </button>
-                  </div>
+                  <MemberActionRowPanel
+                    theme={theme}
+                    selectedChildren={selectedChildren}
+                    notify={notify}
+                    directDownlineListRef={directDownlineListRef}
+                    monitorCurrentUser={monitorCurrentUser}
+                  />
                   {selectedChildren.length === 0 && (
                     <div className={`mt-1 rounded-xl border px-3 py-2 text-xs ${theme.input}`}>
                       등록된 하부가 없습니다.
                     </div>
                   )}
-                  <div className="mt-2 grid gap-2 md:grid-cols-4">
-                    <div className={`rounded-xl border px-3 py-2 text-xs ${theme.input}`}>현재 단계 <b>{getEffectiveStage(monitorCurrentUser)}</b></div>
-                    <div className={`rounded-xl border px-3 py-2 text-xs ${theme.input}`}>직계 하부 <b>{monitorDirectChildrenCount}명</b></div>
-                    <div className={`rounded-xl border px-3 py-2 text-xs ${theme.input}`}>전체 하위 <b>{monitorDescendantCount}명</b></div>
-                    <div className={`rounded-xl border px-3 py-2 text-xs ${theme.input}`}>관리자 지정 <b>{isAdminAssignedUser(monitorCurrentUser) ? "ON" : "OFF"}</b></div>
-                  </div>
+                  <MemberStatsPanel
+                    theme={theme}
+                    monitorCurrentUser={monitorCurrentUser}
+                    getEffectiveStage={getEffectiveStage}
+                    monitorDirectChildrenCount={monitorDirectChildrenCount}
+                    monitorDescendantCount={monitorDescendantCount}
+                    isAdminAssignedUser={isAdminAssignedUser}
+                  />
 
                   {selectedChildren.length > 0 && (
-                    <div ref={directDownlineListRef} className="mt-2 rounded-2xl bg-black/10 p-2.5">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="font-black">{monitorCurrentUser.nickname}의 직접 하부</div>
-                        <div className={`text-xs ${theme.muted}`}>행 클릭으로 선택 · 행에서 배분율 바로 수정 · 선택 항목만 부분 일괄 적용</div>
-                      </div>
-                      {selectedChildUser && (
-                        <div className={`mb-3 rounded-xl border px-3 py-2 text-xs ${theme.input}`}>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-black">선택 하부</span>
-                            <span>{selectedChildUser.nickname} ({selectedChildUser.id})</span>
-                            <input
-                              value={selectedChildRateInput}
-                              onChange={(e) => setSelectedChildRateInput(e.target.value)}
-                              disabled={!isSuperAdmin}
-                              className={`w-20 rounded-lg border px-2 py-1 text-[11px] font-bold outline-none ${theme.input}`}
-                              placeholder="%"
-                              aria-label="선택 하부 배분율"
-                            />
-                            <span className="text-[11px]">%</span>
-                            <button
-                              type="button"
-                              onClick={saveSelectedChildRate}
-                              disabled={!isSuperAdmin}
-                              className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                            >
-                              배분율 저장
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedChildUser(null)}
-                              className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                            >
-                              선택 해제
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      <div className="mb-3 grid gap-2 md:grid-cols-[1fr_auto_auto]">
-                        <input
-                          value={bulkChildRateInput}
-                          onChange={(e) => setBulkChildRateInput(e.target.value)}
-                          className={`rounded-2xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                          placeholder="선택 하부 일괄 배분율(%)"
-                        />
-                        <button onClick={applyBulkChildRate} className={`rounded-2xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                          선택 하부 일괄 저장
-                        </button>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setSelectedChildIds(selectedChildren.map((child) => child.id))}
-                            className={`rounded-2xl border px-3 py-2 text-xs font-black ${theme.input}`}
-                          >
-                            전체선택
-                          </button>
-                          <button
-                            onClick={() => setSelectedChildIds([])}
-                            className={`rounded-2xl border px-3 py-2 text-xs font-black ${theme.input}`}
-                          >
-                            전체해제
-                          </button>
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        {pagedSelectedChildren.map((child) => (
-                          <div
-                            key={child.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => setSelectedChildUser(child)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                setSelectedChildUser(child);
-                              }
-                            }}
-                            className={`w-full cursor-pointer rounded-2xl border px-3 py-2 text-left text-xs transition ${theme.input} ${
-                              selectedChildUser?.id === child.id ? "ring-2 ring-indigo-500 ring-offset-2 ring-offset-transparent" : ""
-                            }`}
-                          >
-                            <div className="grid items-center gap-2 md:grid-cols-[auto_1.2fr_1fr_1fr_auto_auto_auto]">
-                              <label className="inline-flex items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedChildIds.includes(child.id)}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    toggleChildSelection(child.id);
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                              </label>
-                              <div className="pointer-events-none font-black">{child.nickname} ({child.id})</div>
-                              <div className="opacity-80">가입일 {child.joined}</div>
-                              <div className="opacity-80">거래 {number(child.trades)}건</div>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  drillDownToUser(child);
-                                }}
-                                className={`rounded-full border px-2 py-1 text-[10px] font-black ${theme.input}`}
-                              >
-                                하부 {child.children}명 열기
-                              </button>
-                              <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                <input
-                                  value={childInlineRates[child.id] ?? String(appliedRate(child))}
-                                  onChange={(e) => setInlineChildRate(child.id, e.target.value)}
-                                  className={`w-20 rounded-xl border px-2 py-1 text-[11px] font-bold outline-none ${theme.input}`}
-                                  placeholder="배분율"
-                                />
-                                <span className="text-[11px]">%</span>
-                                <button
-                                  type="button"
-                                  onClick={() => saveInlineChildRate(child)}
-                                  className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                                >
-                                  저장
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-2">
-                        <button
-                          onClick={() => setMemberChildPage((prev) => Math.max(1, prev - 1))}
-                          disabled={memberChildPage <= 1}
-                          className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberChildPage <= 1 ? "bg-slate-500 text-white" : theme.input}`}
-                        >
-                          이전
-                        </button>
-                        <div className={`text-[11px] ${theme.muted}`}>{memberChildPage} / {memberChildTotalPages}</div>
-                        <button
-                          onClick={() => setMemberChildPage((prev) => Math.min(memberChildTotalPages, prev + 1))}
-                          disabled={memberChildPage >= memberChildTotalPages}
-                          className={`rounded-xl border px-2 py-1 text-[11px] font-black ${memberChildPage >= memberChildTotalPages ? "bg-slate-500 text-white" : theme.input}`}
-                        >
-                          다음
-                        </button>
-                      </div>
-                    </div>
+                    <MemberDirectDownlinePanel
+                      ref={directDownlineListRef}
+                      theme={theme}
+                      monitorCurrentUser={monitorCurrentUser}
+                      selectedChildUser={selectedChildUser}
+                      setSelectedChildUser={setSelectedChildUser}
+                      selectedChildRateInput={selectedChildRateInput}
+                      setSelectedChildRateInput={setSelectedChildRateInput}
+                      isSuperAdmin={isSuperAdmin}
+                      saveSelectedChildRate={saveSelectedChildRate}
+                      bulkChildRateInput={bulkChildRateInput}
+                      setBulkChildRateInput={setBulkChildRateInput}
+                      applyBulkChildRate={applyBulkChildRate}
+                      selectedChildren={selectedChildren}
+                      setSelectedChildIds={setSelectedChildIds}
+                      selectedChildIds={selectedChildIds}
+                      toggleChildSelection={toggleChildSelection}
+                      pagedSelectedChildren={pagedSelectedChildren}
+                      drillDownToUser={drillDownToUser}
+                      formatNumber={number}
+                      childInlineRates={childInlineRates}
+                      setInlineChildRate={setInlineChildRate}
+                      appliedRate={appliedRate}
+                      saveInlineChildRate={saveInlineChildRate}
+                      memberChildPage={memberChildPage}
+                      setMemberChildPage={setMemberChildPage}
+                      memberChildTotalPages={memberChildTotalPages}
+                    />
                   )}
                 </>
               ) : (
@@ -9763,216 +9384,43 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         </AdminSectionBoundary>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
-        <div className={`${isAdminTab("memberOps") ? "" : "hidden "}mt-5 grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]`}>
-          <div className={`rounded-3xl border p-4 ${theme.card}`}>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-black">회원 운영 대상</div>
-              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${theme.input}`}>{authUsers.length}명</span>
-            </div>
-            <div className="max-h-[560px] space-y-2 overflow-y-auto pr-1">
-              {authUsers.map((user) => (
-                <button
-                  key={user.id}
-                  onClick={() => setSelectedOpsUserId(user.id)}
-                  className={`w-full rounded-2xl border p-3 text-left text-xs ${String(selectedOpsUser?.id) === String(user.id) ? theme.main : theme.input}`}
-                >
-                  <div className="font-black">{user.nickname}</div>
-                  <div className={`mt-1 ${theme.muted}`}>{user.id}</div>
-                  <div className={`mt-1 ${theme.muted}`}>{user.role}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className={`rounded-3xl border p-4 ${theme.card}`}>
-            {selectedOpsUser ? (
-              <>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <DetailBox label="닉네임" value={selectedOpsUser.nickname} theme={theme} />
-                  <DetailBox label="회원 ID" value={selectedOpsUser.id} theme={theme} />
-                  <DetailBox label="이메일" value={selectedOpsUser.email} theme={theme} />
-                  <DetailBox label="현재 권한" value={selectedOpsUser.role} theme={theme} />
-                  <DetailBox label="현재 단계" value={selectedOpsUser.stage_label || "미지정"} theme={theme} />
-                  <DetailBox label="상위 참조" value={selectedOpsUser.parent_user_ref || "미지정"} theme={theme} />
-                </div>
-                <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
-                  <select
-                    value={selectedOpsUser.role}
-                    onChange={(e) => updateAuthRole(selectedOpsUser.id, e.target.value)}
-                    disabled={!isSuperAdmin}
-                    className={`rounded-2xl border px-3 py-2 text-sm font-black outline-none ${theme.input}`}
-                  >
-                    <option>회원</option>
-                    <option>본사 관계자</option>
-                    <option>본사 관리자</option>
-                    <option>슈퍼페이지 관리자</option>
-                  </select>
-                  <button
-                    onClick={() => notify(`${selectedOpsUser.nickname} 정보 수정 화면`)}
-                    className={`rounded-2xl border px-4 py-2 text-sm font-black ${theme.input}`}
-                  >
-                    정보 수정
-                  </button>
-                </div>
-                <div className="mt-3 grid gap-2 md:grid-cols-3">
-                  <input
-                    value={selectedOpsUser.stage_label || ""}
-                    onChange={(e) =>
-                      setAuthUsers((prev) =>
-                        prev.map((user) => (String(user.id) === String(selectedOpsUser.id) ? { ...user, stage_label: e.target.value } : user))
-                      )
-                    }
-                    placeholder="현재 단계 (예: LEVEL 1)"
-                    className={`rounded-2xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}
-                  />
-                  <input
-                    value={selectedOpsUser.parent_user_ref || ""}
-                    onChange={(e) =>
-                      setAuthUsers((prev) =>
-                        prev.map((user) => (String(user.id) === String(selectedOpsUser.id) ? { ...user, parent_user_ref: e.target.value } : user))
-                      )
-                    }
-                    placeholder="상위 관리자/회원 ID"
-                    className={`rounded-2xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}
-                  />
-                  <label className={`flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-black ${theme.input}`}>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(selectedOpsUser.admin_assigned)}
-                      onChange={(e) =>
-                        setAuthUsers((prev) =>
-                          prev.map((user) =>
-                            String(user.id) === String(selectedOpsUser.id) ? { ...user, admin_assigned: e.target.checked } : user
-                          )
-                        )
-                      }
-                    />
-                    관리자 지정
-                  </label>
-                </div>
-                <button
-                  onClick={async () => {
-                    const ok = await updateAuthProfile(selectedOpsUser.id, {
-                      stageLabel: selectedOpsUser.stage_label || "",
-                      parentUserRef: selectedOpsUser.parent_user_ref || "",
-                      adminAssigned: Boolean(selectedOpsUser.admin_assigned),
-                    });
-                    if (ok) notify("회원 단계/관리자 지정 정보가 저장되었습니다.");
-                  }}
-                  className={`mt-2 rounded-2xl px-4 py-2 text-sm font-black ${theme.main}`}
-                >
-                  단계/관리자 지정 저장
-                </button>
-                <div className="mt-3 rounded-2xl border p-3">
-                  <div className="mb-2 text-xs font-black">판매자 입금자명 공지</div>
-                  <textarea
-                    value={sellerDepositNotice}
-                    onChange={(e) => setSellerDepositNotice(e.target.value)}
-                    className={`min-h-20 w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                  />
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => {
-                        appendAdminAction?.("판매자 입금자명 확인 공지 수정");
-                        notify("판매자 공지 문구가 업데이트되었습니다.");
-                      }}
-                      className={`rounded-xl px-3 py-2 text-xs font-black ${theme.main}`}
-                    >
-                      공지 저장
-                    </button>
-                    <button
-                      onClick={() => {
-                        setAdminViewTab("ops");
-                        notify("감사/복구 탭으로 이동합니다.");
-                      }}
-                      className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-                    >
-                      로그 보기
-                    </button>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className={`text-sm ${theme.subtext}`}>왼쪽에서 운영 대상을 선택하세요.</div>
-            )}
-          </div>
-        </div>
+        <MemberOpsGridPanel
+          theme={theme}
+          visible={isAdminTab("memberOps")}
+          DetailBox={DetailBox}
+          authUsers={authUsers}
+          selectedOpsUser={selectedOpsUser}
+          setSelectedOpsUserId={setSelectedOpsUserId}
+          updateAuthRole={updateAuthRole}
+          isSuperAdmin={isSuperAdmin}
+          notify={notify}
+          setAuthUsers={setAuthUsers}
+          updateAuthProfile={updateAuthProfile}
+          sellerDepositNotice={sellerDepositNotice}
+          setSellerDepositNotice={setSellerDepositNotice}
+          appendAdminAction={appendAdminAction}
+          setAdminViewTab={setAdminViewTab}
+        />
         </AdminSectionBoundary>
 
-        <AdminSectionBoundary theme={theme} sectionId="admin-tab-security" sectionLabel="보안 관리">
-        <div className={`${isAdminTab("security") ? "" : "hidden "}mt-5 grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]`}>
-          <div className={`rounded-3xl border p-4 ${theme.card}`}>
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-black">{lang.riskMonitor}</div>
-              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${theme.input}`}>{securityUsers.length}명</span>
-            </div>
-            <select
-              value={securityFilter}
-              onChange={(e) => setSecurityFilter(e.target.value)}
-              className={`mb-3 w-full rounded-2xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
-            >
-              <option>전체</option>
-              <option>주의</option>
-              <option>신고</option>
-              <option>블랙</option>
-            </select>
-            <div className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
-              {securityUsers.map((user) => {
-                const rowSel = String(selectedSecurityUser?.id) === String(user.id);
-                const subCls = rowSel ? theme.mutedOnMain ?? theme.muted : theme.muted;
-                return (
-                  <button
-                    key={user.id}
-                    type="button"
-                    onClick={() => setSelectedSecurityUserId(user.id)}
-                    className={`w-full rounded-2xl border p-3 text-left text-xs ${rowSel ? theme.main : theme.input}`}
-                  >
-                    <div className="font-black">{user.nickname}</div>
-                    <div className={`mt-1 ${subCls}`}>
-                      {user.id} · 위험 {user.riskScore}
-                    </div>
-                    <div className={`mt-1 ${subCls}`}>
-                      신고 {user.reports}건 · 블랙 {user.blacklist ? "Y" : "N"}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
 
-          <div className={`rounded-3xl border p-4 ${theme.card}`}>
-            {selectedSecurityUser ? (
-              <>
-                <div className="grid gap-2 md:grid-cols-3">
-                  <Admin title="위험 점수" value={selectedSecurityUser.riskScore} sub={selectedSecurityUser.blacklist ? "블랙리스트" : "모니터링"} theme={theme} />
-                  <Admin title="신고 건수" value={selectedSecurityUser.reports} sub="누적 신고" theme={theme} />
-                  <Admin title="최근 접속" value={selectedSecurityUser.lastLogin} sub={selectedSecurityUser.country} theme={theme} />
-                </div>
-                <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
-                  <DetailBox label="회원" value={`${selectedSecurityUser.nickname} (${selectedSecurityUser.id})`} theme={theme} />
-                  <DetailBox label="디바이스" value={selectedSecurityUser.device} theme={theme} />
-                  <DetailBox label="IP" value={selectedSecurityUser.ip} theme={theme} />
-                  <DetailBox label="전화번호" value={selectedSecurityUser.phone} theme={theme} />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={() => notify(`${selectedSecurityUser.nickname} 거래 일시정지`)} className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-white">거래정지</button>
-                  <button onClick={() => notify(`${selectedSecurityUser.nickname} 블랙리스트 등록`)} className="rounded-xl bg-red-600 px-3 py-2 text-xs font-black text-white">블랙등록</button>
-                  <button onClick={() => notify(`${selectedSecurityUser.nickname} IP 추적 조회`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>IP분석</button>
-                  <button onClick={() => notify(`${selectedSecurityUser.nickname} 다중계정 분석`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>다중계정</button>
-                </div>
-                <Field label="차단 사유 메모" theme={theme}>
-                  <textarea
-                    value={blockReason}
-                    onChange={(e) => setBlockReason(e.target.value)}
-                    className={`min-h-20 rounded-2xl border px-3 py-2 text-sm font-bold outline-none ${theme.input}`}
-                  />
-                </Field>
-              </>
-            ) : (
-              <div className={`text-sm ${theme.subtext}`}>왼쪽에서 보안 모니터링 유저를 선택하세요.</div>
-            )}
-          </div>
-        </div>
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-security" sectionLabel="보안 관리">
+        <SecurityPanel
+          theme={theme}
+          visible={isAdminTab("security")}
+          lang={lang}
+          securityFilter={securityFilter}
+          setSecurityFilter={setSecurityFilter}
+          securityUsers={securityUsers}
+          selectedSecurityUser={selectedSecurityUser}
+          setSelectedSecurityUserId={setSelectedSecurityUserId}
+          blockReason={blockReason}
+          setBlockReason={setBlockReason}
+          notify={notify}
+          Field={Field}
+          Admin={Admin}
+          DetailBox={DetailBox}
+        />
         </AdminSectionBoundary>
 
         <div ref={rateValidationSectionRef} className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl p-4 text-sm ${invalidRate ? "bg-red-600 text-white" : theme.cardSoft}`}>
@@ -9995,11 +9443,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         </div>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
-        <div className={isAdminTab("memberOps") ? "" : "hidden"}>
-          <Field label="관리 메모" theme={theme}>
-            <textarea value={adminMemo} onChange={(e) => setAdminMemo(e.target.value)} className={`min-h-24 rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="관리자 메모" />
-          </Field>
-        </div>
+        <MemberOpsMemoPanel
+          theme={theme}
+          visible={isAdminTab("memberOps")}
+          Field={Field}
+          adminMemo={adminMemo}
+          setAdminMemo={setAdminMemo}
+        />
         </AdminSectionBoundary>
 
         <div className={`${false && isAdminTab("security") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
@@ -10157,563 +9607,103 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         </div>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-kyc" sectionLabel="KYC 관리">
-        <div className={`${isAdminTab("kyc") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-xl font-black">회사 KYC 승인 센터</div>
-              <div className={`text-sm ${theme.subtext}`}>KYC는 회사만 승인하며, 문서는 분쟁 대응 목적으로 비공개 보관됩니다.</div>
-            </div>
-            <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-black text-white">{buyerKyc.companyApprovalStatus}</span>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Box label="실명" value={buyerKyc.realName || "미입력"} theme={theme} />
-            <Box label="서류 제출 여부" value={buyerKyc.idImageUploaded && buyerKyc.bankAccountUploaded ? "제출됨" : "미제출"} theme={theme} />
-          </div>
-          <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-6">
-            KYC 문서는 회사 내부 보관 정책에 따라 접근 통제되며, 법적 분쟁/수사 협조를 제외하고 누구에게도 공개되지 않습니다.
-          </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={async () => {
-                try {
-                  const data = await apiClient.request(`/api/admin/kyc/${buyerKyc.userId || currentAdminActorId}/review`, {
-                    method: "POST",
-                    auth: true,
-                    body: JSON.stringify({ approve: true }),
-                  });
-                  if (data?.profile) setBuyerKyc(data.profile);
-                  appendAdminAction?.("KYC 회사 승인 처리");
-                  notify("회사 KYC 승인 완료");
-                } catch (error) {
-                  notify(error.message || "KYC 승인 처리에 실패했습니다.");
-                }
-              }}
-              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
-            >
-              회사 승인
-            </button>
-            <button
-              onClick={async () => {
-                try {
-                  const data = await apiClient.request(`/api/admin/kyc/${buyerKyc.userId || currentAdminActorId}/review`, {
-                    method: "POST",
-                    auth: true,
-                    body: JSON.stringify({ approve: false }),
-                  });
-                  if (data?.profile) setBuyerKyc(data.profile);
-                  appendAdminAction?.("KYC 회사 반려 처리");
-                  notify("KYC 반려 처리 완료");
-                } catch (error) {
-                  notify(error.message || "KYC 반려 처리에 실패했습니다.");
-                }
-              }}
-              className="rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white"
-            >
-              반려
-            </button>
-          </div>
-          <div className="mt-3 rounded-2xl border p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-black">KYC 문서 열람 (사유 필수)</div>
-              <button onClick={loadKycDocuments} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                문서 목록 새로고침
-              </button>
-            </div>
-            <input
-              value={kycViewReason}
-              onChange={(e) => setKycViewReason(e.target.value)}
-              placeholder="열람 사유 입력 (5자 이상)"
-              className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-            <div className="mt-2 space-y-2">
-              {kycDocs.length ? (
-                kycDocs.map((doc) => (
-                  <div key={doc.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
-                    <div className="font-black">{doc.file_name}</div>
-                    <div className={theme.muted}>{doc.doc_type} · {doc.mime_type} · {number((doc.size_bytes || 0) / 1024)}KB</div>
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      <button
-                        onClick={() => createKycViewRequest(doc.id)}
-                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
-                      >
-                        열람요청 생성
-                      </button>
-                      <button
-                        onClick={() => loadKycViewRequests(doc.id)}
-                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
-                      >
-                        요청목록 조회
-                      </button>
-                      <button
-                        onClick={() => viewKycDocument(doc.id, doc.mime_type)}
-                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
-                      >
-                        사유 입력 후 열람
-                      </button>
-                      <button
-                        onClick={() => verifyKycAccessLogs(doc.id)}
-                        className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
-                      >
-                        로그 무결성 검증
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>등록된 KYC 문서가 없습니다.</div>
-              )}
-            </div>
-            {!!selectedKycDocId && (
-              <div className="mt-3 rounded-xl border p-3 text-xs">
-                <div className="mb-2 font-black">열람 요청 승인 워크플로우 (2인 승인)</div>
-                <input
-                  value={kycRejectReason}
-                  onChange={(e) => setKycRejectReason(e.target.value)}
-                  placeholder="반려 사유 입력 (5자 이상)"
-                  className={`mb-2 w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                />
-                <select
-                  value={selectedKycRequestId}
-                  onChange={(e) => setSelectedKycRequestId(e.target.value)}
-                  className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-                >
-                  <option value="">열람 요청 선택</option>
-                  {kycViewRequests.map((reqItem) => (
-                    <option key={reqItem.id} value={reqItem.id}>
-                      #{reqItem.id} · {reqItem.status} · approvals {reqItem.approvals?.length || 0}/2
-                    </option>
-                  ))}
-                </select>
-                <div className="mt-2 max-h-36 space-y-1 overflow-y-auto pr-1">
-                  {kycViewRequests.length ? (
-                    kycViewRequests.map((reqItem) => (
-                      <div key={reqItem.id} className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>
-                        <div>
-                          요청 #{reqItem.id} · {reqItem.status} · 승인 {(reqItem.approvals || []).length}/2
-                        </div>
-                        <div className={theme.muted}>{reqItem.reason}</div>
-                        {!!reqItem.rejected_reason && (
-                          <div className="text-red-400">
-                            반려사유: {reqItem.rejected_reason} (by {reqItem.rejected_by_user_id || "-"} · {reqItem.rejected_at || "-"})
-                          </div>
-                        )}
-                        <div className={theme.muted}>요청자 {reqItem.requester_user_id} · {reqItem.created_at}</div>
-                        <div className="mt-1 flex gap-1">
-                          <button
-                            onClick={() => approveKycViewRequest(reqItem.id, Number(selectedKycDocId))}
-                            className={`rounded-lg border px-2 py-1 text-xs font-black ${theme.input}`}
-                          >
-                            이 요청 승인
-                          </button>
-                          <button
-                            onClick={() => rejectKycViewRequest(reqItem.id, Number(selectedKycDocId))}
-                            className="rounded-lg border border-red-500/60 px-2 py-1 text-xs font-black text-red-400"
-                          >
-                            이 요청 반려
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>조회된 열람 요청이 없습니다.</div>
-                  )}
-                </div>
-              </div>
-            )}
-            {kycDocPreview && (
-              <div className="mt-3 rounded-xl border p-3 text-xs">
-                <div className="font-black">문서 미리보기</div>
-                <div
-                  className="relative mt-2 overflow-hidden rounded-lg border"
-                  onContextMenu={(e) => e.preventDefault()}
-                  onDragStart={(e) => e.preventDefault()}
-                  onCopy={(e) => e.preventDefault()}
-                  style={{ userSelect: "none", WebkitUserSelect: "none" }}
-                >
-                  {kycDocPreview.startsWith("data:image/") ? (
-                    <img src={kycDocPreview} alt="kyc-preview" className="max-h-56 w-full object-contain" />
-                  ) : (
-                    <pre className="whitespace-pre-wrap p-2">{kycDocPreview}</pre>
-                  )}
-                  <div className="pointer-events-none absolute inset-0 grid place-items-center bg-transparent p-2 text-[10px] font-black tracking-wider text-red-500/30">
-                    {kycWatermarkText || "CONFIDENTIAL"}
-                  </div>
-                </div>
-                <div className={`mt-1 text-[11px] ${theme.muted}`}>
-                  보안뷰어 모드: 다운로드/우클릭/드래그/복사 제한 + 워터마크 적용
-                </div>
-              </div>
-            )}
-            {!!kycLogVerifyResult && (
-              <div className={`mt-2 rounded-lg border p-2 text-[11px] ${theme.input}`}>{kycLogVerifyResult}</div>
-            )}
-            <div className="mt-3">
-              <div className="text-xs font-black">문서 열람 로그</div>
-              <div className="mt-1 max-h-28 space-y-1 overflow-y-auto pr-1">
-                {kycDocLogs.length ? (
-                  kycDocLogs.map((log) => (
-                    <div key={log.id} className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>
-                      actor {log.actor_user_id} · {log.created_at}
-                      <div className={theme.muted}>{log.reason}</div>
-                    </div>
-                  ))
-                ) : (
-                  <div className={`rounded-lg border p-2 text-[11px] ${theme.input}`}>아직 열람 로그가 없습니다.</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <KycPanel
+          theme={theme}
+          visible={isAdminTab("kyc")}
+          buyerKyc={buyerKyc}
+          setBuyerKyc={setBuyerKyc}
+          apiClient={apiClient}
+          currentAdminActorId={currentAdminActorId}
+          appendAdminAction={appendAdminAction}
+          notify={notify}
+          Box={Box}
+          formatNumber={number}
+          kycDocs={kycDocs}
+          kycViewReason={kycViewReason}
+          setKycViewReason={setKycViewReason}
+          loadKycDocuments={loadKycDocuments}
+          createKycViewRequest={createKycViewRequest}
+          loadKycViewRequests={loadKycViewRequests}
+          viewKycDocument={viewKycDocument}
+          verifyKycAccessLogs={verifyKycAccessLogs}
+          selectedKycDocId={selectedKycDocId}
+          kycRejectReason={kycRejectReason}
+          setKycRejectReason={setKycRejectReason}
+          selectedKycRequestId={selectedKycRequestId}
+          setSelectedKycRequestId={setSelectedKycRequestId}
+          kycViewRequests={kycViewRequests}
+          approveKycViewRequest={approveKycViewRequest}
+          rejectKycViewRequest={rejectKycViewRequest}
+          kycDocPreview={kycDocPreview}
+          kycWatermarkText={kycWatermarkText}
+          kycLogVerifyResult={kycLogVerifyResult}
+          kycDocLogs={kycDocLogs}
+        />
         </AdminSectionBoundary>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-dispute" sectionLabel="분쟁 관리">
-        <div className={`${isAdminTab("dispute") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-xl font-black">분쟁 다중승인 / 메인 관리자 보관계좌 정책</div>
-              <div className={`text-sm ${theme.subtext}`}>분쟁 시 지정 승인자 3~5인 결재가 모여야 반환 처리됩니다.</div>
-            </div>
-            <span className="rounded-full bg-red-600 px-3 py-1 text-xs font-black text-white">고신뢰 정책</span>
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="회사 지정 보관 계좌" theme={theme}>
-              <input
-                value={escrowPolicy.mainCustodyAccount}
-                onChange={(e) => setEscrowPolicy((prev) => ({ ...prev, mainCustodyAccount: e.target.value }))}
-                className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
-              />
-            </Field>
-            <Field label="필요 승인 인원(3~5)" theme={theme}>
-              <select
-                value={escrowPolicy.requiredApprovals}
-                onChange={(e) => setEscrowPolicy((prev) => ({ ...prev, requiredApprovals: Number(e.target.value) }))}
-                className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
-              >
-                <option value={3}>3인 승인</option>
-                <option value={4}>4인 승인</option>
-                <option value={5}>5인 승인</option>
-              </select>
-            </Field>
-            <Field label="최종 승인 메인 관리자 ID (1인 고정)" theme={theme}>
-              <select
-                value={escrowPolicy.mainFinalApproverId}
-                onChange={(e) => setEscrowPolicy((prev) => ({ ...prev, mainFinalApproverId: e.target.value }))}
-                className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
-              >
-                {authUsers.filter((u) => u.role.includes("관리자")).map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.nickname} ({user.id})
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
-          <div className="mt-3 rounded-2xl border p-3">
-            <div className="text-sm font-black">레벨별 구매 지연시간(시간)</div>
-            <div className="mt-2 grid gap-2 md:grid-cols-5">
-              {["Lv1", "Lv2", "Lv3", "Lv4", "Lv5"].map((levelKey) => (
-                <label key={levelKey} className={`rounded-xl border px-3 py-2 text-xs ${theme.input}`}>
-                  <div className="font-black">{levelKey}</div>
-                  <input
-                    type="number"
-                    min={0}
-                    max={168}
-                    value={escrowPolicy?.levelDelayHours?.[levelKey] ?? 0}
-                    onChange={(e) =>
-                      setEscrowPolicy((prev) => ({
-                        ...prev,
-                        levelDelayHours: {
-                          ...(prev.levelDelayHours || {}),
-                          [levelKey]: Math.max(0, Number(e.target.value || 0)),
-                        },
-                      }))
-                    }
-                    className={`mt-1 w-full rounded-lg border px-2 py-1 text-xs font-bold outline-none ${theme.input}`}
-                  />
-                </label>
-              ))}
-            </div>
-            <div className={`mt-2 text-xs ${theme.muted}`}>0 입력 시 즉시 처리로 표시됩니다.</div>
-          </div>
-          <div className="mt-3 rounded-2xl border p-3">
-            <div className="text-sm font-black">지정 승인자 선택</div>
-            <div className="mt-2 grid gap-2 md:grid-cols-2">
-              {authUsers.filter((u) => u.role.includes("관리자")).map((user) => (
-                <label key={user.id} className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${theme.input}`}>
-                  <input
-                    type="checkbox"
-                    checked={escrowPolicy.approverIds.includes(user.id)}
-                    onChange={(e) => {
-                      if (!isSuperAdmin) {
-                        notify("슈퍼관리자만 승인자를 지정할 수 있습니다.");
-                        return;
-                      }
-                      setEscrowPolicy((prev) => ({
-                        ...prev,
-                        approverIds: e.target.checked
-                          ? [...prev.approverIds, user.id]
-                          : prev.approverIds.filter((id) => id !== user.id),
-                      }));
-                    }}
-                  />
-                  <span className="font-black">{user.nickname}</span>
-                  <span className={theme.muted}>({user.id})</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <button
-            onClick={async () => {
-              try {
-                const data = await apiClient.request("/api/admin/escrow-policy", {
-                  method: "PUT",
-                  auth: true,
-                  body: JSON.stringify(escrowPolicy),
-                });
-                if (data?.policy) setEscrowPolicy(data.policy);
-                appendAdminAction?.("보관계좌/분쟁승인 정책 저장");
-                notify("분쟁 다중승인 정책이 저장되었습니다.");
-              } catch (error) {
-                notify(error.message || "정책 저장에 실패했습니다.");
-              }
-            }}
-            className={`mt-3 rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
-          >
-            정책 저장
-          </button>
-          <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
-            <input
-              value={newPolicyPinInput}
-              onChange={(e) => setNewPolicyPinInput(e.target.value)}
-              placeholder="최종승인 PIN 변경 (숫자 6~10자리)"
-              className={`rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
-            />
-            <button
-              onClick={async () => {
-                try {
-                  await apiClient.request("/api/admin/escrow-policy/pin", {
-                    method: "PUT",
-                    auth: true,
-                    body: JSON.stringify({ pin: newPolicyPinInput }),
-                  });
-                  appendAdminAction?.("최종승인 PIN 변경");
-                  setNewPolicyPinInput("");
-                  notify("최종승인 PIN이 업데이트되었습니다.");
-                } catch (error) {
-                  notify(error.message || "PIN 변경에 실패했습니다.");
-                }
-              }}
-              className={`rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
-            >
-              PIN 저장
-            </button>
-          </div>
-          <input
-            value={finalApprovalPinInput}
-            onChange={(e) => setFinalApprovalPinInput(e.target.value)}
-            placeholder="메인 관리자 최종승인 PIN 입력"
-            className={`mt-3 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
-          />
-          <input
-            value={finalApprovalOtpInput}
-            onChange={(e) => setFinalApprovalOtpInput(e.target.value)}
-            placeholder="메인 관리자 최종승인 OTP 입력"
-            className={`mt-2 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
-          />
-          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
-            {disputeCases.length ? (
-              disputeCases.map((item) => (
-                <div key={item.id} className={`rounded-2xl border p-3 text-sm ${theme.input}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="font-black">{item.id} · {item.orderSeller}</div>
-                    <span className={`rounded-full px-2 py-1 text-xs font-black ${item.status === "반환완료" ? "bg-emerald-600 text-white" : "bg-amber-500 text-white"}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  <div className={`mt-1 text-xs ${theme.muted}`}>{item.coin} {number(item.amount)} · 입금자 {item.senderName} · 계좌 {item.senderAccount}</div>
-                  <div className={`mt-1 text-xs ${theme.muted}`}>승인 {item.approvals.length} / {escrowPolicy.requiredApprovals} · 최종승인자 {escrowPolicy.mainFinalApproverId}</div>
-                  {item.releaseMessage && <div className="mt-1 text-xs font-black text-emerald-500">{item.releaseMessage}</div>}
-                  <button
-                    onClick={() => approveDisputeCase(item.id, currentAdminActorId)}
-                    disabled={!escrowPolicy.approverIds.includes(currentAdminActorId) || item.status === "반환완료" || item.status === "최종승인대기"}
-                    className={`mt-2 rounded-xl px-3 py-2 text-xs font-black ${item.status === "반환완료" ? "bg-slate-500 text-white" : theme.main}`}
-                  >
-                    내가 승인하기
-                  </button>
-                  <button
-                    onClick={() => loadDisputeEvents(item.id)}
-                    className={`mt-2 ml-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-                  >
-                    이벤트 타임라인
-                  </button>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await apiClient.request(`/api/admin/disputes/${item.id}/request-otp`, {
-                          method: "POST",
-                          auth: true,
-                          body: JSON.stringify({}),
-                        });
-                        notify("OTP 발급 완료 (5분 유효). 등록된 관리자 보안 채널로 전송되었습니다.");
-                      } catch (error) {
-                        notify(error.message || "OTP 발급에 실패했습니다.");
-                      }
-                    }}
-                    disabled={item.status !== "최종승인대기" || currentAdminActorId !== escrowPolicy.mainFinalApproverId}
-                    className={`mt-2 ml-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-                  >
-                    OTP 발급
-                  </button>
-                  <button
-                    onClick={() => finalizeDisputeByMain(item.id, currentAdminActorId, finalApprovalPinInput, finalApprovalOtpInput)}
-                    disabled={item.status !== "최종승인대기" || currentAdminActorId !== escrowPolicy.mainFinalApproverId}
-                    className={`mt-2 ml-2 rounded-xl px-3 py-2 text-xs font-black ${item.status === "최종승인대기" ? "bg-red-600 text-white" : "bg-slate-500 text-white"}`}
-                  >
-                    메인 관리자 최종승인
-                  </button>
-                </div>
-              ))
-            ) : (
-              <div className={`rounded-2xl border p-3 text-sm ${theme.input}`}>접수된 분쟁이 없습니다.</div>
-            )}
-          </div>
-          <div className="mt-3 rounded-2xl border p-3">
-            <div className="text-sm font-black">분쟁 이벤트 타임라인 {selectedDisputeIdForTimeline ? `(${selectedDisputeIdForTimeline})` : ""}</div>
-            <div className="mt-2 grid gap-2 md:grid-cols-3">
-              <select value={timelineActionFilter} onChange={(e) => setTimelineActionFilter(e.target.value)} className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}>
-                <option>전체</option>
-                <option>분쟁접수</option>
-                <option>다중승인</option>
-                <option>OTP발급</option>
-                <option>최종승인</option>
-              </select>
-              <input type="date" value={timelineFromDate} onChange={(e) => setTimelineFromDate(e.target.value)} className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`} />
-              <input type="date" value={timelineToDate} onChange={(e) => setTimelineToDate(e.target.value)} className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`} />
-            </div>
-            <div className="mt-2 max-h-44 space-y-2 overflow-y-auto pr-1">
-              {filteredTimelineEvents.length ? (
-                filteredTimelineEvents.map((event) => (
-                  <div key={event.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
-                    <div className="font-black">{event.action}</div>
-                    <div className={theme.muted}>actor: {actorNameMap[event.actor_user_id] || event.actor_user_id} · {event.created_at}</div>
-                    <div className={theme.muted}>{event.detail}</div>
-                  </div>
-                ))
-              ) : (
-                <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>조회된 이벤트가 없습니다. 분쟁 카드에서 `이벤트 타임라인`을 누르세요.</div>
-              )}
-            </div>
-            <button onClick={exportTimelineCsv} className={`mt-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              타임라인 CSV 내보내기
-            </button>
-            <button onClick={verifyTimelineIntegrity} className={`mt-2 ml-2 rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              타임라인 무결성 검증
-            </button>
-            {timelineVerifyResult && <div className={`mt-2 text-xs font-black ${theme.muted}`}>{timelineVerifyResult}</div>}
-          </div>
-        </div>
+        <DisputePanel
+          theme={theme}
+          visible={isAdminTab("dispute")}
+          Field={Field}
+          escrowPolicy={escrowPolicy}
+          setEscrowPolicy={setEscrowPolicy}
+          authUsers={authUsers}
+          isSuperAdmin={isSuperAdmin}
+          notify={notify}
+          apiClient={apiClient}
+          appendAdminAction={appendAdminAction}
+          newPolicyPinInput={newPolicyPinInput}
+          setNewPolicyPinInput={setNewPolicyPinInput}
+          finalApprovalPinInput={finalApprovalPinInput}
+          setFinalApprovalPinInput={setFinalApprovalPinInput}
+          finalApprovalOtpInput={finalApprovalOtpInput}
+          setFinalApprovalOtpInput={setFinalApprovalOtpInput}
+          disputeCases={disputeCases}
+          formatNumber={number}
+          approveDisputeCase={approveDisputeCase}
+          currentAdminActorId={currentAdminActorId}
+          loadDisputeEvents={loadDisputeEvents}
+          finalizeDisputeByMain={finalizeDisputeByMain}
+          selectedDisputeIdForTimeline={selectedDisputeIdForTimeline}
+          timelineActionFilter={timelineActionFilter}
+          setTimelineActionFilter={setTimelineActionFilter}
+          timelineFromDate={timelineFromDate}
+          setTimelineFromDate={setTimelineFromDate}
+          timelineToDate={timelineToDate}
+          setTimelineToDate={setTimelineToDate}
+          filteredTimelineEvents={filteredTimelineEvents}
+          actorNameMap={actorNameMap}
+          timelineVerifyResult={timelineVerifyResult}
+          exportTimelineCsv={exportTimelineCsv}
+          verifyTimelineIntegrity={verifyTimelineIntegrity}
+        />
         </AdminSectionBoundary>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
-        <div className={`${isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-xl font-black">첨부/음성 메시지 모니터링</div>
-              <div className={`text-sm ${theme.subtext}`}>친구 채팅방에서 오간 첨부파일과 음성 메시지를 관리자에서 추적합니다.</div>
-            </div>
-            <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{totalMediaCount}건</span>
-          </div>
-          <div className="mb-3 grid gap-2 md:grid-cols-2">
-            <select
-              value={adminMediaTypeFilter}
-              onChange={(e) => {
-                setAdminMediaTypeFilter(e.target.value);
-                appendAdminAction?.(`미디어 타입 필터 변경: ${e.target.value}`);
-              }}
-              className={`rounded-2xl border px-3 py-2 text-sm font-black outline-none ${theme.input}`}
-            >
-              <option>전체</option>
-              <option>첨부파일</option>
-              <option>음성</option>
-            </select>
-            <select
-              value={adminMediaFriendFilter}
-              onChange={(e) => {
-                setAdminMediaFriendFilter(e.target.value);
-                appendAdminAction?.(`친구 필터 변경: ${e.target.value}`);
-              }}
-              className={`rounded-2xl border px-3 py-2 text-sm font-black outline-none ${theme.input}`}
-            >
-              <option value="전체">전체 친구</option>
-              {(friends || []).map((friend) => (
-                <option key={friend.id} value={friend.id}>
-                  {friend.nickname} ({friend.id})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className={`rounded-2xl p-3 ${theme.cardSoft}`}>
-              <div className={theme.muted}>전체 첨부</div>
-              <div className="mt-1 text-xl font-black">{totalMediaCount}</div>
-            </div>
-            <div className={`rounded-2xl p-3 ${theme.cardSoft}`}>
-              <div className={theme.muted}>일반 첨부</div>
-              <div className="mt-1 text-xl font-black">{fileMediaCount}</div>
-            </div>
-            <div className={`rounded-2xl p-3 ${theme.cardSoft}`}>
-              <div className={theme.muted}>음성 메시지</div>
-              <div className="mt-1 text-xl font-black">{voiceMediaCount}</div>
-            </div>
-          </div>
-          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
-            {filteredMediaEvents.length ? (
-              filteredMediaEvents.slice().reverse().map((item) => (
-                <div key={item.id} className={`rounded-2xl border p-3 text-sm ${theme.input}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-black">{item.friendName} ({item.friendId})</div>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-black ${item.isVoice ? "bg-violet-600 text-white" : "bg-blue-600 text-white"}`}>
-                      {item.isVoice ? "음성" : "첨부"}
-                    </span>
-                  </div>
-                  <div className={`mt-1 text-xs ${isRiskyFileName(item.fileName) ? "font-black text-red-500" : theme.muted}`}>
-                    {item.fileName}
-                    {isRiskyFileName(item.fileName) ? " · 위험 파일명 의심" : ""}
-                  </div>
-                  <div className={`mt-1 text-xs ${theme.muted}`}>{item.fileType} · {item.sender === "me" ? "내 전송" : "상대 전송"} · {item.createdAt}</div>
-                </div>
-              ))
-            ) : (
-              <div className={`rounded-2xl border p-3 text-sm ${theme.input}`}>아직 수집된 첨부/음성 이벤트가 없습니다.</div>
-            )}
-          </div>
-        </div>
+        <MemberOpsMediaPanel
+          theme={theme}
+          visible={isAdminTab("memberOps")}
+          adminMediaTypeFilter={adminMediaTypeFilter}
+          setAdminMediaTypeFilter={setAdminMediaTypeFilter}
+          appendAdminAction={appendAdminAction}
+          adminMediaFriendFilter={adminMediaFriendFilter}
+          setAdminMediaFriendFilter={setAdminMediaFriendFilter}
+          friends={friends}
+          totalMediaCount={totalMediaCount}
+          fileMediaCount={fileMediaCount}
+          voiceMediaCount={voiceMediaCount}
+          filteredMediaEvents={filteredMediaEvents}
+          isRiskyFileName={isRiskyFileName}
+        />
         </AdminSectionBoundary>
 
-        <div
+        <AdminActionLogStrip
           ref={adminActionLogSectionRef}
-          className={`${isAdminTab("member") || isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-xl font-black">관리자 액션 로그</div>
-              <div className={`text-sm ${theme.subtext}`}>단계 변경·필터·권한 등 관리자 행동 기록 (VD 목업은 로컬 반영)</div>
-            </div>
-            <span className="rounded-full bg-slate-700 px-3 py-1 text-xs font-black text-white">{adminActionLogs.length}건</span>
-          </div>
-          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
-            {adminActionLogs.length ? (
-              adminActionLogs.map((log) => (
-                <div key={log.id} className={`rounded-2xl border p-3 text-sm ${theme.input}`}>
-                  <div className="font-black">{log.action}</div>
-                  <div className={`mt-1 text-xs ${theme.muted}`}>{log.role} · {log.time}</div>
-                </div>
-              ))
-            ) : (
-              <div className={`rounded-2xl border p-3 text-sm ${theme.input}`}>아직 기록된 관리자 액션이 없습니다.</div>
-            )}
-          </div>
-        </div>
+          theme={theme}
+          visible={isAdminTab("member") || isAdminTab("memberOps")}
+          adminActionLogs={adminActionLogs}
+        />
 
         <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 grid gap-3 md:grid-cols-3`}>
           {(() => {

@@ -20,7 +20,7 @@ Client-side gate (**demo-oriented**):
 - **`src/admin/AdminShell.jsx`** — layout wrapper for admin experiences; keep responsive breakpoints **mobile-first** (single column, collapsible nav). Default nav includes **UTE·P2P** (maps to internal `uteSurface` tab).
 - **`src/pages/SimpleAdmin.tsx`**, **`src/admin/AdminPlaceholder.jsx`** — lightweight or placeholder admin routes; extend here rather than duplicating policy in `App.jsx` where possible.
 - **`AdminSectionBoundary`** — **`audit`**, **`ops`**, **`kyc`**, **`dispute`**, **`member`**, **`memberOps`** (split roots), **`security`** in `AdminReferralPanel` (`App.jsx`) so a runtime error in one tab shows that section’s fallback only; other tabs stay interactive. See [ADMIN_STRUCTURE_AUDIT.md](./ADMIN_STRUCTURE_AUDIT.md).
-- **Panel split (incremental)**: [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) — `uteSurface` → `src/admin/panels/UteSurfacePanel.jsx` (phase 5); further `src/admin/panels/` extractions follow the plan.
+- **Panel split (incremental)**: [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) — `uteSurface` → `UteSurfacePanel.jsx`; `dashboard` → `DashboardPanel.jsx`; `security` (live) → `SecurityPanel.jsx` (phase 7); further `src/admin/panels/` per plan.
 
 ## UTE · P2P admin snapshot
 

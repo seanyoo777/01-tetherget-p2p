@@ -15,7 +15,7 @@
     "verify:api-origin:wait": "node scripts/verify-mvp-api.mjs --wait",
     "prebuild": "npm run check:vite-api-base",
     "build": "vite build",
-    "lint": "eslint \"src/tetherget/**/*.{ts,tsx}\" \"src/mock/adminPlatformMock.ts\" \"src/pages/SimpleAdmin.tsx\" \"shared/p2pLifecycleMap.js\" \"server/admin/p2pUteSurface.js\" \"src/admin/AdminSectionBoundary.jsx\" \"src/admin/AdminErrorBoundary.jsx\" \"src/admin/adminMenuIds.js\" \"src/admin/panels/UteSurfacePanel.jsx\"",
+    "lint": "eslint \"src/tetherget/**/*.{ts,tsx}\" \"src/mock/adminPlatformMock.ts\" \"src/pages/SimpleAdmin.tsx\" \"shared/p2pLifecycleMap.js\" \"server/admin/p2pUteSurface.js\" \"src/admin/AdminSectionBoundary.jsx\" \"src/admin/AdminErrorBoundary.jsx\" \"src/admin/adminMenuIds.js\" \"src/admin/panels/UteSurfacePanel.jsx\" \"src/admin/panels/DashboardPanel.jsx\" \"src/admin/panels/SecurityPanel.jsx\" \"src/admin/panels/KycPanel.jsx\" \"src/admin/panels/DisputePanel.jsx\" \"src/admin/panels/AdminActionLogStrip.jsx\" \"src/admin/panels/MemberOpsGridPanel.jsx\" \"src/admin/panels/MemberOpsMemoPanel.jsx\" \"src/admin/panels/MemberOpsMediaPanel.jsx\" \"src/admin/panels/MemberGridPanel.jsx\" \"src/admin/panels/MemberDetailPanel.jsx\" \"src/admin/panels/MemberDirectDownlinePanel.jsx\" \"src/admin/panels/MemberHierarchyPanel.jsx\" \"src/admin/panels/MemberStatsPanel.jsx\" \"src/admin/panels/MemberAssignChildPanel.jsx\" \"src/admin/panels/MemberActionRowPanel.jsx\"",
     "verify:admin-stage": "node server/scripts/verify-admin-stage-consistency.mjs",
     "verify:admin-downline": "node server/scripts/verify-admin-downline-consistency.mjs",
     "verify:referral-engine": "node server/scripts/verify-referral-tree-engine.mjs",
