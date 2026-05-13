@@ -1,0 +1,12 @@
+[PROJECT RULES]
+
+- 기존 기능 삭제 금지
+- build/lint 유지
+- mock 유지
+- 실거래 API 연결 금지
+- 실제 자동 송금 금지
+- 보안 우선 구조 유지
+- UI/UX 우선
+- 구조 변경 / 신규 폴더 / 신규 시스템 추가 시
+  MASTER_MANUAL.md 및 docs 문서도 함께 업데이트
+  
