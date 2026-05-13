@@ -23,7 +23,7 @@
       apiBase = localStorage.getItem("tgx_beta_api_base") || "";
     } catch (_) {}
     if (!apiBase) {
-      apiBase = window.location.origin.replace(":5173", ":4000") || "http://localhost:4000";
+      apiBase = window.location.origin.replace(":5173", ":4000").replace(":5171", ":4000") || "http://localhost:4000";
     }
     document.getElementById("btn").onclick = async function () {
       var url = apiBase.replace(/\/$/, "") + "/api/public/beta-stats";

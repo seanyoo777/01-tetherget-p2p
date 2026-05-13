@@ -58,7 +58,7 @@
       } catch (_) {}
       var b = document.getElementById("base").value.trim();
       if (b) return b.replace(/\/$/, "");
-      return (window.location.origin || "").replace(":5173", ":4000").replace(/\/$/, "") || "http://localhost:4000";
+      return (window.location.origin || "").replace(":5173", ":4000").replace(":5171", ":4000").replace(/\/$/, "") || "http://localhost:4000";
     }
     function tok() {
       return document.getElementById("token").value.trim();

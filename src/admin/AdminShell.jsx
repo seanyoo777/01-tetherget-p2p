@@ -9,6 +9,7 @@ const DEFAULT_MENU = [
   { id: "trade", label: "거래관리" },
   { id: "settlement", label: "정산관리" },
   { id: "settings", label: "설정" },
+  { id: "ute", label: "UTE·P2P" },
 ];
 
 /**

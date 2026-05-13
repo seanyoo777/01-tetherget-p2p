@@ -1,10 +1,10 @@
 /**
- * Requires: npm run dev (Vite on 5173). Local seed login (no API).
+ * Requires: npm run dev (Vite on 5171 for 01-P2P). Local seed login (no API).
  * Usage: npm run smoke:admin
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.BASE_URL || "http://127.0.0.1:5173";
+const BASE = process.env.BASE_URL || "http://127.0.0.1:5171";
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
@@ -22,7 +22,7 @@ async function main() {
   const title = await page.title();
   if (!/tetherget-mvp/i.test(title)) {
     console.error(
-      `FAIL: 이 주소는 tetherget-mvp 앱이 아닙니다 (document.title="${title}"). 5173에 다른 프로젝트가 떠 있으면 중지하고 이 폴더에서 npm run dev 하거나 BASE_URL을 지정하세요.`
+      `FAIL: 이 주소는 01-TetherGet-P2P 앱이 아닙니다 (document.title="${title}"). 이 폴더에서 npm run dev(5171) 또는 BASE_URL을 지정하세요.`
     );
     await browser.close();
     process.exit(1);

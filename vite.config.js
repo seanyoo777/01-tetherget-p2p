@@ -4,9 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  /** 로컬 테스트 기준 URL: http://localhost:5173/ — 다른 프로세스가 5173을 쓰면 기동 실패(포트 충돌 확인). */
+  /** 01번 P2P 전용: http://localhost:5171/ — 02-TGX-CEX 등이 5173을 쓰면 충돌 없이 병행 가능. */
   server: {
-    port: 5173,
+    port: 5171,
     strictPort: true,
   },
 })

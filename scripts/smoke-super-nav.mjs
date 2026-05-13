@@ -1,10 +1,10 @@
 /**
- * Requires: npm run dev (Vite on 5173). Local seed login (no API).
+ * Requires: npm run dev (Vite on 5171 for 01-P2P). Local seed login (no API).
  * Usage: npm run smoke:super-nav
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.BASE_URL || "http://127.0.0.1:5173";
+const BASE = process.env.BASE_URL || "http://127.0.0.1:5171";
 
 async function login(page, email, password) {
   await page.getByRole("button", { name: "로그인" }).first().click();

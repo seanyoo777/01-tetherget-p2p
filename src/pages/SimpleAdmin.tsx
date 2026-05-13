@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { mergeAuthUserWithStageConsistency, normalizeStageLabel } from "../admin/adminMemberModel.js";
+import { refreshAdminPlatformSurface, getUteSurfaceMetrics, type AdminApiClient } from "../mock/adminPlatformMock";
+import type { UteSurfacePayload } from "../tetherget/types";
 
 const LEVEL_OPTIONS = [
   "회원",
@@ -25,7 +27,7 @@ function isPickLevel(s: string): boolean {
 type ThemeStrings = Record<string, string | undefined>;
 
 type ApiClient = {
-  request: (path: string, options?: { method?: string; auth?: boolean; body?: string }) => Promise<{ user?: Record<string, unknown> }>;
+  request: (path: string, options?: { method?: string; auth?: boolean; body?: string }) => Promise<unknown>;
 };
 
 export type SimpleAdminProps = {
@@ -131,6 +133,7 @@ export default function SimpleAdmin({
   const [counts, setCounts] = useState<Record<number, number>>(() => emptyCounts());
   const [selfTestBanner, setSelfTestBanner] = useState<{ kind: "pass" | "fail"; text: string } | null>(null);
   const [selfTestRunning, setSelfTestRunning] = useState(false);
+  const [uteMetrics, setUteMetrics] = useState<UteSurfacePayload["metrics"] | null>(null);
 
   const countsRef = useRef(counts);
   countsRef.current = counts;
@@ -148,6 +151,20 @@ export default function SimpleAdmin({
     setRows(list);
     setCounts(countLevels(list));
   }, [authUsers, currentAdminActorId, tick]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setUteMetrics(null);
+      return;
+    }
+    let cancelled = false;
+    void refreshAdminPlatformSurface(apiClient as AdminApiClient).then(() => {
+      if (!cancelled) setUteMetrics(getUteSurfaceMetrics());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken, apiClient, tick]);
 
   function copyReferral(userId: string | number) {
     const url = referralUrl(userId);
@@ -363,6 +380,43 @@ export default function SimpleAdmin({
         >
           {selfTestBanner.text}
         </div>
+      ) : null}
+
+      {uteMetrics ? (
+        <section className={`${card} space-y-3`} aria-label="UTE P2P surface preview">
+          <div className="text-sm font-bold">UTE 연동 예비 · P2P 운영 스냅샷 (mock 집계)</div>
+          <p className={`text-xs ${theme.muted ?? "text-neutral-500"}`}>
+            실 송금·온체인 release 없음. `/api/admin/p2p/ute-surface` 기준. 실패 시 데모 숫자로 폴백합니다.
+          </p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className={`rounded-lg p-3 ${theme.cardSoft ?? "bg-neutral-50"}`}>
+              <div className={`text-[10px] font-bold uppercase ${theme.muted ?? ""}`}>P2P 주문</div>
+              <div className="text-xl font-black">{uteMetrics.p2p_order_count}</div>
+            </div>
+            <div className={`rounded-lg p-3 ${theme.cardSoft ?? "bg-neutral-50"}`}>
+              <div className={`text-[10px] font-bold uppercase ${theme.muted ?? ""}`}>에스크로 락 (minor)</div>
+              <div className="break-all font-mono text-sm font-black">{uteMetrics.p2p_escrow_locked_minor_total}</div>
+            </div>
+            <div className={`rounded-lg p-3 ${theme.cardSoft ?? "bg-neutral-50"}`}>
+              <div className={`text-[10px] font-bold uppercase ${theme.muted ?? ""}`}>활성 분쟁</div>
+              <div className="text-xl font-black">{uteMetrics.dispute_active_count}</div>
+            </div>
+            <div className={`rounded-lg p-3 ${theme.cardSoft ?? "bg-neutral-50"}`}>
+              <div className={`text-[10px] font-bold uppercase ${theme.muted ?? ""}`}>레퍼럴 pending</div>
+              <div className="text-xl font-black">{uteMetrics.referral_settlement_pending_count}</div>
+            </div>
+            <div className={`rounded-lg p-3 ${theme.cardSoft ?? "bg-neutral-50"}`}>
+              <div className={`text-[10px] font-bold uppercase ${theme.muted ?? ""}`}>지갑 리스크 유저</div>
+              <div className="text-xl font-black">{uteMetrics.wallet_risk_user_count}</div>
+            </div>
+            <div className={`rounded-lg p-3 ${theme.cardSoft ?? "bg-neutral-50"}`}>
+              <div className={`text-[10px] font-bold uppercase ${theme.muted ?? ""}`}>관리자 리스크</div>
+              <div className="text-xl font-black">
+                {uteMetrics.admin_risk_level} ({uteMetrics.admin_risk_score})
+              </div>
+            </div>
+          </div>
+        </section>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-[200px_1fr]">

@@ -12,18 +12,20 @@ export class AdminErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     if (import.meta.env.DEV) {
-      console.error("[AdminErrorBoundary]", error, info?.componentStack);
+      const scope = this.props.sectionLabel || "admin";
+      console.error("[AdminErrorBoundary]", scope, error, info?.componentStack);
     }
   }
 
   render() {
-    const { theme, children } = this.props;
+    const { theme, children, sectionLabel } = this.props;
     const { error } = this.state;
     if (error) {
       const t = theme || {};
+      const scope = sectionLabel ? ` · ${sectionLabel}` : "";
       return (
         <div className={`rounded-2xl border p-6 ${t.cardSoft || t.card || "bg-slate-900 text-white"}`}>
-          <div className="text-lg font-black">관리자 화면 일부를 표시할 수 없습니다</div>
+          <div className="text-lg font-black">관리자 화면 일부를 표시할 수 없습니다{scope}</div>
           <p className={`mt-2 text-sm ${t.muted || "text-slate-400"}`}>
             오류가 기록되었습니다. 거래 등 다른 메뉴는 계속 이용할 수 있습니다.
           </p>

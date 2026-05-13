@@ -37,6 +37,7 @@ import {
   parseLedgerPositiveAmount,
   parseLedgerNonNegativePrice,
 } from "./finance/moneyAmount.js";
+import { buildP2pUteSurfacePayloadFromIndex } from "./admin/p2pUteSurface.js";
 
 const LEDGER_MINOR_MIGRATION_KEY = "ledger.integer_minor_v1";
 const LEDGER_DROP_REAL_COLUMNS_KEY = "ledger.drop_real_columns_v1";
@@ -4163,6 +4164,17 @@ app.get("/api/admin/p2p/orders", authRequired, adminRequired, (req, res) => {
     ? db.prepare(`SELECT * FROM p2p_orders WHERE status = ? ORDER BY updated_at DESC LIMIT ?`).all(statusFilter, limit)
     : db.prepare(`SELECT * FROM p2p_orders ORDER BY updated_at DESC LIMIT ?`).all(limit);
   res.json({ orders: rows.map((r) => mapP2pOrderRow(r, null)) });
+});
+
+/** UTE(7번) 연동·관리자 패널용 P2P/escrow/referral/dispute/risk 스냅샷 (집계만, 실 송금·release 없음) */
+app.get("/api/admin/p2p/ute-surface", authRequired, adminRequired, (_req, res) => {
+  try {
+    const payload = buildP2pUteSurfacePayloadFromIndex(db, mapP2pOrderRow, getP2pMatchSlaMinutes);
+    res.json(payload);
+  } catch (e) {
+    console.warn("[ute-surface]", e?.message || e);
+    res.status(500).json({ message: e?.message || "ute-surface failed" });
+  }
 });
 
 app.post("/api/admin/p2p/orders/:id/cancel", authRequired, adminRequired, (req, res) => {

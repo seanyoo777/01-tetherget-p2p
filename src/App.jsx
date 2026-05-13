@@ -11,6 +11,9 @@ import {
 } from "./testAccountRegistry";
 import { canAccessAdminSafe } from "./admin/canAccessAdminSafe.js";
 import { AdminShell } from "./admin/AdminShell.jsx";
+import { AdminSectionBoundary } from "./admin/AdminSectionBoundary.jsx";
+import { UteSurfacePanel } from "./admin/panels/UteSurfacePanel.jsx";
+import { ADMIN_SHELL_TO_PANEL_TAB, ADMIN_PANEL_TAB_IDS } from "./admin/adminMenuIds.js";
 import {
   updateUserLevel,
   buildReferralTree,
@@ -21,6 +24,7 @@ import {
   validateTreeIntegrity,
 } from "./utils/referralTreeEngine";
 import { MOCK_TRADE_PUSH_NOTIFICATIONS, MOCK_GENERAL_ALERT_NOTIFICATIONS, MOCK_ADMIN_BRIEFS } from "./mock/notificationMock.js";
+import { refreshAdminPlatformSurface, getUteSurfaceMetrics } from "./mock/adminPlatformMock";
 import { MOCK_P2P_LISTED_ORDERS } from "./mock/p2pListedOrdersMock.js";
 import {
   getListingUiMeta,
@@ -1713,16 +1717,8 @@ export default function App() {
   const adminGateAllowed = useMemo(() => canAccessAdminSafe(adminGateUser), [adminGateUser]);
   const [adminShellMenu, setAdminShellMenu] = useState("dashboard");
   const adminShellLegacyTab = useMemo(() => {
-    const map = {
-      dashboard: "dashboard",
-      member: "member",
-      referral: "memberOps",
-      stage: "member",
-      trade: "audit",
-      settlement: "dispute",
-      settings: "ops",
-    };
-    return map[adminShellMenu] || "dashboard";
+    const mapped = ADMIN_SHELL_TO_PANEL_TAB[adminShellMenu];
+    return mapped || ADMIN_PANEL_TAB_IDS.DASHBOARD;
   }, [adminShellMenu]);
   const showAdminNav = Boolean(adminGateAllowed || sessionProfile.canAccessAdmin);
   /** 이메일 일치 행만 사용 — 첫 번째 유저 폴백 시 타인 role 로 세션·관리자 판정이 깨짐 */
@@ -5685,10 +5681,23 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   });
   const [opsActionLoading, setOpsActionLoading] = useState("");
   const [adminViewTab, setAdminViewTab] = useState("dashboard");
+  const [uteSurfaceMetrics, setUteSurfaceMetrics] = useState(null);
   useEffect(() => {
     if (!legacyTabFromShell) return;
     setAdminViewTab(legacyTabFromShell);
   }, [legacyTabFromShell]);
+
+  useEffect(() => {
+    if (adminViewTab !== "uteSurface" || !authToken) return;
+    let cancelled = false;
+    void refreshAdminPlatformSurface(apiClient).then(() => {
+      if (!cancelled) setUteSurfaceMetrics(getUteSurfaceMetrics());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [adminViewTab, authToken, apiClient]);
+
   const [selectedOpsUserId, setSelectedOpsUserId] = useState("");
   const [selectedSecurityUserId, setSelectedSecurityUserId] = useState("");
   const [opsSnapshots, setOpsSnapshots] = useState([]);
@@ -7938,6 +7947,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     { key: "dispute", title: "분쟁/정산", desc: "다중승인, OTP 최종승인, 보관계좌 정책", color: "bg-amber-500" },
     { key: "ops", title: "감사/복구", desc: "감사리포트, 해시검증, 스냅샷/롤백/비상모드", color: "bg-emerald-600" },
     { key: "audit", title: "플랫폼 감사로그", desc: "로그인·가입 등 서버 공통 감사 기록", color: "bg-slate-600" },
+    { key: "uteSurface", title: "UTE·P2P", desc: "canonical 주문/에스크로/분쟁/리스크 스냅샷 (mock 집계)", color: "bg-teal-600" },
   ];
   const adminTabTitleMap = {
     dashboard: "대시보드",
@@ -7948,6 +7958,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     dispute: "분쟁/정산",
     ops: "감사/복구",
     audit: "플랫폼 감사로그",
+    uteSurface: "UTE·P2P",
   };
   const currentAdminStage = adminTabTitleMap[adminViewTab] || "대시보드";
   const currentAdminFocus =
@@ -7965,6 +7976,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 ? `리스크 점수: ${opsRiskSummary?.score ?? 0}`
                 : adminViewTab === "audit"
                   ? `로그 ${platformAuditLogs.length}건 표시`
+                  : adminViewTab === "uteSurface"
+                    ? `P2P ${uteSurfaceMetrics?.p2p_order_count ?? "—"}건 · 리스크 ${uteSurfaceMetrics?.admin_risk_level ?? "—"}`
                   : "카테고리를 선택하세요";
   const quickActionLabel =
     adminViewTab === "member"
@@ -7981,6 +7994,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                 ? "리스크 점검"
                 : adminViewTab === "audit"
                   ? "로그 새로고침"
+                  : adminViewTab === "uteSurface"
+                    ? "UTE 스냅샷"
                   : "카테고리 열기";
   const quickActionDisabled =
     (adminViewTab === "member" && !monitorCurrentUser) ||
@@ -8023,6 +8038,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     }
     if (adminViewTab === "audit") {
       Promise.all([loadPlatformAuditLogs(), loadAdminP2pOrders()]).then(() => notify("감사 로그·P2P 주문을 새로고침했습니다."));
+      return;
+    }
+    if (adminViewTab === "uteSurface") {
+      void refreshAdminPlatformSurface(apiClient).then(() => {
+        setUteSurfaceMetrics(getUteSurfaceMetrics());
+        notify("UTE·P2P 스냅샷을 새로고침했습니다.");
+      });
       return;
     }
     notify("카테고리를 선택하세요.");
@@ -8132,6 +8154,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </ul>
         </div>
 
+        <UteSurfacePanel theme={theme} uteSurfaceMetrics={uteSurfaceMetrics} visible={isAdminTab("uteSurface")} />
+
         <div className={`sticky top-2 z-20 mb-4 rounded-3xl border p-2.5 backdrop-blur ${theme.cardSoft}`}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
             <div className="flex items-center gap-2 text-[11px]">
@@ -8154,7 +8178,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             ) : null}
           </div>
           {!useExternalAdminNav ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-9">
             <button onClick={() => setAdminViewTab("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dashboard") ? theme.main : theme.input}`}>대시보드</button>
             <button onClick={() => setAdminViewTab("member")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("member") ? theme.main : theme.input}`}>회원관리</button>
             <button onClick={() => setAdminViewTab("memberOps")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("memberOps") ? theme.main : theme.input}`}>회원운영</button>
@@ -8163,6 +8187,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <button onClick={() => setAdminViewTab("dispute")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dispute") ? theme.main : theme.input}`}>분쟁/정산</button>
             <button onClick={() => setAdminViewTab("ops")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("ops") ? theme.main : theme.input}`}>감사/복구</button>
             <button onClick={() => setAdminViewTab("audit")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("audit") ? theme.main : theme.input}`}>플랫폼로그</button>
+            <button onClick={() => setAdminViewTab("uteSurface")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("uteSurface") ? theme.main : theme.input}`}>UTE·P2P</button>
           </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-1 pt-2">
@@ -8184,7 +8209,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         </div>
 
         <div className="space-y-4">
-
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-audit" sectionLabel="플랫폼 감사 로그 · P2P 주문 모니터">
         <div className={`${isAdminTab("audit") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -8343,7 +8368,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             ) : null}
           </div>
         </div>
+        </AdminSectionBoundary>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-ops" sectionLabel="감사/복구 · 운영 설정">
         <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -9164,6 +9191,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             )}
           </div>
         </div>
+        </AdminSectionBoundary>
 
         <div className={`${isAdminTab("dashboard") ? "" : "hidden "}mb-4 rounded-3xl border p-4 ${theme.card}`}>
           <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
@@ -9213,6 +9241,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-member" sectionLabel="회원 관리">
         <div ref={memberTreeSectionRef} className={`${isAdminTab("member") ? "" : "hidden "}grid h-[calc(100vh-350px)] gap-2 overflow-hidden md:grid-cols-[280px_minmax(0,1fr)]`}>
           <div className={`rounded-2xl p-2 ${theme.cardSoft}`}>
             <div className="mb-3 flex items-center justify-between gap-3">
@@ -9731,7 +9760,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             </div>
           </div>
         </div>
+        </AdminSectionBoundary>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
         <div className={`${isAdminTab("memberOps") ? "" : "hidden "}mt-5 grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]`}>
           <div className={`rounded-3xl border p-4 ${theme.card}`}>
             <div className="mb-3 flex items-center justify-between">
@@ -9866,7 +9897,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             )}
           </div>
         </div>
+        </AdminSectionBoundary>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-security" sectionLabel="보안 관리">
         <div className={`${isAdminTab("security") ? "" : "hidden "}mt-5 grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]`}>
           <div className={`rounded-3xl border p-4 ${theme.card}`}>
             <div className="mb-3 flex items-center justify-between">
@@ -9940,6 +9973,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             )}
           </div>
         </div>
+        </AdminSectionBoundary>
 
         <div ref={rateValidationSectionRef} className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl p-4 text-sm ${invalidRate ? "bg-red-600 text-white" : theme.cardSoft}`}>
           <div className="flex justify-between py-1"><span>대상 회원</span><b>{adminMember || "미입력"}</b></div>
@@ -9960,11 +9994,13 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </div>
         </div>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
         <div className={isAdminTab("memberOps") ? "" : "hidden"}>
           <Field label="관리 메모" theme={theme}>
             <textarea value={adminMemo} onChange={(e) => setAdminMemo(e.target.value)} className={`min-h-24 rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="관리자 메모" />
           </Field>
         </div>
+        </AdminSectionBoundary>
 
         <div className={`${false && isAdminTab("security") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -10120,6 +10156,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           </button>
         </div>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-kyc" sectionLabel="KYC 관리">
         <div className={`${isAdminTab("kyc") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -10327,7 +10364,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             </div>
           </div>
         </div>
+        </AdminSectionBoundary>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-dispute" sectionLabel="분쟁 관리">
         <div className={`${isAdminTab("dispute") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -10573,7 +10612,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             {timelineVerifyResult && <div className={`mt-2 text-xs font-black ${theme.muted}`}>{timelineVerifyResult}</div>}
           </div>
         </div>
+        </AdminSectionBoundary>
 
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
         <div className={`${isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
             <div>
@@ -10647,6 +10688,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             )}
           </div>
         </div>
+        </AdminSectionBoundary>
 
         <div
           ref={adminActionLogSectionRef}
