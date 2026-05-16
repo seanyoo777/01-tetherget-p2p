@@ -49,7 +49,7 @@ Single entry manual for **TetherGet P2P (repo 01)**. Keep in sync with `AGENTS.m
 ## Build, lint, checks
 
 - **`npm run build`** — Vite production bundle (runs `prebuild` API base check).
-- **`npm run lint`** — ESLint on **stabilization slice** only:
+- **`npm run lint`** — ESLint on **stabilization slice** (includes **`src/p2p/**/*.{js,jsx}`**):
   - `src/tetherget/**/*.{ts,tsx}`
   - `src/mock/adminPlatformMock.ts`
   - `src/pages/SimpleAdmin.tsx`
@@ -67,6 +67,48 @@ Single entry manual for **TetherGet P2P (repo 01)**. Keep in sync with `AGENTS.m
 | Wallet tables + snapshot fields | `docs/WALLET_STRUCTURE.md` |
 | Security + confirm gates | `docs/SECURITY_RULES.md` |
 | Admin UX + menus | `docs/ADMIN_RULES.md` |
+| 배포·점검·Feature Flag·rollback (공통 정책, 구현 없음) | `docs/PLATFORM_DEPLOYMENT_POLICY.md` |
+| P2P 주문 상태·전이·분쟁 계약 (구현 없음) | `docs/TETHERGET_P2P_STATE_CONTRACT.md` |
+| P2P 분쟁·중재·감사 append-only 계약 (구현 없음) | `docs/TETHERGET_DISPUTE_AUDIT_CONTRACT.md` |
+| Escrow ↔ P2P ↔ Dispute 상태 정합 (구현 없음) | `docs/TETHERGET_ESCROW_STATE_ALIGNMENT.md` |
+| P2P 거래 UI · Status Matrix · 타임라인 · mock 감사 | `docs/P2P_TRADE_FLOW.md` |
+| Admin Self-Test Center (회원·수수료·레퍼럴·메뉴 mock) | `docs/P2P_ADMIN_SELF_TEST.md` |
+| Global self-test / validation rule (all platforms) | `docs/GLOBAL_SELF_TEST_VALIDATION.md` |
+| P2P Membership · Points discount (mock) | `docs/TETHERGET_MEMBERSHIP.md` |
+| OneAI bridge scope (mock, 03 연동 예정) | `docs/TETHERGET_ONEAI_BRIDGE.md` |
+
+### P2P trade UI layer (`src/p2p/`)
+
+- **`src/p2p/p2pStatusMatrix.js`** — 8-state operational matrix (`pending` … `cancelled`).
+- **`src/p2p/p2pEscrowDisplay.js`** — UI escrow display (`locked`, `waiting_release`, `released`, `refunded`, `disputed`).
+- **`src/p2p/p2pTimelineEvents.js`** — timeline `actor`, `source`, `severity`, unified timestamps.
+- **`src/p2p/tradeFlowModel.js`** — `deriveTradeFlowView` (matrix + escrow display + 5-step stepper).
+- **`src/p2p/ui/*`** — TradeList / My Trades / admin audit components (mock only).
+- **`src/mock/p2pTradeFlowMock.js`** — referral, admin risk, timeline builders.
+- **`npm test`** — `src/p2p/__tests__/*.test.js` (matrix, escrow copy, UTE align, admin audit cache, testids).
+- **`npm run smoke:p2p`** — unit tests + optional Playwright (`scripts/smoke-p2p-ui.mjs`, `P2P_TEST_IDS`, API route mock).
+- **`SMOKE_P2P_UNIT_ONLY=1`** — skip browser in smoke (CI).
+- **`npm run release:check`** — includes `npm test` after build/admin verify.
+- **`src/p2p/p2pUteFieldAlign.js`** — `ute-surface` ↔ admin mock (`escrow_lifecycle`, `db_status`, legacy fallback).
+- **`src/p2p/p2pEscrowCopy.js`** — platform vs on-chain escrow wording; payment_confirmed / waiting_release dual copy; disputed/refunded.
+- **`src/p2p/p2pAdminAuditSurface.js`** — admin audit rows/KPI from `refreshAdminPlatformSurface` cache (no polling); `getP2pAdminCacheMeta`, extended KPI.
+- **`src/p2p/p2pDevDiagnostics.js`** / **`P2pDevDiagnosticsPanel`** — DEV mock diagnostics; `runP2pAdminRefreshSelfTest` after `refreshAdminPlatformSurface`; shared in **`SimpleAdmin.tsx`**.
+- **`src/p2p/p2pSmokeJwtFixture.js`** — mock admin JWT + `isSimpleAdminSmokePath` for smoke only (no real auth verify).
+- **`src/pages/SimpleAdminSmokeRoute.jsx`** — `/smoke/simple-admin` diagnostics-only page (Playwright).
+- **`notifyP2pRefreshValidation`** — App/SimpleAdmin client toast (mock OK/FAIL + issue count); **`shouldThrottleP2pRefreshNotify`** dedupes tab re-entry.
+- **`isP2pDiagnosticsEnabled`** — `DEV` or `VITE_P2P_SHOW_DIAGNOSTICS=1` (production default off).
+- **`UteSurfacePanel`** — strip/badge diagnostics + escrow legend on UTE·P2P tab.
+- **`src/p2p/p2pAdminSurfaceSelfTest.js`** — `validateP2pAdminSurface()` pure self-test (UTE alignment, cache row count).
+- **`src/p2p/p2pEscrowLifecycleLegend.js`** / **`P2pEscrowLifecycleLegend`** — compact escrow lifecycle legend on admin + escrow panel.
+- **`src/p2p/p2pTestIds.js`** — stable Playwright selectors for TradeList, timeline, escrow, admin audit, diagnostics.
+- **`src/admin/adminSelfTestModel.js`** / **`adminSelfTestEngine.js`** — `runAdminSelfTestSuite()` (member level, fees, referral spread, trade/escrow, menu smoke).
+- **`src/admin/panels/AdminSelfTestCenterPanel.jsx`** — admin **자동검증** tab; PASS/WARN/FAIL + MOCK ONLY (manual run, no polling).
+- **`src/admin/adminTestIds.js`** — `admin-self-test-center`, `admin-self-test-run`, `admin-self-test-card`.
+- **`npm test`** — also `src/admin/__tests__/adminSelfTest.test.js`.
+- **`docs/GLOBAL_SELF_TEST_VALIDATION.md`** — cross-platform PASS/WARN/FAIL, diagnostics, audit append-only, feature-flag checks, no realtime loops.
+- Self-test cards **Feature Flag / Fallback**, **Audit Trail (mock)** in `runAdminSelfTestSuite()`.
+- **`src/membership/`** — tier ladder (Basic→VIP), `computeMembershipFeePreview`, OneAI bridge mock, 내정보 **멤버십** tab, 거래 fee preview, Help Center.
+- Feature flags: `VITE_MEMBERSHIP_DISCOUNT_ENABLED`, `VITE_MEMBERSHIP_BRIDGE_ONEAI_ENABLED`.
 
 ## Next recommended work
 

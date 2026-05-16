@@ -28,6 +28,24 @@ import { MemberHierarchyPanel } from "./admin/panels/MemberHierarchyPanel.jsx";
 import { MemberStatsPanel } from "./admin/panels/MemberStatsPanel.jsx";
 import { MemberAssignChildPanel } from "./admin/panels/MemberAssignChildPanel.jsx";
 import { MemberActionRowPanel } from "./admin/panels/MemberActionRowPanel.jsx";
+import { MemberEmptyDownlinePanel } from "./admin/panels/MemberEmptyDownlinePanel.jsx";
+import { MemberEmptySelectionPanel } from "./admin/panels/MemberEmptySelectionPanel.jsx";
+import { MemberSelfNoticePanel } from "./admin/panels/MemberSelfNoticePanel.jsx";
+import { MemberStageConfirmPanel } from "./admin/panels/MemberStageConfirmPanel.jsx";
+import { MemberPendingStagePanel } from "./admin/panels/MemberPendingStagePanel.jsx";
+import { MemberHiddenFieldsPanel } from "./admin/panels/MemberHiddenFieldsPanel.jsx";
+import { OpsOverviewPanel } from "./admin/panels/OpsOverviewPanel.jsx";
+import { OpsMaintenancePanel } from "./admin/panels/OpsMaintenancePanel.jsx";
+import { OpsMarketAuditPanel } from "./admin/panels/OpsMarketAuditPanel.jsx";
+import { OpsRiskCenterPanel } from "./admin/panels/OpsRiskCenterPanel.jsx";
+import { OpsExtendedMarketCatalogPanel } from "./admin/panels/OpsExtendedMarketCatalogPanel.jsx";
+import { OpsSnapshotRollbackPanel } from "./admin/panels/OpsSnapshotRollbackPanel.jsx";
+import { OpsReportHashPanel } from "./admin/panels/OpsReportHashPanel.jsx";
+import { OpsWebhookStatusPanel } from "./admin/panels/OpsWebhookStatusPanel.jsx";
+import { OpsPermissionAuditPanel } from "./admin/panels/OpsPermissionAuditPanel.jsx";
+import { AuditOverviewPanel } from "./admin/panels/AuditOverviewPanel.jsx";
+import { AuditP2pOrderMonitorPanel } from "./admin/panels/AuditP2pOrderMonitorPanel.jsx";
+import { AdminSelfTestCenterPanel } from "./admin/panels/AdminSelfTestCenterPanel.jsx";
 import { ADMIN_SHELL_TO_PANEL_TAB, ADMIN_PANEL_TAB_IDS } from "./admin/adminMenuIds.js";
 import {
   updateUserLevel,
@@ -47,6 +65,19 @@ import {
   estimateListingNotional,
   buildP2pTickerEntries,
 } from "./utils/p2pListingUiMeta.js";
+import { P2pProgressOrdersSection } from "./p2p/ui/P2pProgressOrdersSection.jsx";
+import { P2pMyTradesEnhanced } from "./p2p/ui/P2pMyTradesEnhanced.jsx";
+import { P2pAdminTradeListMock } from "./p2p/ui/P2pAdminTradeListMock.jsx";
+import { P2pTradeFlowStepper } from "./p2p/ui/P2pTradeFlowStepper.jsx";
+import { P2pTradeTimeline } from "./p2p/ui/P2pTradeTimeline.jsx";
+import { deriveTradeFlowView } from "./p2p/tradeFlowModel.js";
+import { P2P_TEST_IDS } from "./p2p/p2pTestIds.js";
+import { MembershipMyInfoSection } from "./membership/ui/MembershipMyInfoSection.jsx";
+import { MembershipHelpCenter } from "./membership/ui/MembershipHelpCenter.jsx";
+import { MembershipFeePreview } from "./membership/ui/MembershipFeePreview.jsx";
+import { loadMembershipMockState } from "./membership/membershipModel.js";
+import { isMembershipDiscountEnabled } from "./membership/membershipFeatureFlags.js";
+import { isP2pDiagnosticsEnabled, notifyP2pRefreshValidation } from "./p2p/p2pDevDiagnostics.js";
 
 const ADMIN_STAGE_LABEL = Object.freeze({
   SUPER_PAGE: "슈퍼페이지",
@@ -182,7 +213,7 @@ const translations = {
     loginJoin: "로그인 / 가입하기", startWallet: "지갑으로 시작하기", beforeTrade: "거래 전 핵심 절차",
     adminTitle: "관리자 하부트리 / 수수료 배분", adminDesc: "상위 회원이 본인 하부를 누르면 가입일, 이메일, 지갑, 거래정보, 하부 리스트를 확인할 수 있습니다.",
     adminStorage: "본인 관리자 저장소", totalVolume: "총 거래량", referralProfit: "총 레퍼럴 수익", withdrawable: "출금 가능액", pendingSettlement: "정산 대기", weeklyProfit: "이번 주 수익", monthlyProfit: "이번 달 수익", managedChildren: "관리 하부 수", withdrawRequest: "출금 신청",
-    childList: "내 하부 가입자 리스트", selectedUser: "선택 회원 상세", securityCenter: "본사 보안 / 검증 센터", riskMonitor: "위험 회원 모니터링", blockPolicy: "본사 차단 정책",
+    childList: "내 하부 가입자 리스트", selectedUser: "선택 회원 상세", memberEmptySelectionHint: "왼쪽에서 하부 회원을 선택하세요.", securityCenter: "본사 보안 / 검증 센터", riskMonitor: "위험 회원 모니터링", blockPolicy: "본사 차단 정책",
     tradeStart: "거래 시작", tradeDetail: "거래 상세 / 신청", tradeRequest: "거래 요청", confirmButton: "확인 버튼", proofUpload: "입금증빙 업로드", close: "닫기",
     seller: "판매자", trust: "신뢰도", availableAmount: "거래 가능 수량", finalReceive: "구매자 최종 수령", buyerFee: "구매자 수수료 1%", expectedPay: "예상 송금액"
   },
@@ -194,7 +225,7 @@ const translations = {
     loginJoin: "Login / Sign up", startWallet: "Start with Wallet", beforeTrade: "Before Trading",
     adminTitle: "Admin Downline / Fee Distribution", adminDesc: "Click a downline member to view join date, email, wallet, trading data, and their own downline list.",
     adminStorage: "Admin Personal Vault", totalVolume: "Total Volume", referralProfit: "Total Referral Profit", withdrawable: "Withdrawable", pendingSettlement: "Pending", weeklyProfit: "Weekly Profit", monthlyProfit: "Monthly Profit", managedChildren: "Managed Downline", withdrawRequest: "Request Withdrawal",
-    childList: "My Downline Members", selectedUser: "Selected Member Detail", securityCenter: "HQ Security / Verification Center", riskMonitor: "Risk Monitoring", blockPolicy: "HQ Blocking Policy",
+    childList: "My Downline Members", selectedUser: "Selected Member Detail", memberEmptySelectionHint: "왼쪽에서 하부 회원을 선택하세요.", securityCenter: "HQ Security / Verification Center", riskMonitor: "Risk Monitoring", blockPolicy: "HQ Blocking Policy",
     tradeStart: "Start Trade", tradeDetail: "Trade Detail / Request", tradeRequest: "Request Trade", confirmButton: "Confirm", proofUpload: "Upload Proof", close: "Close",
     seller: "Seller", trust: "Trust", availableAmount: "Available Amount", finalReceive: "Buyer Final Receive", buyerFee: "Buyer Fee 1%", expectedPay: "Expected Payment"
   },
@@ -206,7 +237,7 @@ const translations = {
     loginJoin: "Đăng nhập / Đăng ký", startWallet: "Bắt đầu bằng ví", beforeTrade: "Quy trình trước giao dịch",
     adminTitle: "Quản lý tuyến dưới / Chia phí", adminDesc: "Bấm vào tuyến dưới để xem ngày tham gia, email, ví, dữ liệu giao dịch và danh sách tuyến dưới.",
     adminStorage: "Kho quản trị cá nhân", totalVolume: "Tổng khối lượng", referralProfit: "Lợi nhuận giới thiệu", withdrawable: "Có thể rút", pendingSettlement: "Đang chờ", weeklyProfit: "Lãi tuần", monthlyProfit: "Lãi tháng", managedChildren: "Tuyến dưới", withdrawRequest: "Yêu cầu rút",
-    childList: "Danh sách tuyến dưới", selectedUser: "Chi tiết thành viên", securityCenter: "Trung tâm bảo mật HQ", riskMonitor: "Theo dõi rủi ro", blockPolicy: "Chính sách chặn HQ",
+    childList: "Danh sách tuyến dưới", selectedUser: "Chi tiết thành viên", memberEmptySelectionHint: "왼쪽에서 하부 회원을 선택하세요.", securityCenter: "Trung tâm bảo mật HQ", riskMonitor: "Theo dõi rủi ro", blockPolicy: "Chính sách chặn HQ",
     tradeStart: "Bắt đầu", tradeDetail: "Chi tiết / Yêu cầu", tradeRequest: "Yêu cầu GD", confirmButton: "Xác nhận", proofUpload: "Tải bằng chứng", close: "Đóng",
     seller: "Người bán", trust: "Tin cậy", availableAmount: "Số lượng khả dụng", finalReceive: "Người mua nhận", buyerFee: "Phí người mua 1%", expectedPay: "Số tiền chuyển"
   },
@@ -218,7 +249,7 @@ const translations = {
     loginJoin: "ログイン / 登録", startWallet: "ウォレットで開始", beforeTrade: "取引前の流れ",
     adminTitle: "管理者下部ツリー / 手数料配分", adminDesc: "下部会員をクリックすると、加入日、メール、ウォレット、取引情報、下部リストを確認できます。",
     adminStorage: "管理者マイ保管庫", totalVolume: "総取引量", referralProfit: "紹介収益", withdrawable: "出金可能額", pendingSettlement: "精算待ち", weeklyProfit: "週間収益", monthlyProfit: "月間収益", managedChildren: "管理下部数", withdrawRequest: "出金申請",
-    childList: "下部会員リスト", selectedUser: "選択会員詳細", securityCenter: "本社セキュリティセンター", riskMonitor: "リスク監視", blockPolicy: "本社遮断ポリシー",
+    childList: "下部会員リスト", selectedUser: "選択会員詳細", memberEmptySelectionHint: "왼쪽에서 하부 회원을 선택하세요.", securityCenter: "本社セキュリティセンター", riskMonitor: "リスク監視", blockPolicy: "本社遮断ポリシー",
     tradeStart: "取引開始", tradeDetail: "取引詳細 / 申請", tradeRequest: "取引申請", confirmButton: "確認", proofUpload: "証憑アップロード", close: "閉じる",
     seller: "販売者", trust: "信頼度", availableAmount: "取引可能数量", finalReceive: "購入者最終受取", buyerFee: "購入者手数料1%", expectedPay: "予想送金額"
   },
@@ -230,7 +261,7 @@ const translations = {
     loginJoin: "登录 / 注册", startWallet: "用钱包开始", beforeTrade: "交易前流程",
     adminTitle: "管理员下级树 / 手续费分配", adminDesc: "点击下级会员可查看加入日期、邮箱、钱包、交易数据和下级列表。",
     adminStorage: "管理员个人仓库", totalVolume: "总交易量", referralProfit: "推荐收益", withdrawable: "可提现", pendingSettlement: "待结算", weeklyProfit: "本周收益", monthlyProfit: "本月收益", managedChildren: "管理下级", withdrawRequest: "申请提现",
-    childList: "我的下级会员", selectedUser: "会员详情", securityCenter: "总部安全 / 验证中心", riskMonitor: "风险监控", blockPolicy: "总部封禁策略",
+    childList: "我的下级会员", selectedUser: "会员详情", memberEmptySelectionHint: "왼쪽에서 하부 회원을 선택하세요.", securityCenter: "总部安全 / 验证中心", riskMonitor: "风险监控", blockPolicy: "总部封禁策略",
     tradeStart: "开始交易", tradeDetail: "交易详情 / 申请", tradeRequest: "申请交易", confirmButton: "确认", proofUpload: "上传凭证", close: "关闭",
     seller: "卖家", trust: "信任度", availableAmount: "可交易数量", finalReceive: "买家最终收到", buyerFee: "买家手续费1%", expectedPay: "预计付款"
   }
@@ -4153,6 +4184,7 @@ function TradeList({ theme, requireLogin, notify, apiClient, authToken, myUserId
   const [tradeFlowActionId, setTradeFlowActionId] = useState("");
   const [tradeClockTick, setTradeClockTick] = useState(0);
   const [takeAmountDraft, setTakeAmountDraft] = useState({});
+  const membershipMock = useMemo(() => loadMembershipMockState(), []);
 
   async function loadListedOrders() {
     try {
@@ -4471,6 +4503,15 @@ function TradeList({ theme, requireLogin, notify, apiClient, authToken, myUserId
   }, [currencyFilter, displayedListedOrders, tradeClockTick]);
 
   const isTradeDark = theme.card.includes("slate-900");
+  const membershipPreviewNotional = useMemo(() => {
+    const draftAmt = Number(Object.values(takeAmountDraft)[0]);
+    if (Number.isFinite(draftAmt) && draftAmt > 0) return draftAmt;
+    if (displayedListedOrders.length > 0) {
+      const n = estimateListingNotional(displayedListedOrders[0]);
+      if (n > 0) return n;
+    }
+    return 1000;
+  }, [takeAmountDraft, displayedListedOrders]);
 
   return (
     <>
@@ -4588,92 +4629,37 @@ function TradeList({ theme, requireLogin, notify, apiClient, authToken, myUserId
           <div className={`mb-4 rounded-xl p-3 text-xs ${theme.cardSoft}`}>로그인 후 판매를 등록할 수 있습니다.</div>
         )}
 
-        {authToken && (myProgressOrders.length > 0 || myOrdersLoading) ? (
-          <div className={`mb-4 rounded-xl border border-amber-500/25 bg-amber-950/25 p-3 ${theme.cardSoft}`}>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-sm font-black text-amber-100">진행 중인 주문 (매칭·송금)</div>
-              {myOrdersLoading ? <span className={`text-xs ${theme.muted}`}>동기화…</span> : null}
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {myProgressOrders.map((row) => (
-                <div key={row.id} className={`rounded-xl border border-white/10 p-3 ${theme.card}`}>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-mono text-[10px] text-emerald-400">{row.id}</div>
-                      <div className="mt-1 text-sm font-black">
-                        {row.my_role === "seller" ? "매도" : row.my_role === "buyer" ? "매수" : "참여"} · {number(row.amount)} {row.coin}
-                      </div>
-                      {row.status === "matched" && row.match_deadline_at ? (
-                        <div className={`mt-1 text-[10px] font-bold text-amber-400`}>
-                          {formatP2pMatchCountdown(row.match_deadline_at)}
-                          {typeof row.match_sla_minutes === "number" ? ` · ${row.match_sla_minutes}분 내 송금 확인` : ""}
-                        </div>
-                      ) : null}
-                      {row.status === "matched" && row.my_role === "seller" ? (
-                        <div className={`mt-1 text-[9px] leading-snug ${theme.muted}`}>미체결 시 자동 취소 후 예치 물량 복구.</div>
-                      ) : null}
-                    </div>
-                    <span className="shrink-0 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-black text-white">{p2pStatusLabel(row.status)}</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {row.my_role === "buyer" && row.status === "matched" && !row.buyer_payment_started_at ? (
-                      <button
-                        type="button"
-                        disabled={tradeFlowActionId === row.id}
-                        onClick={() => tradePaymentStart(row.id)}
-                        className={`rounded-lg border border-violet-500/60 px-3 py-2 text-[11px] font-black text-violet-200 ${theme.input}`}
-                      >
-                        {tradeFlowActionId === row.id ? "처리 중…" : "송금 신청"}
-                      </button>
-                    ) : null}
-                    {row.my_role === "buyer" && row.status === "matched" && row.buyer_payment_started_at ? (
-                      <button
-                        type="button"
-                        disabled={tradeFlowActionId === row.id}
-                        onClick={() => tradeMarkBuyerPaid(row.id)}
-                        className={`rounded-lg border border-sky-500/60 px-3 py-2 text-[11px] font-black text-sky-200 ${theme.input}`}
-                      >
-                        {tradeFlowActionId === row.id ? "처리 중…" : "송금 완료 표시"}
-                      </button>
-                    ) : null}
-                    {row.my_role === "seller" && row.status === "payment_sent" ? (
-                      <button
-                        type="button"
-                        disabled={tradeFlowActionId === row.id}
-                        onClick={() => tradeCompleteSeller(row.id)}
-                        className={`rounded-lg border border-emerald-500/60 px-3 py-2 text-[11px] font-black text-emerald-200 ${theme.input}`}
-                      >
-                        {tradeFlowActionId === row.id ? "처리 중…" : "거래 완료(릴리즈)"}
-                      </button>
-                    ) : null}
-                    {row.status === "matched" && row.my_role === "seller" ? (
-                      <button
-                        type="button"
-                        disabled={tradeFlowActionId === row.id}
-                        onClick={() => tradeWithdrawMatch(row.id)}
-                        className={`rounded-lg border border-red-500/50 px-3 py-2 text-[11px] font-black text-red-300 ${theme.input}`}
-                      >
-                        {tradeFlowActionId === row.id ? "처리 중…" : "매칭 취소"}
-                      </button>
-                    ) : null}
-                    {row.status === "matched" && row.my_role === "buyer" && !row.buyer_payment_started_at ? (
-                      <button
-                        type="button"
-                        disabled={tradeFlowActionId === row.id}
-                        onClick={() => tradeWithdrawMatch(row.id)}
-                        className={`rounded-lg border border-red-500/50 px-3 py-2 text-[11px] font-black text-red-300 ${theme.input}`}
-                      >
-                        {tradeFlowActionId === row.id ? "처리 중…" : "매칭 철회"}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
-            </div>
+        {authToken && isMembershipDiscountEnabled() ? (
+          <div className="mb-4">
+            <MembershipFeePreview
+              theme={theme}
+              notionalUsdt={membershipPreviewNotional}
+              membershipState={membershipMock}
+              formatNumber={number}
+            />
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
+        {authToken ? (
+          <P2pProgressOrdersSection
+            theme={theme}
+            orders={myProgressOrders}
+            loading={myOrdersLoading}
+            formatNumber={number}
+            formatMatchCountdown={formatP2pMatchCountdown}
+            tradeFlowActionId={tradeFlowActionId}
+            tradeTimelineOrderId={tradeTimelineOrderId}
+            tradeOrderEventsCache={tradeOrderEventsCache}
+            tradeOrderEventsLoadingId={tradeOrderEventsLoadingId}
+            onPaymentStart={tradePaymentStart}
+            onMarkPaid={tradeMarkBuyerPaid}
+            onCompleteSeller={tradeCompleteSeller}
+            onWithdrawMatch={tradeWithdrawMatch}
+            onToggleTimeline={toggleTradeTimeline}
+            onRefreshTimeline={refreshTradeTimeline}
+          />
+        ) : null}
+        <div data-testid={P2P_TEST_IDS.tradeList} className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4">
           {displayedListedOrders.length === 0 && !listedLoading ? (
             <div className={`col-span-full rounded-xl border p-3 text-xs ${theme.input}`}>
               {listedOrders.length === 0 ? "등록된 판매가 없습니다." : "선택한 통화로 등록된 판매가 없습니다."}
@@ -4867,24 +4853,16 @@ function TradeList({ theme, requireLogin, notify, apiClient, authToken, myUserId
                 </div>
                 {tradeTimelineOrderId === row.id ? (
                   <div className={`border-t border-white/10 px-2.5 pb-2.5 pt-2 ${theme.subtext}`}>
-                    <div className="mb-1 text-[10px] font-black text-emerald-400">서버 이벤트</div>
-                    {tradeOrderEventsLoadingId === row.id ? (
-                      <div className={`text-[10px] ${theme.muted}`}>불러오는 중…</div>
-                    ) : (tradeOrderEventsCache[row.id] || []).length ? (
-                      <ul className="max-h-32 space-y-1 overflow-auto text-[10px]">
-                        {(tradeOrderEventsCache[row.id] || []).map((ev) => (
-                          <li key={ev.id} className={`rounded border border-white/5 px-1.5 py-1.5 ${theme.card}`}>
-                            <div className="flex flex-wrap gap-1.5">
-                              <span className="font-mono text-[9px] text-sky-400">{ev.created_at}</span>
-                              <span className="font-black">{ev.action}</span>
-                            </div>
-                            <pre className={`mt-0.5 max-h-12 overflow-auto whitespace-pre-wrap break-all font-mono text-[9px] ${theme.muted}`}>{ev.detail_json}</pre>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className={`text-[10px] ${theme.muted}`}>이벤트가 없습니다.</div>
-                    )}
+                    <div className="mb-2">
+                      <P2pTradeFlowStepper theme={theme} steps={deriveTradeFlowView(row).steps} compact />
+                    </div>
+                    <P2pTradeTimeline
+                      theme={theme}
+                      row={row}
+                      serverEvents={tradeOrderEventsCache[row.id]}
+                      loading={tradeOrderEventsLoadingId === row.id}
+                      onRefresh={() => refreshTradeTimeline(row.id)}
+                    />
                   </div>
                 ) : null}
               </div>
@@ -4922,7 +4900,7 @@ function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buye
   const [bankDocFile, setBankDocFile] = useState(null);
   const [referralCodeDraft, setReferralCodeDraft] = useState(myReferralCode || "");
   const [isSavingReferralCode, setIsSavingReferralCode] = useState(false);
-  const tabs = ["기본정보", "계정연결", "지갑", "잔고/출금", "계좌", "레퍼럴"];
+  const tabs = ["기본정보", "멤버십", "계정연결", "지갑", "잔고/출금", "계좌", "레퍼럴"];
   const normalizedReferralDraft = String(referralCodeDraft || "").trim().toUpperCase();
   const referralCodeValid = /^[A-Z0-9-]{1,20}$/.test(normalizedReferralDraft);
 
@@ -4961,6 +4939,10 @@ function MyInfo({ nickname, setNickname, bankRegistered, setBankRegistered, buye
             </button>
             <Box label="회원 등급" value="Lv.4 / 안전거래 회원" theme={theme} />
           </div>
+        )}
+
+        {myInfoTab === "멤버십" && (
+          <MembershipMyInfoSection theme={theme} notify={notify} formatNumber={number} />
         )}
 
         {myInfoTab === "계정연결" && (
@@ -5481,164 +5463,44 @@ function MyTradesOnly({ theme, notify, apiClient, authToken }) {
           </button>
         </div>
 
-        {authToken ? (
-          <div className="mb-6 space-y-3">
-            <div className={`text-sm font-black ${theme.subtext}`}>서버 P2P 주문 {serverLoading ? "(불러오는 중…)" : `(${filteredServerOrders.length}건)`}</div>
-            {filteredServerOrders.length ? filteredServerOrders.map((row) => (
-              <div key={row.id} className={`rounded-2xl border border-white/10 ${theme.cardSoft}`}>
-                <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-black">
-                      {row.my_role === "seller" ? "매도" : row.my_role === "buyer" ? "매수" : "참여"}
-                      {" "}
-                      {row.amount} {row.coin}
-                      {Number(row.unit_price) > 0 ? ` · 단가 ${row.unit_price}` : ""}
+        <P2pMyTradesEnhanced
+          theme={theme}
+          authToken={authToken}
+          serverOrders={filteredServerOrders}
+          serverLoading={serverLoading}
+          formatNumber={number}
+          formatMatchCountdown={formatP2pMatchCountdown}
+          orderFlowActionId={orderFlowActionId}
+          timelineOrderId={timelineOrderId}
+          orderEventsCache={orderEventsCache}
+          orderEventsLoadingId={orderEventsLoadingId}
+          serverCancelId={serverCancelId}
+          onCancelListing={cancelMyListing}
+          onPaymentStart={paymentStartOrder}
+          onMarkPaid={markBuyerPaid}
+          onCompleteSeller={completeSellerOrder}
+          onWithdrawMatch={withdrawMatched}
+          onToggleTimeline={toggleOrderTimeline}
+          onRefreshTimeline={refreshOrderTimeline}
+          demoTradesSection={
+            <>
+              <div className={`mb-2 text-sm font-black ${theme.subtext}`}>데모 목업 거래 (로컬)</div>
+              <div className="space-y-3">
+                {filteredTrades.length ? filteredTrades.map((tr) => (
+                  <div key={tr.id} className={`flex items-center justify-between rounded-2xl p-4 ${theme.cardSoft}`}>
+                    <div>
+                      <div className="font-black">{tr.type} {tr.amount} {tr.coin}</div>
+                      <div className={`mt-1 text-xs ${theme.muted}`}>{tr.id} · {tr.time}</div>
                     </div>
-                    <div className={`mt-1 text-xs ${theme.muted}`}>
-                      {row.id} · {row.created_at}
-                      {row.payment_method ? ` · ${row.payment_method}` : ""}
-                    </div>
-                    {row.status === "matched" && row.match_deadline_at ? (
-                      <div className={`mt-1 text-[11px] font-bold text-amber-400`}>
-                        {formatP2pMatchCountdown(row.match_deadline_at)}
-                        {typeof row.match_sla_minutes === "number" ? ` · 매칭 후 ${row.match_sla_minutes}분 내 송금 확인` : ""}
-                      </div>
-                    ) : null}
-                    {row.status === "matched" && row.my_role === "seller" ? (
-                      <div className={`mt-1 text-[10px] leading-snug ${theme.muted}`}>
-                        시간 내 미체결 시 자동 취소되며, 예치·정산 정책에 따라 해당 물량이 판매자 측으로 복구됩니다.
-                      </div>
-                    ) : null}
+                    <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{tr.status}</span>
                   </div>
-                  <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
-                    <span className="w-fit rounded-full bg-indigo-600 px-3 py-1 text-xs font-black text-white">{p2pStatusLabel(row.status)}</span>
-                    <button
-                      type="button"
-                      onClick={() => toggleOrderTimeline(row.id)}
-                      className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-                    >
-                      {timelineOrderId === row.id ? "타임라인 닫기" : "이벤트 타임라인"}
-                    </button>
-                    {row.my_role === "seller" && row.status === "listed" ? (
-                      <button
-                        type="button"
-                        disabled={serverCancelId === row.id}
-                        onClick={() => cancelMyListing(row.id)}
-                        className={`rounded-xl border border-amber-500/60 px-3 py-2 text-xs font-black text-amber-600 ${theme.input}`}
-                      >
-                        {serverCancelId === row.id ? "취소 중…" : "호가 취소"}
-                      </button>
-                    ) : null}
-                    {row.my_role === "buyer" && row.status === "matched" && !row.buyer_payment_started_at ? (
-                      <button
-                        type="button"
-                        disabled={orderFlowActionId === row.id}
-                        onClick={() => paymentStartOrder(row.id)}
-                        className={`rounded-xl border border-violet-500/60 px-3 py-2 text-xs font-black text-violet-200 ${theme.input}`}
-                      >
-                        {orderFlowActionId === row.id ? "처리 중…" : "송금 신청"}
-                      </button>
-                    ) : null}
-                    {row.my_role === "buyer" && row.status === "matched" && row.buyer_payment_started_at ? (
-                      <button
-                        type="button"
-                        disabled={orderFlowActionId === row.id}
-                        onClick={() => markBuyerPaid(row.id)}
-                        className={`rounded-xl border border-sky-500/60 px-3 py-2 text-xs font-black text-sky-300 ${theme.input}`}
-                      >
-                        {orderFlowActionId === row.id ? "처리 중…" : "송금 완료 표시"}
-                      </button>
-                    ) : null}
-                    {row.status === "matched" && row.my_role === "seller" ? (
-                      <button
-                        type="button"
-                        disabled={orderFlowActionId === row.id}
-                        onClick={() => withdrawMatched(row.id)}
-                        className={`rounded-xl border border-red-500/50 px-3 py-2 text-xs font-black text-red-300 ${theme.input}`}
-                      >
-                        {orderFlowActionId === row.id ? "처리 중…" : "매칭 취소"}
-                      </button>
-                    ) : null}
-                    {row.status === "matched" && row.my_role === "buyer" && !row.buyer_payment_started_at ? (
-                      <button
-                        type="button"
-                        disabled={orderFlowActionId === row.id}
-                        onClick={() => withdrawMatched(row.id)}
-                        className={`rounded-xl border border-red-500/50 px-3 py-2 text-xs font-black text-red-300 ${theme.input}`}
-                      >
-                        {orderFlowActionId === row.id ? "처리 중…" : "매칭 철회"}
-                      </button>
-                    ) : null}
-                    {row.my_role === "seller" && row.status === "payment_sent" ? (
-                      <button
-                        type="button"
-                        disabled={orderFlowActionId === row.id}
-                        onClick={() => completeSellerOrder(row.id)}
-                        className={`rounded-xl border border-emerald-500/60 px-3 py-2 text-xs font-black text-emerald-300 ${theme.input}`}
-                      >
-                        {orderFlowActionId === row.id ? "처리 중…" : "거래 완료(릴리즈)"}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-                {timelineOrderId === row.id ? (
-                  <div className={`border-t border-white/10 px-4 pb-4 pt-3 ${theme.subtext}`}>
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-[11px] font-black text-emerald-400">서버 기록 (추적)</span>
-                      <button
-                        type="button"
-                        disabled={orderEventsLoadingId === row.id}
-                        onClick={() => refreshOrderTimeline(row.id)}
-                        className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-                      >
-                        {orderEventsLoadingId === row.id ? "…" : "타임라인 새로고침"}
-                      </button>
-                    </div>
-                    {orderEventsLoadingId === row.id ? (
-                      <div className={`text-xs ${theme.muted}`}>불러오는 중…</div>
-                    ) : (orderEventsCache[row.id] || []).length ? (
-                      <ul className="max-h-56 space-y-2 overflow-auto text-[11px]">
-                        {(orderEventsCache[row.id] || []).map((ev) => (
-                          <li key={ev.id} className={`rounded-lg border border-white/5 px-2 py-2 ${theme.card}`}>
-                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                              <span className="font-mono text-[10px] text-sky-400">{ev.created_at}</span>
-                              <span className="font-black">{ev.action}</span>
-                              {ev.actor_user_id != null ? (
-                                <span className={`text-[10px] ${theme.muted}`}>actor #{ev.actor_user_id}</span>
-                              ) : null}
-                            </div>
-                            <pre className={`mt-1 max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] ${theme.muted}`}>{ev.detail_json}</pre>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <div className={`text-xs ${theme.muted}`}>이벤트가 없습니다.</div>
-                    )}
-                  </div>
-                ) : null}
+                )) : (
+                  <div className={`rounded-2xl border p-4 text-sm ${theme.input}`}>선택한 기간의 데모 거래 기록이 없습니다.</div>
+                )}
               </div>
-            )) : !serverLoading ? (
-              <div className={`rounded-2xl border p-4 text-sm ${theme.input}`}>아직 서버에 등록된 P2P 주문이 없습니다. (API 연동됨)</div>
-            ) : null}
-          </div>
-        ) : (
-          <div className={`mb-6 rounded-2xl border p-3 text-sm ${theme.input}`}>로그인하면 서버에 저장된 P2P 주문이 여기에 표시됩니다.</div>
-        )}
-
-        <div className={`mb-2 text-sm font-black ${theme.subtext}`}>데모 목업 거래 (로컬)</div>
-        <div className="space-y-3">
-          {filteredTrades.length ? filteredTrades.map((tr) => (
-            <div key={tr.id} className={`flex items-center justify-between rounded-2xl p-4 ${theme.cardSoft}`}>
-              <div>
-                <div className="font-black">{tr.type} {tr.amount} {tr.coin}</div>
-                <div className={`mt-1 text-xs ${theme.muted}`}>{tr.id} · {tr.time}</div>
-              </div>
-              <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-black text-white">{tr.status}</span>
-            </div>
-          )) : (
-            <div className={`rounded-2xl border p-4 text-sm ${theme.input}`}>선택한 기간의 데모 거래 기록이 없습니다.</div>
-          )}
-        </div>
+            </>
+          }
+        />
       </div>
     </section>
   );
@@ -5697,16 +5559,21 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   const [opsActionLoading, setOpsActionLoading] = useState("");
   const [adminViewTab, setAdminViewTab] = useState("dashboard");
   const [uteSurfaceMetrics, setUteSurfaceMetrics] = useState(null);
+  const [p2pDiagnosticsRevision, setP2pDiagnosticsRevision] = useState(0);
   useEffect(() => {
     if (!legacyTabFromShell) return;
     setAdminViewTab(legacyTabFromShell);
   }, [legacyTabFromShell]);
 
   useEffect(() => {
-    if (adminViewTab !== "uteSurface" || !authToken) return;
+    if ((adminViewTab !== "uteSurface" && adminViewTab !== "audit") || !authToken) return;
     let cancelled = false;
-    void refreshAdminPlatformSurface(apiClient).then(() => {
-      if (!cancelled) setUteSurfaceMetrics(getUteSurfaceMetrics());
+    void refreshAdminPlatformSurface(apiClient).then((result) => {
+      if (!cancelled) {
+        setUteSurfaceMetrics(getUteSurfaceMetrics());
+        setP2pDiagnosticsRevision((r) => r + 1);
+        notifyP2pRefreshValidation(result?.validation, notify);
+      }
     });
     return () => {
       cancelled = true;
@@ -7963,6 +7830,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     { key: "ops", title: "감사/복구", desc: "감사리포트, 해시검증, 스냅샷/롤백/비상모드", color: "bg-emerald-600" },
     { key: "audit", title: "플랫폼 감사로그", desc: "로그인·가입 등 서버 공통 감사 기록", color: "bg-slate-600" },
     { key: "uteSurface", title: "UTE·P2P", desc: "canonical 주문/에스크로/분쟁/리스크 스냅샷 (mock 집계)", color: "bg-teal-600" },
+    { key: "selfTest", title: "자동검증", desc: "회원·수수료·레퍼럴·거래 mock self-test (실정산 없음)", color: "bg-violet-600" },
   ];
   const adminTabTitleMap = {
     dashboard: "대시보드",
@@ -7974,6 +7842,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     ops: "감사/복구",
     audit: "플랫폼 감사로그",
     uteSurface: "UTE·P2P",
+    selfTest: "자동검증",
   };
   const currentAdminStage = adminTabTitleMap[adminViewTab] || "대시보드";
   const currentAdminFocus =
@@ -7993,6 +7862,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                   ? `로그 ${platformAuditLogs.length}건 표시`
                   : adminViewTab === "uteSurface"
                     ? `P2P ${uteSurfaceMetrics?.p2p_order_count ?? "—"}건 · 리스크 ${uteSurfaceMetrics?.admin_risk_level ?? "—"}`
+                    : adminViewTab === "selfTest"
+                      ? "Admin Self-Test Center (mock)"
                   : "카테고리를 선택하세요";
   const quickActionLabel =
     adminViewTab === "member"
@@ -8011,6 +7882,8 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                   ? "로그 새로고침"
                   : adminViewTab === "uteSurface"
                     ? "UTE 스냅샷"
+                    : adminViewTab === "selfTest"
+                      ? "자동 검증"
                   : "카테고리 열기";
   const quickActionDisabled =
     (adminViewTab === "member" && !monitorCurrentUser) ||
@@ -8055,10 +7928,15 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
       Promise.all([loadPlatformAuditLogs(), loadAdminP2pOrders()]).then(() => notify("감사 로그·P2P 주문을 새로고침했습니다."));
       return;
     }
+    if (adminViewTab === "selfTest") {
+      notify("자동검증 탭에서 「자동 검증 실행」을 사용하세요.");
+      return;
+    }
     if (adminViewTab === "uteSurface") {
-      void refreshAdminPlatformSurface(apiClient).then(() => {
+      void refreshAdminPlatformSurface(apiClient).then((result) => {
         setUteSurfaceMetrics(getUteSurfaceMetrics());
-        notify("UTE·P2P 스냅샷을 새로고침했습니다.");
+        setP2pDiagnosticsRevision((r) => r + 1);
+        notifyP2pRefreshValidation(result?.validation, notify, { force: true });
       });
       return;
     }
@@ -8129,7 +8007,21 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           adminBriefs={MOCK_ADMIN_BRIEFS}
         />
 
-        <UteSurfacePanel theme={theme} uteSurfaceMetrics={uteSurfaceMetrics} visible={isAdminTab("uteSurface")} />
+        <UteSurfacePanel
+          theme={theme}
+          uteSurfaceMetrics={uteSurfaceMetrics}
+          visible={isAdminTab("uteSurface")}
+          diagnosticsRevision={p2pDiagnosticsRevision}
+          showDevDiagnostics={isP2pDiagnosticsEnabled()}
+        />
+
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-self-test" sectionLabel="Admin Self-Test Center">
+        <AdminSelfTestCenterPanel
+          theme={theme}
+          visible={isAdminTab("selfTest")}
+          sampleUser={monitorCurrentUser}
+        />
+        </AdminSectionBoundary>
 
         <div className={`sticky top-2 z-20 mb-4 rounded-3xl border p-2.5 backdrop-blur ${theme.cardSoft}`}>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
@@ -8153,7 +8045,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             ) : null}
           </div>
           {!useExternalAdminNav ? (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-9">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10">
             <button onClick={() => setAdminViewTab("dashboard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dashboard") ? theme.main : theme.input}`}>대시보드</button>
             <button onClick={() => setAdminViewTab("member")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("member") ? theme.main : theme.input}`}>회원관리</button>
             <button onClick={() => setAdminViewTab("memberOps")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("memberOps") ? theme.main : theme.input}`}>회원운영</button>
@@ -8161,8 +8053,29 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <button onClick={() => setAdminViewTab("kyc")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("kyc") ? theme.main : theme.input}`}>KYC</button>
             <button onClick={() => setAdminViewTab("dispute")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dispute") ? theme.main : theme.input}`}>분쟁/정산</button>
             <button onClick={() => setAdminViewTab("ops")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("ops") ? theme.main : theme.input}`}>감사/복구</button>
-            <button onClick={() => setAdminViewTab("audit")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("audit") ? theme.main : theme.input}`}>플랫폼로그</button>
-            <button onClick={() => setAdminViewTab("uteSurface")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("uteSurface") ? theme.main : theme.input}`}>UTE·P2P</button>
+            <button
+              type="button"
+              data-testid={P2P_TEST_IDS.adminAuditTab}
+              onClick={() => setAdminViewTab("audit")}
+              className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("audit") ? theme.main : theme.input}`}
+            >
+              플랫폼로그
+            </button>
+            <button
+              type="button"
+              data-testid={P2P_TEST_IDS.uteSurfaceTab}
+              onClick={() => setAdminViewTab("uteSurface")}
+              className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("uteSurface") ? theme.main : theme.input}`}
+            >
+              UTE·P2P
+            </button>
+            <button
+              type="button"
+              onClick={() => setAdminViewTab("selfTest")}
+              className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("selfTest") ? theme.main : theme.input}`}
+            >
+              자동검증
+            </button>
           </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-1 pt-2">
@@ -8186,986 +8099,215 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
         <div className="space-y-4">
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-audit" sectionLabel="플랫폼 감사 로그 · P2P 주문 모니터">
         <div className={`${isAdminTab("audit") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-black">플랫폼 감사 로그</div>
-              <div className={`text-xs ${theme.muted}`}>로그인·가입·지갑 로그인 등 서버에 기록된 공통 감사 이벤트입니다.</div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                loadPlatformAuditLogs();
-                loadAdminP2pOrders();
-              }}
-              disabled={platformAuditLoading || adminP2pLoading}
-              className={`rounded-xl border px-3 py-2 text-xs font-black ${platformAuditLoading || adminP2pLoading ? "opacity-60" : theme.input}`}
-            >
-              {platformAuditLoading || adminP2pLoading ? "불러오는 중…" : "새로고침"}
-            </button>
-          </div>
-          <div className="max-h-[min(70vh,560px)] overflow-auto rounded-2xl border border-white/10">
-            <table className="min-w-full text-left text-[11px]">
-              <thead className={`sticky top-0 z-10 ${theme.card}`}>
-                <tr className={`border-b ${theme.muted}`}>
-                  <th className="px-2 py-2 pr-2">ID</th>
-                  <th className="py-2 pr-2">시각</th>
-                  <th className="py-2 pr-2">이벤트</th>
-                  <th className="py-2 pr-2">플랫폼</th>
-                  <th className="py-2 pr-2">user_id</th>
-                  <th className="py-2 pr-2">IP</th>
-                  <th className="py-2 pr-2">UA</th>
-                  <th className="py-2 pr-2">payload</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(platformAuditLogs || []).map((row) => (
-                  <tr key={row.id} className={`border-b border-white/5 ${theme.subtext}`}>
-                    <td className="px-2 py-1.5 pr-2 font-mono">{row.id}</td>
-                    <td className="py-1.5 pr-2 whitespace-nowrap">{row.created_at}</td>
-                    <td className="py-1.5 pr-2">{row.event_type}</td>
-                    <td className="py-1.5 pr-2 font-mono text-[10px]">{row.platform_code || "—"}</td>
-                    <td className="py-1.5 pr-2">{row.user_id ?? "—"}</td>
-                    <td className="py-1.5 pr-2 font-mono text-[10px]">{row.ip || "—"}</td>
-                    <td className="py-1.5 pr-2 max-w-[120px] truncate text-[10px]" title={row.user_agent}>{row.user_agent || "—"}</td>
-                    <td className="py-1.5 pr-2 max-w-[min(40vw,220px)] truncate font-mono text-[10px]" title={row.payload_json}>{row.payload_json}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!platformAuditLoading && (!platformAuditLogs || platformAuditLogs.length === 0) ? (
-            <div className={`mt-3 text-xs ${theme.muted}`}>기록이 없습니다. 로그인 후 이 탭을 다시 열어 보세요.</div>
-          ) : null}
+          <AuditOverviewPanel
+            theme={theme}
+            loadPlatformAuditLogs={loadPlatformAuditLogs}
+            loadAdminP2pOrders={loadAdminP2pOrders}
+            platformAuditLoading={platformAuditLoading}
+            adminP2pLoading={adminP2pLoading}
+            platformAuditLogs={platformAuditLogs}
+          />
 
-          <div className="mt-8 border-t border-white/10 pt-6">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-black">P2P 주문 모니터</div>
-                <div className={`text-xs ${theme.muted}`}>전체 주문 상태 · 판매자/매수자 user_id (관리자 전용)</div>
-              </div>
-              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${theme.cardSoft}`}>
-                {adminP2pLoading ? "…" : `${adminP2pOrders.length}건`}
-              </span>
-            </div>
-            <div className="max-h-[min(50vh,420px)] overflow-auto rounded-2xl border border-white/10">
-              <table className="min-w-full text-left text-[11px]">
-                <thead className={`sticky top-0 z-10 ${theme.card}`}>
-                  <tr className={`border-b ${theme.muted}`}>
-                    <th className="px-2 py-2">주문 ID</th>
-                    <th className="py-2 pr-2">상태</th>
-                    <th className="py-2 pr-2">플랫폼</th>
-                    <th className="py-2 pr-2">코인/수량</th>
-                    <th className="py-2 pr-2">판매자</th>
-                    <th className="py-2 pr-2">매수자</th>
-                    <th className="py-2 pr-2">갱신</th>
-                    <th className="py-2 pr-2">이벤트</th>
-                    <th className="py-2 pr-2">중재</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(adminP2pOrders || []).map((row) => (
-                    <tr key={row.id} className={`border-b border-white/5 ${theme.subtext}`}>
-                      <td className="max-w-[140px] truncate px-2 py-1.5 font-mono text-[10px]" title={row.id}>{row.id}</td>
-                      <td className="py-1.5 pr-2">{row.status}</td>
-                      <td className="py-1.5 pr-2 font-mono text-[10px]">{row.platform_code || "—"}</td>
-                      <td className="py-1.5 pr-2 whitespace-nowrap">{row.amount} {row.coin}</td>
-                      <td className="py-1.5 pr-2">{actorNameMap[row.seller_user_id] || `#${row.seller_user_id}`}</td>
-                      <td className="py-1.5 pr-2">{row.buyer_user_id != null ? (actorNameMap[row.buyer_user_id] || `#${row.buyer_user_id}`) : "—"}</td>
-                      <td className="py-1.5 pr-2 whitespace-nowrap text-[10px]">{row.updated_at}</td>
-                      <td className="py-1.5 pr-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleAdminP2pTimeline(row.id)}
-                          className={`rounded-lg border px-2 py-1 text-[10px] font-black ${theme.input}`}
-                        >
-                          {adminP2pTimelineId === row.id ? "닫기" : "보기"}
-                        </button>
-                      </td>
-                      <td className="py-1.5 pr-2">
-                        {row.status === "matched" || row.status === "payment_sent" ? (
-                          <button
-                            type="button"
-                            disabled={adminP2pCancelId === row.id}
-                            onClick={() => adminCancelP2pOrder(row.id)}
-                            className={`rounded-lg border border-red-500/50 px-2 py-1 text-[10px] font-black text-red-300 ${theme.input}`}
-                          >
-                            {adminP2pCancelId === row.id ? "…" : "취소"}
-                          </button>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {adminP2pTimelineId ? (
-              <div className={`mt-4 rounded-2xl border border-white/10 p-4 ${theme.card}`}>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-black text-emerald-400">이벤트 타임라인 · {adminP2pTimelineId}</span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={adminP2pEventsLoadingId === adminP2pTimelineId}
-                      onClick={() => refreshAdminP2pTimeline(adminP2pTimelineId)}
-                      className={`rounded-lg border px-2 py-1 text-[10px] font-black ${theme.input}`}
-                    >
-                      {adminP2pEventsLoadingId === adminP2pTimelineId ? "…" : "타임라인 새로고침"}
-                    </button>
-                    <button type="button" onClick={() => setAdminP2pTimelineId("")} className={`rounded-lg border px-2 py-1 text-[10px] font-black ${theme.input}`}>
-                      닫기
-                    </button>
-                  </div>
-                </div>
-                {adminP2pEventsLoadingId === adminP2pTimelineId ? (
-                  <div className={`text-xs ${theme.muted}`}>불러오는 중…</div>
-                ) : (adminP2pEventsCache[adminP2pTimelineId] || []).length ? (
-                  <ul className="max-h-64 space-y-2 overflow-auto text-[11px]">
-                    {(adminP2pEventsCache[adminP2pTimelineId] || []).map((ev) => (
-                      <li key={ev.id} className={`rounded-lg border border-white/5 px-2 py-2 ${theme.cardSoft}`}>
-                        <div className="flex flex-wrap gap-2">
-                          <span className="font-mono text-[10px] text-sky-400">{ev.created_at}</span>
-                          <span className="font-black">{ev.action}</span>
-                          <span className={`text-[10px] ${theme.muted}`}>#{ev.actor_user_id ?? "—"}</span>
-                        </div>
-                        <pre className={`mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] ${theme.muted}`}>{ev.detail_json}</pre>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className={`text-xs ${theme.muted}`}>이벤트가 없습니다.</div>
-                )}
-              </div>
-            ) : null}
-            {!adminP2pLoading && (!adminP2pOrders || adminP2pOrders.length === 0) ? (
-              <div className={`mt-3 text-xs ${theme.muted}`}>등록된 P2P 주문이 없습니다.</div>
-            ) : null}
-          </div>
+          <AuditP2pOrderMonitorPanel
+            theme={theme}
+            adminP2pLoading={adminP2pLoading}
+            adminP2pOrders={adminP2pOrders}
+            actorNameMap={actorNameMap}
+            toggleAdminP2pTimeline={toggleAdminP2pTimeline}
+            adminP2pTimelineId={adminP2pTimelineId}
+            adminP2pCancelId={adminP2pCancelId}
+            adminCancelP2pOrder={adminCancelP2pOrder}
+            adminP2pEventsLoadingId={adminP2pEventsLoadingId}
+            refreshAdminP2pTimeline={refreshAdminP2pTimeline}
+            setAdminP2pTimelineId={setAdminP2pTimelineId}
+            adminP2pEventsCache={adminP2pEventsCache}
+          />
+          <P2pAdminTradeListMock
+            theme={theme}
+            surfaceRevision={
+              uteSurfaceMetrics
+                ? `${uteSurfaceMetrics.p2p_order_count}-${uteSurfaceMetrics.dispute_active_count}-${uteSurfaceMetrics.admin_risk_score}`
+                : 0
+            }
+            diagnosticsRevision={p2pDiagnosticsRevision}
+            showDevDiagnostics={isP2pDiagnosticsEnabled()}
+          />
         </div>
         </AdminSectionBoundary>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-ops" sectionLabel="감사/복구 · 운영 설정">
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-black">본사 운영 설정</div>
-              <div className={`text-xs ${theme.muted}`}>
-                DB에 저장되며 재시작 후에도 유지됩니다. P2P 송금 마감: 환경변수 미설정 시 폴백 {envFallbackSla}분. 시세 출처를 비우면{" "}
-                <span className="font-mono">PRICE_FEED_PROVIDER</span> 등 환경변수 규칙을 따릅니다.
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => loadPlatformSettings()}
-              disabled={platformOpsLoading}
-              className={`rounded-xl border px-3 py-2 text-xs font-black ${platformOpsLoading ? "opacity-60" : theme.input}`}
-            >
-              {platformOpsLoading ? "불러오는 중…" : "새로고침"}
-            </button>
-          </div>
-          <div className="flex flex-wrap items-end gap-3">
-            <label className={`grid gap-1 ${theme.subtext}`}>
-              <span className="text-[11px] font-black">P2P 매칭 후 송금 마감(분)</span>
-              <input
-                type="number"
-                min={5}
-                max={180}
-                value={p2pMatchSlaInput}
-                onChange={(e) => setP2pMatchSlaInput(e.target.value)}
-                className={`w-28 rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-              />
-            </label>
-            <label className={`grid min-w-[220px] gap-1 ${theme.subtext}`}>
-              <span className="text-[11px] font-black">참고 시세 출처 (앱 표시용)</span>
-              <select
-                value={priceFeedProviderSelect}
-                onChange={(e) => setPriceFeedProviderSelect(e.target.value)}
-                className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-              >
-                <option value="">(비움) 환경변수·자동 규칙</option>
-                {(priceFeedBuiltinIds.length ? priceFeedBuiltinIds : ["coingecko", "coinmarketcap", "static", "upbit"]).map((id) => (
-                  <option key={id} value={id}>
-                    {id === "coingecko"
-                      ? "CoinGecko (집계)"
-                      : id === "coinmarketcap"
-                        ? "CoinMarketCap (집계, API 키)"
-                        : id === "static"
-                          ? "내장 고정값"
-                          : id === "upbit"
-                            ? "업비트 공개 티커"
-                            : id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              onClick={() => savePlatformSettings()}
-              disabled={platformOpsSaving || platformOpsLoading}
-              className={`rounded-xl border px-4 py-2 text-xs font-black ${theme.main}`}
-            >
-              {platformOpsSaving ? "저장 중…" : "저장"}
-            </button>
-          </div>
-          <div className={`mt-2 space-y-1 text-[11px] ${theme.muted}`}>
-            <div>
-              P2P 적용: {p2pMatchSlaInput}분 · 마지막 수정: {p2pMatchSlaUpdatedAt || "-"}
-              {p2pMatchSlaUpdatedBy != null ? ` · by user #${p2pMatchSlaUpdatedBy}` : ""}
-            </div>
-            <div>
-              시세 DB 지정: {priceFeedProviderSelect ? <span className="font-mono text-sky-400">{priceFeedProviderSelect}</span> : "— (환경변수 규칙)"}{" "}
-              · 적용 출처 id: <span className="font-mono text-emerald-400">{priceFeedEffective || "—"}</span>
-              {" "}
-              <span className="opacity-80">(CMC는 키 없으면 내부적으로 coingecko 로 폴백)</span>
-              {priceFeedEnvOnly ? (
-                <>
-                  {" "}
-                  · 환경만 보면: <span className="font-mono">{priceFeedEnvOnly}</span>
-                </>
-              ) : null}
-              {" · "}
-              마지막 수정: {priceFeedUpdatedAt || "-"}
-              {priceFeedUpdatedBy != null ? ` · by user #${priceFeedUpdatedBy}` : ""}
-            </div>
-          </div>
-        </div>
+        <OpsOverviewPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          envFallbackSla={envFallbackSla}
+          loadPlatformSettings={loadPlatformSettings}
+          platformOpsLoading={platformOpsLoading}
+          platformOpsSaving={platformOpsSaving}
+          p2pMatchSlaInput={p2pMatchSlaInput}
+          setP2pMatchSlaInput={setP2pMatchSlaInput}
+          priceFeedProviderSelect={priceFeedProviderSelect}
+          setPriceFeedProviderSelect={setPriceFeedProviderSelect}
+          priceFeedBuiltinIds={priceFeedBuiltinIds}
+          savePlatformSettings={savePlatformSettings}
+          p2pMatchSlaUpdatedAt={p2pMatchSlaUpdatedAt}
+          p2pMatchSlaUpdatedBy={p2pMatchSlaUpdatedBy}
+          priceFeedEffective={priceFeedEffective}
+          priceFeedEnvOnly={priceFeedEnvOnly}
+          priceFeedUpdatedAt={priceFeedUpdatedAt}
+          priceFeedUpdatedBy={priceFeedUpdatedBy}
+        />
 
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black">비상 점검 모드 (원클릭)</div>
-              <div className={`text-xs ${theme.muted}`}>활성화 시 일반 사용자 변경 요청을 차단하고 관리자 복구 작업만 허용합니다.</div>
-            </div>
-            <span className={`rounded-full px-2 py-1 text-xs font-black ${
-              emergencyState.emergencyMode ? "bg-red-600 text-white" : "bg-emerald-600 text-white"
-            }`}>
-              {emergencyState.emergencyMode ? "ON" : "OFF"}
-            </span>
-          </div>
-          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto_auto_auto]">
-            <input
-              value={emergencyReasonInput}
-              onChange={(e) => setEmergencyReasonInput(e.target.value)}
-              placeholder="비상모드 사유 (예: 결제 장애 긴급 점검)"
-              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-            <input
-              value={emergencyEtaInput}
-              onChange={(e) => setEmergencyEtaInput(e.target.value)}
-              placeholder="예상 복구 시간 ETA (예: 2026-05-09 03:00 KST)"
-              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-            <button onClick={() => updateEmergencyMode(true)} disabled={emergencyLoading} className="rounded-xl border border-red-500/60 px-3 py-2 text-xs font-black text-red-400">
-              {emergencyLoading ? "처리중..." : "비상모드 ON"}
-            </button>
-            <button onClick={() => updateEmergencyMode(false)} disabled={emergencyLoading} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              비상모드 OFF
-            </button>
-            <button onClick={loadEmergencyState} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              상태 새로고침
-            </button>
-          </div>
-          <div className={`mt-2 text-[11px] ${theme.muted}`}>
-            현재 사유: {emergencyState.emergencyReason || "-"} · ETA: {emergencyState.emergencyEta || "-"} · updatedBy: {emergencyState.updatedByUserId || "-"} · {emergencyState.updatedAt || "-"}
-          </div>
-        </div>
+        <OpsMaintenancePanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          emergencyState={emergencyState}
+          emergencyReasonInput={emergencyReasonInput}
+          setEmergencyReasonInput={setEmergencyReasonInput}
+          emergencyEtaInput={emergencyEtaInput}
+          setEmergencyEtaInput={setEmergencyEtaInput}
+          emergencyLoading={emergencyLoading}
+          updateEmergencyMode={updateEmergencyMode}
+          loadEmergencyState={loadEmergencyState}
+        />
 
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black">마켓 카탈로그 변경 이력</div>
-              <div className={`text-xs ${theme.muted}`}>최근 변경 내역(작업자/시각/대상)을 추적합니다.</div>
-              <div className={`mt-1 text-[11px] ${theme.muted}`}>
-                scope: {marketAuditScope} · integrity rows: {marketAuditIntegrity.total || 0}
-                {marketAuditIntegrity.rootHash ? ` · hash: ${marketAuditIntegrity.rootHash.slice(0, 12)}...` : ""}
-              </div>
-              <div className={`mt-1 text-[11px] ${theme.muted}`}>
-                chain proof: {recentMarketAuditChainHashes.length ? `${recentMarketAuditChainHashes[0].created_at} / ${String(recentMarketAuditChainHashes[0].sha256_hash || "").slice(0, 12)}...` : "아직 없음"}
-              </div>
-              <div className={`mt-1 text-[11px] ${theme.muted}`}>
-                chain compare: {!marketAuditChainDrift.ready
-                  ? "비교용 기록 부족"
-                  : marketAuditChainDrift.changed
-                    ? `변경 감지 (${marketAuditChainDrift.previousAt} -> ${marketAuditChainDrift.latestAt})`
-                    : "변경 없음(최근 2회 동일)"}
-              </div>
-              <div className="mt-1">
-                <span className={`rounded-full px-2 py-1 text-[11px] font-black text-white ${
-                  marketAuditChainStatus === "changed"
-                    ? "bg-red-600"
-                    : marketAuditChainStatus === "stable"
-                      ? "bg-emerald-600"
-                      : "bg-slate-600"
-                }`}>
-                  {marketAuditChainStatus === "changed" ? "CHAIN ALERT" : marketAuditChainStatus === "stable" ? "CHAIN STABLE" : "CHAIN PENDING"}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <button onClick={loadMarketCatalogAudit} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                이력 새로고침
-              </button>
-              <button onClick={exportMarketCatalogAuditCsv} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                CSV 내보내기
-              </button>
-              <button onClick={verifyMarketCatalogAuditIntegrity} disabled={marketAuditIntegrityLoading} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                {marketAuditIntegrityLoading ? "검증중..." : "무결성 검증"}
-              </button>
-              <button onClick={() => loadRecentReportHashes("market_catalog_audit_chain")} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                체인기록 새로고침
-              </button>
-            </div>
-          </div>
-          <div className="mb-2 grid gap-2 md:grid-cols-2">
-            <select
-              value={marketAuditActorFilter}
-              onChange={(e) => setMarketAuditActorFilter(e.target.value)}
-              className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
-            >
-              <option value="">전체 작업자</option>
-              {(authUsers || []).map((u) => (
-                <option key={`audit-actor-${u.id}`} value={u.id}>
-                  {u.nickname || u.email || u.id}
-                </option>
-              ))}
-            </select>
-            <input
-              value={marketAuditQuery}
-              onChange={(e) => setMarketAuditQuery(e.target.value)}
-              placeholder="키워드 검색 (assetCode/marketKey/작업자)"
-              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-          </div>
-          <div className="mb-2 grid gap-2 md:grid-cols-2">
-            <input
-              type="date"
-              value={marketAuditFromDate}
-              onChange={(e) => setMarketAuditFromDate(e.target.value)}
-              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-            <input
-              type="date"
-              value={marketAuditToDate}
-              onChange={(e) => setMarketAuditToDate(e.target.value)}
-              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-          </div>
-          <div className="mb-2 flex flex-wrap items-center gap-1">
-            <button onClick={() => applyMarketAuditQuickRange(1)} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>오늘</button>
-            <button onClick={() => applyMarketAuditQuickRange(7)} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>7일</button>
-            <button onClick={() => applyMarketAuditQuickRange(30)} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>30일</button>
-            <button onClick={resetMarketAuditFilters} className={`rounded-xl border px-2 py-1 text-[11px] font-black ${theme.input}`}>필터 초기화</button>
-          </div>
-          <div className="max-h-36 space-y-1 overflow-y-auto pr-1">
-            {marketCatalogLogs.length ? (
-              marketCatalogLogs.map((log) => (
-                <div key={log.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
-                  <div className="font-black">#{log.id} · {log.createdAt}</div>
-                  <div className={theme.muted}>
-                    actor: {log.actorName || log.actorUserId} · assets {log.assetsCount} · markets {log.marketsCount}
-                  </div>
-                  <div className="mt-1 text-[11px]">
-                    a(+{log.summary?.assetDiff?.added?.length || 0}/-{log.summary?.assetDiff?.removed?.length || 0}/~{log.summary?.assetDiff?.updated?.length || 0})
-                    {" · "}
-                    m(+{log.summary?.marketDiff?.added?.length || 0}/-{log.summary?.marketDiff?.removed?.length || 0}/~{log.summary?.marketDiff?.updated?.length || 0})
-                  </div>
-                  <div className="mt-1 text-[11px]">
-                    +asset: {Array.isArray(log.summary?.assetDiff?.added) && log.summary.assetDiff.added.length ? log.summary.assetDiff.added.slice(0, 5).join(", ") : "-"}
-                    {" · "}
-                    -asset: {Array.isArray(log.summary?.assetDiff?.removed) && log.summary.assetDiff.removed.length ? log.summary.assetDiff.removed.slice(0, 5).join(", ") : "-"}
-                    {" · "}
-                    ~asset: {Array.isArray(log.summary?.assetDiff?.updated) && log.summary.assetDiff.updated.length ? log.summary.assetDiff.updated.slice(0, 5).join(", ") : "-"}
-                  </div>
-                  <div className="mt-1 text-[11px]">
-                    +market: {Array.isArray(log.summary?.marketDiff?.added) && log.summary.marketDiff.added.length ? log.summary.marketDiff.added.slice(0, 5).join(", ") : "-"}
-                    {" · "}
-                    -market: {Array.isArray(log.summary?.marketDiff?.removed) && log.summary.marketDiff.removed.length ? log.summary.marketDiff.removed.slice(0, 5).join(", ") : "-"}
-                    {" · "}
-                    ~market: {Array.isArray(log.summary?.marketDiff?.updated) && log.summary.marketDiff.updated.length ? log.summary.marketDiff.updated.slice(0, 5).join(", ") : "-"}
-                  </div>
-                  <div className="mt-1 text-[11px]">
-                    {Array.isArray(log.summary?.assetCodes) ? `assets: ${log.summary.assetCodes.slice(0, 6).join(", ")}` : ""}
-                    {Array.isArray(log.summary?.marketKeys) ? ` · markets: ${log.summary.marketKeys.slice(0, 6).join(", ")}` : ""}
-                  </div>
-                  <div className="mt-1">
-                    <button
-                      onClick={() => toggleMarketAuditExpanded(log.id)}
-                      className={`rounded border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                    >
-                      {expandedMarketAuditIds[log.id] ? "상세 닫기" : "상세 보기"}
-                    </button>
-                  </div>
-                  {expandedMarketAuditIds[log.id] ? (
-                    <div className={`mt-2 rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
-                      <div>
-                        asset added: {Array.isArray(log.summary?.assetDiff?.added) && log.summary.assetDiff.added.length ? log.summary.assetDiff.added.join(", ") : "-"}
-                      </div>
-                      <div>
-                        asset removed: {Array.isArray(log.summary?.assetDiff?.removed) && log.summary.assetDiff.removed.length ? log.summary.assetDiff.removed.join(", ") : "-"}
-                      </div>
-                      <div>
-                        asset updated: {Array.isArray(log.summary?.assetDiff?.updated) && log.summary.assetDiff.updated.length ? log.summary.assetDiff.updated.join(", ") : "-"}
-                      </div>
-                      <div className="mt-1">
-                        market added: {Array.isArray(log.summary?.marketDiff?.added) && log.summary.marketDiff.added.length ? log.summary.marketDiff.added.join(", ") : "-"}
-                      </div>
-                      <div>
-                        market removed: {Array.isArray(log.summary?.marketDiff?.removed) && log.summary.marketDiff.removed.length ? log.summary.marketDiff.removed.join(", ") : "-"}
-                      </div>
-                      <div>
-                        market updated: {Array.isArray(log.summary?.marketDiff?.updated) && log.summary.marketDiff.updated.length ? log.summary.marketDiff.updated.join(", ") : "-"}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ))
-            ) : (
-              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>카탈로그 변경 이력이 없습니다.</div>
-            )}
-          </div>
-          <div className="mt-2 flex justify-end">
-            <button
-              onClick={() => loadMarketCatalogAudit({ append: true })}
-              disabled={!marketAuditHasMore || marketAuditLoadingMore}
-              className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input} ${!marketAuditHasMore ? "opacity-50" : ""}`}
-            >
-              {marketAuditLoadingMore ? "불러오는 중..." : marketAuditHasMore ? "더보기" : "끝"}
-            </button>
-          </div>
-          <div className={`mt-2 rounded-xl border p-2 ${theme.cardSoft}`}>
-            <div className="mb-1 text-xs font-black">감사 알림 로그</div>
-            <div className="max-h-24 space-y-1 overflow-y-auto pr-1">
-              {marketAuditChangeAlerts.length ? marketAuditChangeAlerts.map((alert) => (
-                <div key={alert.id} className={`rounded border p-1 text-[11px] ${theme.input}`}>
-                  <div className="font-black">{alert.at}</div>
-                  <div>{alert.message}</div>
-                  <div className="break-all text-[10px]">latest: {String(alert.latestHash || "").slice(0, 24)}... · prev: {String(alert.previousHash || "").slice(0, 24)}...</div>
-                </div>
-              )) : (
-                <div className={`rounded border p-1 text-[11px] ${theme.input}`}>변경 감지 알림이 없습니다.</div>
-              )}
-            </div>
-          </div>
-        </div>
+        <OpsMarketAuditPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          marketAuditScope={marketAuditScope}
+          marketAuditIntegrity={marketAuditIntegrity}
+          recentMarketAuditChainHashes={recentMarketAuditChainHashes}
+          marketAuditChainDrift={marketAuditChainDrift}
+          marketAuditChainStatus={marketAuditChainStatus}
+          loadMarketCatalogAudit={loadMarketCatalogAudit}
+          exportMarketCatalogAuditCsv={exportMarketCatalogAuditCsv}
+          verifyMarketCatalogAuditIntegrity={verifyMarketCatalogAuditIntegrity}
+          marketAuditIntegrityLoading={marketAuditIntegrityLoading}
+          loadRecentReportHashes={loadRecentReportHashes}
+          marketAuditActorFilter={marketAuditActorFilter}
+          setMarketAuditActorFilter={setMarketAuditActorFilter}
+          authUsers={authUsers}
+          marketAuditQuery={marketAuditQuery}
+          setMarketAuditQuery={setMarketAuditQuery}
+          marketAuditFromDate={marketAuditFromDate}
+          setMarketAuditFromDate={setMarketAuditFromDate}
+          marketAuditToDate={marketAuditToDate}
+          setMarketAuditToDate={setMarketAuditToDate}
+          applyMarketAuditQuickRange={applyMarketAuditQuickRange}
+          resetMarketAuditFilters={resetMarketAuditFilters}
+          marketCatalogLogs={marketCatalogLogs}
+          expandedMarketAuditIds={expandedMarketAuditIds}
+          toggleMarketAuditExpanded={toggleMarketAuditExpanded}
+          marketAuditHasMore={marketAuditHasMore}
+          marketAuditLoadingMore={marketAuditLoadingMore}
+          marketAuditChangeAlerts={marketAuditChangeAlerts}
+        />
 
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black">운영 리스크 센터</div>
-              <div className={`text-xs ${theme.muted}`}>장애/지연/승인 병목을 실시간으로 점검합니다.</div>
-            </div>
-            <button onClick={loadOpsRiskSummary} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              {opsRiskLoading ? "점검중..." : "리스크 점검"}
-            </button>
-          </div>
-          <div className="mb-2 flex items-center gap-2 text-xs">
-            <span className={`rounded-full px-2 py-1 font-black ${
-              opsRiskSummary.overallLevel === "high"
-                ? "bg-red-600 text-white"
-                : opsRiskSummary.overallLevel === "medium"
-                  ? "bg-amber-500 text-white"
-                  : "bg-emerald-600 text-white"
-            }`}>
-              overall: {opsRiskSummary.overallLevel}
-            </span>
-            <span className={`rounded-full border px-2 py-1 font-black ${theme.input}`}>score: {opsRiskSummary.score}</span>
-            <span className={theme.muted}>generated: {opsRiskSummary.generatedAt || "-"}</span>
-          </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {(opsRiskSummary.risks || []).map((risk) => (
-              <div key={risk.key} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
-                <div className="flex items-center justify-between">
-                  <span className="font-black">{risk.message}</span>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${
-                    risk.level === "high"
-                      ? "bg-red-600 text-white"
-                      : risk.level === "medium"
-                        ? "bg-amber-500 text-white"
-                        : "bg-emerald-600 text-white"
-                  }`}>
-                    {risk.level}
-                  </span>
-                </div>
-                <div className={theme.muted}>count: {risk.count}</div>
-                <div className="mt-2">
-                  <button
-                    onClick={() => runOpsAction(risk.key)}
-                    disabled={opsActionLoading === risk.key}
-                    className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                  >
-                    {opsActionLoading === risk.key ? "조치중..." : "즉시 조치"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <OpsRiskCenterPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          loadOpsRiskSummary={loadOpsRiskSummary}
+          opsRiskLoading={opsRiskLoading}
+          opsRiskSummary={opsRiskSummary}
+          runOpsAction={runOpsAction}
+          opsActionLoading={opsActionLoading}
+        />
 
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black">확장형 마켓 카탈로그 (코인/NFT)</div>
-              <div className={`text-xs ${theme.muted}`}>현재는 결제 코인 중심으로 운영하고, NFT 등은 planned 상태로 확장할 수 있습니다.</div>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={loadMarketCatalog} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                {marketCatalogLoading ? "조회중..." : "카탈로그 새로고침"}
-              </button>
-              <button
-                onClick={resetMarketCatalogDraft}
-                disabled={marketCatalogSaving || !marketCatalogDiff.hasChanges}
-                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-              >
-                편집 원복
-              </button>
-              <button
-                onClick={openMarketSaveConfirm}
-                disabled={!isSuperAdmin || marketCatalogSaving}
-                className={`rounded-xl border px-3 py-2 text-xs font-black ${isSuperAdmin ? theme.main : theme.input}`}
-              >
-                {marketCatalogSaving ? "저장중..." : "카탈로그 저장"}
-              </button>
-            </div>
-          </div>
-          <div className={`mb-2 text-[11px] ${theme.muted}`}>자산/마켓을 행 단위로 수정한 뒤 저장하세요. (코인 active, NFT planned 권장)</div>
-          <div className={`mb-2 rounded-xl border px-2 py-1 text-[11px] ${theme.input}`}>
-            변경 요약 ·
-            assets +{marketCatalogDiff.addedAssets} / -{marketCatalogDiff.removedAssets} / ~{marketCatalogDiff.updatedAssets}
-            {"  "}· markets +{marketCatalogDiff.addedMarkets} / -{marketCatalogDiff.removedMarkets} / ~{marketCatalogDiff.updatedMarkets}
-            {!marketCatalogDiff.hasChanges && " (변경 없음)"}
-          </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            <div className={`rounded-xl border p-2 ${theme.input}`}>
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-xs font-black">Assets</div>
-                <div className="flex items-center gap-1">
-                  <select
-                    value={marketAssetTypeFilter}
-                    onChange={(e) => setMarketAssetTypeFilter(e.target.value)}
-                    className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                  >
-                    <option value="all">all type</option>
-                    <option value="coin">coin</option>
-                    <option value="nft">nft</option>
-                    <option value="tokenized_asset">tokenized</option>
-                    <option value="point">point</option>
-                  </select>
-                  <button onClick={addAssetRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ asset</button>
-                </div>
-              </div>
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {filteredMarketAssets.map(({ asset, index }) => (
-                  <div key={`asset-${index}`} className={`rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
-                    <div className="grid gap-1 md:grid-cols-2">
-                      <input value={asset.assetCode || ""} onChange={(e) => updateAssetRow(index, "assetCode", e.target.value.toUpperCase())} placeholder="assetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
-                      <input value={asset.displayName || ""} onChange={(e) => updateAssetRow(index, "displayName", e.target.value)} placeholder="displayName" className={`rounded border px-2 py-1 ${theme.input}`} />
-                      <select value={asset.assetType || "coin"} onChange={(e) => updateAssetRow(index, "assetType", e.target.value)} className={`rounded border px-2 py-1 ${theme.input}`}>
-                        <option value="coin">coin</option><option value="nft">nft</option><option value="tokenized_asset">tokenized_asset</option><option value="point">point</option>
-                      </select>
-                      <input value={asset.network || ""} onChange={(e) => updateAssetRow(index, "network", e.target.value)} placeholder="network" className={`rounded border px-2 py-1 ${theme.input}`} />
-                    </div>
-                    <textarea
-                      value={asset.metadataText || "{}"}
-                      onChange={(e) => updateAssetRow(index, "metadataText", e.target.value)}
-                      placeholder='metadata JSON (e.g. {"precision":6})'
-                      className={`mt-1 min-h-16 w-full rounded border px-2 py-1 font-mono text-[10px] ${theme.input}`}
-                    />
-                    <div className="mt-1 flex items-center gap-3">
-                      <label className="flex items-center gap-1"><input type="checkbox" checked={Boolean(asset.settlementEnabled)} onChange={(e) => updateAssetRow(index, "settlementEnabled", e.target.checked)} />settlement</label>
-                      <label className="flex items-center gap-1"><input type="checkbox" checked={asset.isActive !== false} onChange={(e) => updateAssetRow(index, "isActive", e.target.checked)} />active</label>
-                      <button onClick={() => removeAssetRow(index)} className="rounded border px-2 py-1 text-[11px] font-black text-red-400">삭제</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className={`rounded-xl border p-2 ${theme.input}`}>
-              <div className="mb-2 flex items-center justify-between">
-                <div className="text-xs font-black">Markets</div>
-                <div className="flex items-center gap-1">
-                  <select
-                    value={marketStatusFilter}
-                    onChange={(e) => setMarketStatusFilter(e.target.value)}
-                    className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}
-                  >
-                    <option value="all">all status</option>
-                    <option value="active">active</option>
-                    <option value="planned">planned</option>
-                    <option value="disabled">disabled</option>
-                  </select>
-                  <button onClick={addMarketRow} className={`rounded-lg border px-2 py-1 text-[11px] font-black ${theme.input}`}>+ market</button>
-                </div>
-              </div>
-              <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {filteredMarketCatalog.map(({ market, index }) => (
-                  <div key={`market-${index}`} className={`rounded-lg border p-2 text-[11px] ${theme.cardSoft}`}>
-                    <div className="grid gap-1 md:grid-cols-2">
-                      <input value={market.marketKey || ""} onChange={(e) => updateMarketRow(index, "marketKey", e.target.value)} placeholder="marketKey" className={`rounded border px-2 py-1 ${theme.input}`} />
-                      <select value={market.marketType || "p2p"} onChange={(e) => updateMarketRow(index, "marketType", e.target.value)} className={`rounded border px-2 py-1 ${theme.input}`}>
-                        <option value="p2p">p2p</option><option value="mock">mock</option><option value="spot">spot</option>
-                      </select>
-                      <input value={market.offeredAssetCode || ""} onChange={(e) => updateMarketRow(index, "offeredAssetCode", e.target.value.toUpperCase())} placeholder="offeredAssetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
-                      <input value={market.requestedAssetCode || ""} onChange={(e) => updateMarketRow(index, "requestedAssetCode", e.target.value.toUpperCase())} placeholder="requestedAssetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
-                      <input value={market.settlementAssetCode || ""} onChange={(e) => updateMarketRow(index, "settlementAssetCode", e.target.value.toUpperCase())} placeholder="settlementAssetCode" className={`rounded border px-2 py-1 ${theme.input}`} />
-                      <input value={market.escrowAdapter || ""} onChange={(e) => updateMarketRow(index, "escrowAdapter", e.target.value)} placeholder="escrowAdapter" className={`rounded border px-2 py-1 ${theme.input}`} />
-                      <select value={market.status || "planned"} onChange={(e) => updateMarketRow(index, "status", e.target.value)} className={`rounded border px-2 py-1 ${theme.input}`}>
-                        <option value="active">active</option><option value="planned">planned</option><option value="disabled">disabled</option>
-                      </select>
-                    </div>
-                    <textarea
-                      value={market.metadataText || "{}"}
-                      onChange={(e) => updateMarketRow(index, "metadataText", e.target.value)}
-                      placeholder='metadata JSON (e.g. {"label":"BTC/USDT"})'
-                      className={`mt-1 min-h-16 w-full rounded border px-2 py-1 font-mono text-[10px] ${theme.input}`}
-                    />
-                    <div className="mt-1">
-                      <button onClick={() => removeMarketRow(index)} className="rounded border px-2 py-1 text-[11px] font-black text-red-400">삭제</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-          {marketSaveConfirmOpen && (
-            <div className={`mt-2 rounded-xl border p-2 text-xs ${theme.input}`}>
-              <div className="font-black">카탈로그 저장 확인</div>
-              <div className="mt-1">
-                assets +{marketCatalogDiff.addedAssets} / -{marketCatalogDiff.removedAssets} / ~{marketCatalogDiff.updatedAssets}
-                {" · "}
-                markets +{marketCatalogDiff.addedMarkets} / -{marketCatalogDiff.removedMarkets} / ~{marketCatalogDiff.updatedMarkets}
-              </div>
-              <div className="mt-2 flex gap-2">
-                <button
-                  onClick={async () => {
-                    setMarketSaveConfirmOpen(false);
-                    await saveMarketCatalog();
-                  }}
-                  className={`rounded-lg px-3 py-1.5 font-black ${theme.main}`}
-                >
-                  저장 실행
-                </button>
-                <button onClick={() => setMarketSaveConfirmOpen(false)} className={`rounded-lg border px-3 py-1.5 font-black ${theme.input}`}>
-                  취소
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        <OpsExtendedMarketCatalogPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          loadMarketCatalog={loadMarketCatalog}
+          marketCatalogLoading={marketCatalogLoading}
+          resetMarketCatalogDraft={resetMarketCatalogDraft}
+          marketCatalogSaving={marketCatalogSaving}
+          marketCatalogDiff={marketCatalogDiff}
+          isSuperAdmin={isSuperAdmin}
+          openMarketSaveConfirm={openMarketSaveConfirm}
+          marketAssetTypeFilter={marketAssetTypeFilter}
+          setMarketAssetTypeFilter={setMarketAssetTypeFilter}
+          addAssetRow={addAssetRow}
+          filteredMarketAssets={filteredMarketAssets}
+          updateAssetRow={updateAssetRow}
+          removeAssetRow={removeAssetRow}
+          marketStatusFilter={marketStatusFilter}
+          setMarketStatusFilter={setMarketStatusFilter}
+          addMarketRow={addMarketRow}
+          filteredMarketCatalog={filteredMarketCatalog}
+          updateMarketRow={updateMarketRow}
+          removeMarketRow={removeMarketRow}
+          marketSaveConfirmOpen={marketSaveConfirmOpen}
+          setMarketSaveConfirmOpen={setMarketSaveConfirmOpen}
+          saveMarketCatalog={saveMarketCatalog}
+        />
 
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black">복구 스냅샷 · 롤백 센터</div>
-              <div className={`text-xs ${theme.muted}`}>문제 발생 시 스냅샷 생성, 분석 후 원점 복구를 실행합니다.</div>
-            </div>
-            <button onClick={loadOpsSnapshots} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              {opsSnapshotLoading ? "동기화중..." : "스냅샷 새로고침"}
-            </button>
-          </div>
+        <OpsSnapshotRollbackPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          loadOpsSnapshots={loadOpsSnapshots}
+          opsSnapshotLoading={opsSnapshotLoading}
+          opsSnapshotLabel={opsSnapshotLabel}
+          setOpsSnapshotLabel={setOpsSnapshotLabel}
+          opsSnapshotReason={opsSnapshotReason}
+          setOpsSnapshotReason={setOpsSnapshotReason}
+          createOpsSnapshot={createOpsSnapshot}
+          opsSnapshots={opsSnapshots}
+          formatNumber={number}
+          rollbackSnapshotId={rollbackSnapshotId}
+          setRollbackSnapshotId={setRollbackSnapshotId}
+          rollbackReason={rollbackReason}
+          setRollbackReason={setRollbackReason}
+          rollbackConfirmText={rollbackConfirmText}
+          setRollbackConfirmText={setRollbackConfirmText}
+          executeRollback={executeRollback}
+        />
 
-          <div className="grid gap-2 md:grid-cols-3">
-            <input
-              value={opsSnapshotLabel}
-              onChange={(e) => setOpsSnapshotLabel(e.target.value)}
-              placeholder="스냅샷 라벨 (예: pre-release-v2)"
-              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-            <input
-              value={opsSnapshotReason}
-              onChange={(e) => setOpsSnapshotReason(e.target.value)}
-              placeholder="스냅샷 사유 (5자 이상)"
-              className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-            />
-            <button onClick={createOpsSnapshot} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              운영 스냅샷 생성
-            </button>
-          </div>
+        <OpsReportHashPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          loadRecentReportHashes={loadRecentReportHashes}
+          recentReportHashes={recentReportHashes}
+          verifyHashType={verifyHashType}
+          setVerifyHashType={setVerifyHashType}
+          verifyHashInput={verifyHashInput}
+          setVerifyHashInput={setVerifyHashInput}
+          verifyReportHash={verifyReportHash}
+          verifyHashResult={verifyHashResult}
+        />
 
-          <div className="mt-2 max-h-36 space-y-1 overflow-y-auto pr-1">
-            {opsSnapshots.length ? (
-              opsSnapshots.map((snapshot) => (
-                <div key={snapshot.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
-                  <div className="font-black">#{snapshot.id} · {snapshot.snapshot_type} · {snapshot.label || "-"}</div>
-                  <div className={theme.muted}>
-                    {snapshot.created_at} · by {snapshot.created_by_name || snapshot.created_by_user_id} · {number((snapshot.size_bytes || 0) / 1024)}KB
-                  </div>
-                  <div className="mt-1 break-all text-[11px]">{snapshot.sha256_hash}</div>
-                </div>
-              ))
-            ) : (
-              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>생성된 운영 스냅샷이 없습니다.</div>
-            )}
-          </div>
+        <OpsWebhookStatusPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          webhookChainAlertUnreadCount={webhookChainAlertUnreadCount}
+          webhookAutoRefresh={webhookAutoRefresh}
+          webhookChainAlertOnly={webhookChainAlertOnly}
+          latestWebhookChainAlertAt={latestWebhookChainAlertAt}
+          webhookStatusFilter={webhookStatusFilter}
+          setWebhookStatusFilter={setWebhookStatusFilter}
+          setWebhookAutoRefresh={setWebhookAutoRefresh}
+          setWebhookChainAlertOnly={setWebhookChainAlertOnly}
+          webhookAutoFocusOpsOnAlert={webhookAutoFocusOpsOnAlert}
+          setWebhookAutoFocusOpsOnAlert={setWebhookAutoFocusOpsOnAlert}
+          webhookAlertSoundEnabled={webhookAlertSoundEnabled}
+          setWebhookAlertSoundEnabled={setWebhookAlertSoundEnabled}
+          loadWebhookEvents={loadWebhookEvents}
+          webhookLoading={webhookLoading}
+          acknowledgeWebhookChainAlerts={acknowledgeWebhookChainAlerts}
+          filteredWebhookEvents={filteredWebhookEvents}
+        />
 
-          <div className="mt-3 rounded-xl border p-3">
-            <div className="mb-2 text-xs font-black">롤백 실행 (슈퍼관리자)</div>
-            <div className="grid gap-2 md:grid-cols-4">
-              <select
-                value={rollbackSnapshotId}
-                onChange={(e) => setRollbackSnapshotId(e.target.value)}
-                className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
-              >
-                <option value="">롤백 대상 스냅샷 선택</option>
-                {opsSnapshots.map((snapshot) => (
-                  <option key={snapshot.id} value={snapshot.id}>
-                    #{snapshot.id} · {snapshot.label || snapshot.snapshot_type}
-                  </option>
-                ))}
-              </select>
-              <input
-                value={rollbackReason}
-                onChange={(e) => setRollbackReason(e.target.value)}
-                placeholder="롤백 사유 (5자 이상)"
-                className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-              />
-              <input
-                value={rollbackConfirmText}
-                onChange={(e) => setRollbackConfirmText(e.target.value)}
-                placeholder="확인문구: ROLLBACK"
-                className={`rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-              />
-              <button onClick={executeRollback} className="rounded-xl border border-red-500/60 px-3 py-2 text-xs font-black text-red-400">
-                원점 롤백 실행
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black">리포트 해시 서버 기록</div>
-              <div className={`text-xs ${theme.muted}`}>PDF 해시를 서버에 저장해 위변조 검증 기준으로 사용합니다.</div>
-            </div>
-            <button onClick={loadRecentReportHashes} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-              해시 이력 새로고침
-            </button>
-          </div>
-          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
-            {recentReportHashes.length ? (
-              recentReportHashes.map((row) => (
-                <div key={row.id} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
-                  <div className="font-black">{row.report_type} · {row.created_at}</div>
-                  <div className={theme.muted}>
-                    actor {row.actor_name || row.actor_user_id} · rows {row.row_count} · {row.from_date || "all"} ~ {row.to_date || "all"}
-                  </div>
-                  <div className="mt-1 break-all text-[11px]">{row.sha256_hash}</div>
-                </div>
-              ))
-            ) : (
-              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>저장된 리포트 해시 이력이 없습니다.</div>
-            )}
-          </div>
-          <div className="mt-2 rounded-xl border p-2">
-            <div className="mb-1 text-xs font-black">해시 대조 검증</div>
-            <div className="flex flex-col gap-2 md:flex-row">
-              <select
-                value={verifyHashType}
-                onChange={(e) => setVerifyHashType(e.target.value)}
-                className={`rounded-xl border px-3 py-2 text-xs font-black outline-none ${theme.input}`}
-              >
-                <option value="approval_audit_pdf">PDF 리포트</option>
-                <option value="approval_audit_csv">CSV 리포트</option>
-                <option value="market_catalog_audit_chain">카탈로그 감사 체인</option>
-              </select>
-              <input
-                value={verifyHashInput}
-                onChange={(e) => setVerifyHashInput(e.target.value)}
-                placeholder="SHA-256 해시 64자 입력"
-                className={`w-full rounded-xl border px-3 py-2 text-xs font-bold outline-none ${theme.input}`}
-              />
-              <button onClick={verifyReportHash} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>
-                서버 대조
-              </button>
-            </div>
-            {!!verifyHashResult && <div className={`mt-2 text-[11px] ${theme.muted}`}>{verifyHashResult}</div>}
-          </div>
-        </div>
-
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-2 flex items-center justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-black">Webhook 전송 상태</span>
-                {webhookChainAlertUnreadCount > 0 ? (
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-black text-white ${
-                      webhookAutoRefresh && webhookChainAlertOnly ? "bg-red-600" : "bg-amber-600"
-                    }`}
-                    title={webhookAutoRefresh && webhookChainAlertOnly ? "자동 감시 중 신규 CHAIN ALERT" : "신규 CHAIN ALERT (확인 전)"}
-                  >
-                    +{webhookChainAlertUnreadCount} CHAIN
-                  </span>
-                ) : null}
-              </div>
-              <div className={`text-xs ${theme.muted}`}>
-                최근 관리자 이벤트 전송 결과 (성공/실패/비활성)
-                {latestWebhookChainAlertAt ? ` · 최근 CHAIN ALERT: ${latestWebhookChainAlertAt}` : ""}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <select
-                value={webhookStatusFilter}
-                onChange={(e) => setWebhookStatusFilter(e.target.value)}
-                className={`rounded-xl border px-2 py-2 text-xs font-black outline-none ${theme.input}`}
-              >
-                <option value="all">전체</option>
-                <option value="success">성공</option>
-                <option value="failed">실패</option>
-                <option value="disabled">비활성</option>
-              </select>
-              <label className={`flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
-                <input
-                  type="checkbox"
-                  checked={webhookAutoRefresh}
-                  onChange={(e) => setWebhookAutoRefresh(e.target.checked)}
-                />
-                15초 자동
-              </label>
-              <label className={`relative flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
-                <input
-                  type="checkbox"
-                  checked={webhookChainAlertOnly}
-                  onChange={(e) => setWebhookChainAlertOnly(e.target.checked)}
-                />
-                CHAIN ALERT만
-                {webhookChainAlertUnreadCount > 0 && webhookChainAlertOnly ? (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-black leading-none text-white">
-                    {webhookChainAlertUnreadCount > 99 ? "99+" : webhookChainAlertUnreadCount}
-                  </span>
-                ) : null}
-              </label>
-              <label className={`flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
-                <input
-                  type="checkbox"
-                  checked={webhookAutoFocusOpsOnAlert}
-                  onChange={(e) => setWebhookAutoFocusOpsOnAlert(e.target.checked)}
-                />
-                경보시 ops 고정
-              </label>
-              <label className={`flex items-center gap-1 rounded-xl border px-2 py-2 text-xs font-black ${theme.input}`}>
-                <input
-                  type="checkbox"
-                  checked={webhookAlertSoundEnabled}
-                  onChange={(e) => setWebhookAlertSoundEnabled(e.target.checked)}
-                />
-                소리 알림
-              </label>
-              <button
-                onClick={() => loadWebhookEvents({ acknowledgeUnread: true })}
-                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-              >
-                {webhookLoading ? "조회중..." : "새로고침"}
-              </button>
-              <button
-                onClick={acknowledgeWebhookChainAlerts}
-                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-              >
-                경보 확인처리
-              </button>
-            </div>
-          </div>
-          <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
-            {filteredWebhookEvents.length ? (
-              filteredWebhookEvents.map((event) => {
-                const badgeClass =
-                  event.status === "success"
-                    ? "bg-emerald-600 text-white"
-                    : event.status === "failed"
-                      ? "bg-red-600 text-white"
-                      : "bg-amber-500 text-white";
-                const isChainAlertEvent = String(event.event_type || "") === "market_catalog_audit_chain_changed";
-                return (
-                  <div key={event.id} className={`flex items-center justify-between rounded-xl border p-2 text-xs ${theme.input}`}>
-                    <div>
-                      <div className="flex items-center gap-1">
-                        <div className="font-black">{event.event_type}</div>
-                        {isChainAlertEvent ? (
-                          <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black text-white">CHAIN ALERT</span>
-                        ) : null}
-                      </div>
-                      <div className={theme.muted}>
-                        {event.occurred_at}
-                        {event.status_code ? ` · HTTP ${event.status_code}` : ""}
-                      </div>
-                      {!!event.error_message && <div className="text-[11px] text-red-400">{event.error_message}</div>}
-                    </div>
-                    <span className={`rounded-full px-2 py-1 text-[11px] font-black ${badgeClass}`}>{event.status}</span>
-                  </div>
-                );
-              })
-            ) : (
-              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>조건에 맞는 웹훅 이벤트가 없습니다.</div>
-            )}
-          </div>
-        </div>
-
-        <div className={`${isAdminTab("ops") ? "" : "hidden "}mb-5 rounded-3xl border p-4 ${theme.cardSoft}`}>
-          <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-sm font-black">권한 감사 리포트</div>
-              <div className={`text-xs ${theme.muted}`}>누가 언제 무엇을 승인/반려/열람했는지 추적합니다.</div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="date"
-                value={auditFromDate}
-                onChange={(e) => setAuditFromDate(e.target.value)}
-                className={`rounded-xl border px-2 py-2 text-xs font-black outline-none ${theme.input}`}
-              />
-              <input
-                type="date"
-                value={auditToDate}
-                onChange={(e) => setAuditToDate(e.target.value)}
-                className={`rounded-xl border px-2 py-2 text-xs font-black outline-none ${theme.input}`}
-              />
-              <button
-                onClick={loadApprovalAuditReport}
-                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-              >
-                {auditLoading ? "조회중..." : "리포트 조회"}
-              </button>
-              <button
-                onClick={exportApprovalAuditCsv}
-                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-              >
-                CSV 내보내기
-              </button>
-              <button
-                onClick={exportApprovalAuditPdf}
-                className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}
-              >
-                PDF 출력
-              </button>
-            </div>
-          </div>
-
-          <div className="mb-3 grid gap-2 md:grid-cols-6">
-            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>전체 이벤트 <b>{approvalAuditSummary.totalEvents || 0}</b></div>
-            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 요청 <b>{approvalAuditSummary.kycRequestCount || 0}</b></div>
-            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 승인 <b>{approvalAuditSummary.kycApprovalCount || 0}</b></div>
-            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 반려 <b>{approvalAuditSummary.kycRejectedCount || 0}</b></div>
-            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>KYC 열람 <b>{approvalAuditSummary.kycViewCount || 0}</b></div>
-            <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>분쟁 결재 <b>{approvalAuditSummary.disputeApprovalCount || 0}</b></div>
-          </div>
-
-          <div className="max-h-52 space-y-1 overflow-y-auto pr-1">
-            {approvalAuditEvents.length ? (
-              approvalAuditEvents.map((event, idx) => (
-                <div key={`${event.kind}-${event.target}-${idx}`} className={`rounded-xl border p-2 text-xs ${theme.input}`}>
-                  <div className="font-black">{event.action}</div>
-                  <div className={theme.muted}>
-                    {event.createdAt} · {event.actorName} ({event.actorUserId}) · {event.target}
-                  </div>
-                  {!!event.detail && <div className="mt-1 text-[11px]">{event.detail}</div>}
-                </div>
-              ))
-            ) : (
-              <div className={`rounded-xl border p-2 text-xs ${theme.input}`}>조회된 감사 이벤트가 없습니다.</div>
-            )}
-          </div>
-        </div>
+        <OpsPermissionAuditPanel
+          theme={theme}
+          visible={isAdminTab("ops")}
+          auditFromDate={auditFromDate}
+          setAuditFromDate={setAuditFromDate}
+          auditToDate={auditToDate}
+          setAuditToDate={setAuditToDate}
+          loadApprovalAuditReport={loadApprovalAuditReport}
+          auditLoading={auditLoading}
+          exportApprovalAuditCsv={exportApprovalAuditCsv}
+          exportApprovalAuditPdf={exportApprovalAuditPdf}
+          approvalAuditSummary={approvalAuditSummary}
+          approvalAuditEvents={approvalAuditEvents}
+        />
         </AdminSectionBoundary>
 
         <DashboardPanel
@@ -9262,42 +8404,29 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     formatNumber={number}
                   />
 
-                  {isSelfTargetMember && (
-                    <div className={`mt-1 rounded-xl border px-3 py-2 text-xs ${theme.input}`}>
-                      현재 선택한 회원은 본인 계정입니다. 본인 상태는 변경할 수 없고 하위 회원만 변경 가능합니다.
-                    </div>
-                  )}
+                  {isSelfTargetMember && <MemberSelfNoticePanel theme={theme} />}
                   {stageConfirmOpen && monitorCurrentUser ? (
-                    <div className="mt-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3">
-                      <div className="text-sm font-black">단계 변경 확인</div>
-                      <div className="mt-2 text-sm leading-relaxed">
-                        <span className="font-bold">{monitorCurrentUser.nickname}</span>을(를){" "}
-                        <span className="font-black text-amber-200">{adminStageDisplayName(stageConfirmFromStage)}</span>에서{" "}
-                        <span className="font-black text-amber-200">{adminStageDisplayName(stageConfirmTarget)}</span>
-                        로 변경하시겠습니까?
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setStageConfirmOpen(false);
-                            setStageConfirmFromStage("");
-                            setStageConfirmTarget("");
-                          }}
-                          className={`rounded-xl border px-4 py-2 text-sm font-black ${theme.input}`}
-                        >
-                          취소
-                        </button>
-                        <button type="button" onClick={() => void confirmApplySelectedStage()} className={`rounded-xl px-4 py-2 text-sm font-black ${theme.main}`}>
-                          확인
-                        </button>
-                      </div>
-                    </div>
+                    <MemberStageConfirmPanel
+                      theme={theme}
+                      monitorCurrentUser={monitorCurrentUser}
+                      stageConfirmFromStage={stageConfirmFromStage}
+                      stageConfirmTarget={stageConfirmTarget}
+                      adminStageDisplayName={adminStageDisplayName}
+                      onCancel={() => {
+                        setStageConfirmOpen(false);
+                        setStageConfirmFromStage("");
+                        setStageConfirmTarget("");
+                      }}
+                      onConfirm={confirmApplySelectedStage}
+                    />
                   ) : null}
                   {!!pendingStageValue && (
-                    <div className="mt-1 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
-                      변경 대기: {pendingStageFrom || getEffectiveStage(monitorCurrentUser)} {"->"} {pendingStageValue}
-                    </div>
+                    <MemberPendingStagePanel
+                      pendingStageFrom={pendingStageFrom}
+                      pendingStageValue={pendingStageValue}
+                      monitorCurrentUser={monitorCurrentUser}
+                      getEffectiveStage={getEffectiveStage}
+                    />
                   )}
 
                   <MemberAssignChildPanel
@@ -9315,11 +8444,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                     directDownlineListRef={directDownlineListRef}
                     monitorCurrentUser={monitorCurrentUser}
                   />
-                  {selectedChildren.length === 0 && (
-                    <div className={`mt-1 rounded-xl border px-3 py-2 text-xs ${theme.input}`}>
-                      등록된 하부가 없습니다.
-                    </div>
-                  )}
+                  {selectedChildren.length === 0 && <MemberEmptyDownlinePanel theme={theme} />}
                   <MemberStatsPanel
                     theme={theme}
                     monitorCurrentUser={monitorCurrentUser}
@@ -9361,24 +8486,22 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
                   )}
                 </>
               ) : (
-                <div className={`mt-3 text-sm ${theme.subtext}`}>왼쪽에서 하부 회원을 선택하세요.</div>
+                <MemberEmptySelectionPanel theme={theme} lang={lang} />
               )}
             </div>
 
-            <div className="hidden">
-              <Field label="대상 회원 ID / 지갑 / 이메일" theme={theme}>
-                <input value={adminMember} onChange={(e) => setAdminMember(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: TG-MEMBER-001" />
-              </Field>
-              <Field label="상위 회원 / 추천인 / 레벨 관리자 ID" theme={theme}>
-                <input value={adminParent} onChange={(e) => setAdminParent(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: TG777" />
-              </Field>
-              <Field label="상위자가 받은 배분율 (%)" theme={theme}>
-                <input value={adminReceivedRate} onChange={(e) => setAdminReceivedRate(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: 50" />
-              </Field>
-              <Field label="하위에게 내려줄 배분율 (%)" theme={theme}>
-                <input value={adminRate} onChange={(e) => setAdminRate(e.target.value)} className={`rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`} placeholder="예: 45" />
-              </Field>
-            </div>
+            <MemberHiddenFieldsPanel
+              Field={Field}
+              theme={theme}
+              adminMember={adminMember}
+              setAdminMember={setAdminMember}
+              adminParent={adminParent}
+              setAdminParent={setAdminParent}
+              adminReceivedRate={adminReceivedRate}
+              setAdminReceivedRate={setAdminReceivedRate}
+              adminRate={adminRate}
+              setAdminRate={setAdminRate}
+            />
           </div>
         </div>
         </AdminSectionBoundary>
@@ -9432,16 +8555,6 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           {invalidRate && <div className="mt-2 font-black">하위 배분율은 상위자가 받은 배분율보다 클 수 없습니다.</div>}
         </div>
 
-        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl p-4 ${theme.cardSoft}`}>
-          <div className="text-sm font-black">하부트리 예시</div>
-          <div className="mt-3 grid gap-2 text-sm">
-            <div className="rounded-2xl bg-black/10 p-3">본사: 전체 수수료 100% 권한</div>
-            <div className="rounded-2xl bg-black/10 p-3">└ {adminParent || "상위 회원"}: 본사로부터 {received}% 배분권 보유</div>
-            <div className="rounded-2xl bg-black/10 p-3">&nbsp;&nbsp;&nbsp;└ {adminMember || "하위 회원"}: {childRate}% 배분율 적용</div>
-            <div className="rounded-2xl bg-black/10 p-3">상위자 수익: {received}% - {childRate}% = {invalidRate ? "설정 오류" : `${marginRate}%`}</div>
-          </div>
-        </div>
-
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
         <MemberOpsMemoPanel
           theme={theme}
@@ -9451,102 +8564,6 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           setAdminMemo={setAdminMemo}
         />
         </AdminSectionBoundary>
-
-        <div className={`${false && isAdminTab("security") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-xl font-black">{lang.securityCenter}</div>
-              <div className={`text-sm ${theme.subtext}`}>IP · 기기 · 신고 · 블랙리스트 · 다중계정 위험 분석</div>
-            </div>
-
-            <select
-              value={securityFilter}
-              onChange={(e) => setSecurityFilter(e.target.value)}
-              className={`rounded-2xl border px-4 py-3 text-sm font-black outline-none ${theme.input}`}
-            >
-              <option>전체</option>
-              <option>주의</option>
-              <option>신고</option>
-              <option>블랙</option>
-            </select>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-4">
-            <Admin title="전체 회원" value="100" sub="가상 회원 데이터" theme={theme} />
-            <Admin title="위험 감지" value={securityUsers.filter((u) => u.riskScore >= 70).length} sub="위험점수 70 이상" theme={theme} />
-            <Admin title="사고 신고" value={securityUsers.filter((u) => u.reports > 0).length} sub="신고 접수 회원" theme={theme} />
-            <Admin title="블랙리스트" value={securityUsers.filter((u) => u.blacklist).length} sub="차단된 계정" theme={theme} />
-          </div>
-
-          <div className="mt-5 grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className="mb-3 flex items-center justify-between">
-                <div className="font-black">{lang.riskMonitor}</div>
-                <div className={`text-xs ${theme.muted}`}>실시간 감시 대상</div>
-              </div>
-
-              <div className="space-y-2">
-                {securityUsers.map((user) => (
-                  <div key={user.id} className={`rounded-2xl border p-3 ${theme.input}`}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-black">{user.nickname}</div>
-                        <div className="mt-1 text-xs opacity-70">{user.id} · {user.country} · {user.device}</div>
-                      </div>
-
-                      <div className={`rounded-full px-3 py-1 text-xs font-black ${user.blacklist ? "bg-red-600 text-white" : user.riskScore >= 70 ? "bg-amber-500 text-white" : "bg-emerald-600 text-white"}`}>
-                        위험 {user.riskScore}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid gap-2 text-xs md:grid-cols-2">
-                      <div>IP: <b>{user.ip}</b></div>
-                      <div>전화번호: <b>{user.phone}</b></div>
-                      <div>신고건수: <b>{user.reports}건</b></div>
-                      <div>최근접속: <b>{user.lastLogin}</b></div>
-                    </div>
-
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button onClick={() => notify(`${user.nickname} 거래 일시정지`)} className="rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-white">거래정지</button>
-                      <button onClick={() => notify(`${user.nickname} 블랙리스트 등록`)} className="rounded-xl bg-red-600 px-3 py-2 text-xs font-black text-white">블랙등록</button>
-                      <button onClick={() => notify(`${user.nickname} IP 추적 조회`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>IP분석</button>
-                      <button onClick={() => notify(`${user.nickname} 다중계정 분석`)} className={`rounded-xl border px-3 py-2 text-xs font-black ${theme.input}`}>다중계정</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className={`rounded-3xl p-4 ${theme.cardSoft}`}>
-              <div className="font-black">{lang.blockPolicy}</div>
-
-              <div className="mt-4 space-y-3 text-sm">
-                <div className="rounded-2xl bg-black/10 p-3">✔ 동일 IP 다중계정 감지</div>
-                <div className="rounded-2xl bg-black/10 p-3">✔ VPN / 해외 우회 접속 탐지</div>
-                <div className="rounded-2xl bg-black/10 p-3">✔ 반복 신고 회원 자동 감시</div>
-                <div className="rounded-2xl bg-black/10 p-3">✔ 블랙 지갑 주소 공유</div>
-                <div className="rounded-2xl bg-black/10 p-3">✔ 위험 거래 자동 알림</div>
-                <div className="rounded-2xl bg-black/10 p-3">✔ 관리자 승인 전 대량거래 제한</div>
-                <div className="rounded-2xl bg-black/10 p-3">✔ 기기 변경 반복 회원 추적</div>
-              </div>
-
-              <Field label="차단 사유 메모" theme={theme}>
-                <textarea
-                  value={blockReason}
-                  onChange={(e) => setBlockReason(e.target.value)}
-                  className={`min-h-28 rounded-2xl border px-4 py-3 font-bold outline-none ${theme.input}`}
-                />
-              </Field>
-
-              <button
-                onClick={() => notify(`전체 보안 정책 저장 완료`)}
-                className={`mt-4 w-full rounded-2xl px-5 py-4 font-black ${theme.main}`}
-              >
-                보안 정책 저장
-              </button>
-            </div>
-          </div>
-        </div>
 
         <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
           <div className="mb-3 flex items-center justify-between">
@@ -9580,30 +8597,6 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               </div>
             ))}
           </div>
-        </div>
-
-        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-5 rounded-3xl border p-5 ${theme.card}`}>
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-xl font-black">판매자 입금자명 확인 공지 관리</div>
-              <div className={`text-sm ${theme.subtext}`}>판매자에게 노출되는 입금자명 일치 안내 문구를 운영자가 직접 설정합니다.</div>
-            </div>
-            <span className="rounded-full bg-amber-500 px-3 py-1 text-xs font-black text-white">필수 공지</span>
-          </div>
-          <textarea
-            value={sellerDepositNotice}
-            onChange={(e) => setSellerDepositNotice(e.target.value)}
-            className={`min-h-24 w-full rounded-2xl border px-4 py-3 text-sm font-bold outline-none ${theme.input}`}
-          />
-          <button
-            onClick={() => {
-              appendAdminAction?.("판매자 입금자명 확인 공지 수정");
-              notify("판매자 공지 문구가 업데이트되었습니다.");
-            }}
-            className={`mt-3 rounded-2xl px-4 py-3 text-sm font-black ${theme.main}`}
-          >
-            공지 저장
-          </button>
         </div>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-kyc" sectionLabel="KYC 관리">
@@ -9776,9 +8769,6 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
               </>
             );
           })()}
-        </div>
-        <div className={`${false && isAdminTab("memberOps") ? "" : "hidden "}mt-3 rounded-2xl border p-3 text-xs ${theme.cardSoft}`}>
-          권한 레벨: {isSuperAdmin ? "슈퍼관리자 (전체 제어)" : "일반 관리자 (조회/모니터링 중심)"}
         </div>
         </div>
       </div>
@@ -10277,7 +9267,7 @@ function FriendMessenger({
 
 function Support({ theme, notify }) {
   const language = useLanguageCode();
-  return <section className="mx-auto max-w-7xl px-4 py-8"><div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}><h2 className="text-2xl font-black">{localizeLoose("고객센터 / 사고신고", language)}</h2><p className={`mt-2 ${theme.subtext}`}>{localizeLoose("피싱, 사기, 송금오류, 증빙문제 발생 시 신고 접수 후 필요한 범위의 정보를 제공합니다.", language)}</p><textarea className={`mt-5 h-32 w-full rounded-2xl border p-4 outline-none ${theme.input}`} placeholder={localizeLoose("신고 내용 입력", language)} /><button onClick={() => notify(localizeLoose("사고신고가 접수되었습니다.", language))} className={`mt-3 rounded-2xl px-5 py-3 font-black ${theme.main}`}>{localizeLoose("사고신고 접수", language)}</button></div></section>;
+  return <section className="mx-auto max-w-7xl px-4 py-8"><div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}><h2 className="text-2xl font-black">{localizeLoose("고객센터 / 사고신고", language)}</h2><p className={`mt-2 ${theme.subtext}`}>{localizeLoose("피싱, 사기, 송금오류, 증빙문제 발생 시 신고 접수 후 필요한 범위의 정보를 제공합니다.", language)}</p><textarea className={`mt-5 h-32 w-full rounded-2xl border p-4 outline-none ${theme.input}`} placeholder={localizeLoose("신고 내용 입력", language)} /><button onClick={() => notify(localizeLoose("사고신고가 접수되었습니다.", language))} className={`mt-3 rounded-2xl px-5 py-3 font-black ${theme.main}`}>{localizeLoose("사고신고 접수", language)}</button></div><MembershipHelpCenter theme={theme} /></section>;
 }
 
 function Stat({ title, text, theme }) {

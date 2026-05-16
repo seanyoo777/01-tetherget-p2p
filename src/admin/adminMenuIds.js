@@ -28,6 +28,7 @@ export const ADMIN_PANEL_TAB_IDS = Object.freeze({
   OPS: "ops",
   AUDIT: "audit",
   UTE_SURFACE: "uteSurface",
+  SELF_TEST: "selfTest",
 });
 
 /** 셸 메뉴 id → 패널 탭 id (UTE 연동용 매핑과 동일 소스) */

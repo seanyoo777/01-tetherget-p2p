@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { mergeAuthUserWithStageConsistency, normalizeStageLabel } from "../admin/adminMemberModel.js";
 import { refreshAdminPlatformSurface, getUteSurfaceMetrics, type AdminApiClient } from "../mock/adminPlatformMock";
+import { isP2pDiagnosticsEnabled, notifyP2pRefreshValidation } from "../p2p/p2pDevDiagnostics.js";
 import type { UteSurfacePayload } from "../tetherget/types";
+import { P2pDevDiagnosticsPanel } from "../p2p/ui/P2pDevDiagnosticsPanel.jsx";
+import { P2pEscrowLifecycleLegend } from "../p2p/ui/P2pEscrowLifecycleLegend.jsx";
 
 const LEVEL_OPTIONS = [
   "회원",
@@ -134,6 +137,7 @@ export default function SimpleAdmin({
   const [selfTestBanner, setSelfTestBanner] = useState<{ kind: "pass" | "fail"; text: string } | null>(null);
   const [selfTestRunning, setSelfTestRunning] = useState(false);
   const [uteMetrics, setUteMetrics] = useState<UteSurfacePayload["metrics"] | null>(null);
+  const [p2pDiagnosticsRevision, setP2pDiagnosticsRevision] = useState(0);
 
   const countsRef = useRef(counts);
   countsRef.current = counts;
@@ -158,13 +162,17 @@ export default function SimpleAdmin({
       return;
     }
     let cancelled = false;
-    void refreshAdminPlatformSurface(apiClient as AdminApiClient).then(() => {
-      if (!cancelled) setUteMetrics(getUteSurfaceMetrics());
+    void refreshAdminPlatformSurface(apiClient as AdminApiClient).then((result) => {
+      if (!cancelled) {
+        setUteMetrics(getUteSurfaceMetrics());
+        setP2pDiagnosticsRevision((r) => r + 1);
+        notifyP2pRefreshValidation(result?.validation, notify);
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [authToken, apiClient, tick]);
+  }, [authToken, apiClient, tick, notify]);
 
   function copyReferral(userId: string | number) {
     const url = referralUrl(userId);
@@ -418,6 +426,23 @@ export default function SimpleAdmin({
           </div>
         </section>
       ) : null}
+
+      <P2pDevDiagnosticsPanel
+        theme={{
+          muted: theme.muted ?? "text-neutral-500",
+          card: theme.card,
+          cardSoft: theme.cardSoft ?? "bg-neutral-50",
+        }}
+        showDevDiagnostics={isP2pDiagnosticsEnabled()}
+        diagnosticsRevision={p2pDiagnosticsRevision}
+      />
+      <P2pEscrowLifecycleLegend
+        theme={{
+          muted: theme.muted ?? "text-neutral-500",
+          card: theme.card,
+        }}
+        compact
+      />
 
       <div className="grid gap-4 md:grid-cols-[200px_1fr]">
         <aside className={`${card}`}>

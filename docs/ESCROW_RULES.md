@@ -60,7 +60,7 @@ For dashboards and future **UTE (7번)** integration, escrow is summarized in En
 | `disputed` | Linked dispute active (see `shared/p2pLifecycleMap.js`) |
 | `cancelled` | Order `cancelled` |
 
-Mapping logic is shared in **`shared/p2pLifecycleMap.js`**. Client-side transition checks live in **`src/tetherget/p2pStateMachine.ts`** (`canTransitionEscrowLifecycle` — `released` is blocked for mock-only guards; real completion stays on existing P2P APIs).
+Mapping logic is shared in **`shared/p2pLifecycleMap.js`**. Client-side transition checks live in **`src/tetherget/p2pStateMachine.ts`** (`canTransitionEscrowLifecycle` — `released` is blocked for mock-only guards; real completion stays on existing P2P APIs). **Normative cross-doc mapping** (P2P MatchState, dispute, `AUTO_RELEASE` vs `FORCE_*`): [TETHERGET_ESCROW_STATE_ALIGNMENT.md](./TETHERGET_ESCROW_STATE_ALIGNMENT.md).
 
 ## Admin read model: `GET /api/admin/p2p/ute-surface`
 
@@ -73,6 +73,9 @@ Update this file together with `MASTER_MANUAL.md` (when present) whenever escrow
 
 ## Related documents
 
+- [TETHERGET_ESCROW_STATE_ALIGNMENT.md](./TETHERGET_ESCROW_STATE_ALIGNMENT.md) — escrow ↔ P2P MatchState ↔ dispute (normative mapping; read with contracts below).
+- [TETHERGET_P2P_STATE_CONTRACT.md](./TETHERGET_P2P_STATE_CONTRACT.md) — order lifecycle contract.
+- [TETHERGET_DISPUTE_AUDIT_CONTRACT.md](./TETHERGET_DISPUTE_AUDIT_CONTRACT.md) — dispute, evidence, audit (append-only).
 - [SECURITY_RULES.md](./SECURITY_RULES.md) — gates, secrets, and abuse resistance.
 - [WALLET_STRUCTURE.md](./WALLET_STRUCTURE.md) — balances vs on-chain wallets.
 - [ADMIN_RULES.md](./ADMIN_RULES.md) — operational UI and policy switches.

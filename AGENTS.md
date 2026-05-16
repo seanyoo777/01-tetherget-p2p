@@ -28,6 +28,20 @@ Current Role:
 - Keep reusable architecture
 - Escrow logic must remain isolated/safe
 
+## GLOBAL SELF-TEST & VALIDATION (all platforms)
+
+Follow `docs/GLOBAL_SELF_TEST_VALIDATION.md` on every change:
+
+- Self-Test Center + Diagnostics Panel + mock Audit Trail + Feature Flag checks + Smoke
+- PASS / WARN / FAIL, issue count, last checked, MOCK ONLY badge
+- Admin state changes must be mock-validatable after change (no real settlement/on-chain)
+- No uncontrolled realtime loops; additive-only extensions
+- Keep `npm run release:check` (build, lint, test, admin verify)
+
+01-TetherGet-P2P mapping: `runAdminSelfTestSuite()`, `P2pDevDiagnosticsPanel`, `validateP2pAdminSurface()`, `runMembershipSelfTestSuite()`, `npm run smoke:p2p`.
+
+Membership / Points discount (mock): `src/membership/` — see `docs/TETHERGET_MEMBERSHIP.md`, `docs/TETHERGET_ONEAI_BRIDGE.md`.
+
 ---
 
 ## REQUIRED DOCUMENT RULE

@@ -15,17 +15,20 @@
     "verify:api-origin:wait": "node scripts/verify-mvp-api.mjs --wait",
     "prebuild": "npm run check:vite-api-base",
     "build": "vite build",
-    "lint": "eslint \"src/tetherget/**/*.{ts,tsx}\" \"src/mock/adminPlatformMock.ts\" \"src/pages/SimpleAdmin.tsx\" \"shared/p2pLifecycleMap.js\" \"server/admin/p2pUteSurface.js\" \"src/admin/AdminSectionBoundary.jsx\" \"src/admin/AdminErrorBoundary.jsx\" \"src/admin/adminMenuIds.js\" \"src/admin/panels/UteSurfacePanel.jsx\" \"src/admin/panels/DashboardPanel.jsx\" \"src/admin/panels/SecurityPanel.jsx\" \"src/admin/panels/KycPanel.jsx\" \"src/admin/panels/DisputePanel.jsx\" \"src/admin/panels/AdminActionLogStrip.jsx\" \"src/admin/panels/MemberOpsGridPanel.jsx\" \"src/admin/panels/MemberOpsMemoPanel.jsx\" \"src/admin/panels/MemberOpsMediaPanel.jsx\" \"src/admin/panels/MemberGridPanel.jsx\" \"src/admin/panels/MemberDetailPanel.jsx\" \"src/admin/panels/MemberDirectDownlinePanel.jsx\" \"src/admin/panels/MemberHierarchyPanel.jsx\" \"src/admin/panels/MemberStatsPanel.jsx\" \"src/admin/panels/MemberAssignChildPanel.jsx\" \"src/admin/panels/MemberActionRowPanel.jsx\"",
+    "lint": "eslint \"src/tetherget/**/*.{ts,tsx}\" \"src/p2p/**/*.{js,jsx}\" \"src/mock/adminPlatformMock.ts\" \"src/mock/p2pTradeFlowMock.js\" \"src/pages/SimpleAdmin.tsx\" \"shared/p2pLifecycleMap.js\" \"server/admin/p2pUteSurface.js\" \"src/admin/AdminSectionBoundary.jsx\" \"src/admin/AdminErrorBoundary.jsx\" \"src/admin/adminMenuIds.js\" \"src/admin/panels/UteSurfacePanel.jsx\" \"src/admin/panels/DashboardPanel.jsx\" \"src/admin/panels/SecurityPanel.jsx\" \"src/admin/panels/KycPanel.jsx\" \"src/admin/panels/DisputePanel.jsx\" \"src/admin/panels/AdminActionLogStrip.jsx\" \"src/admin/panels/MemberOpsGridPanel.jsx\" \"src/admin/panels/MemberOpsMemoPanel.jsx\" \"src/admin/panels/MemberOpsMediaPanel.jsx\" \"src/admin/panels/MemberGridPanel.jsx\" \"src/admin/panels/MemberDetailPanel.jsx\" \"src/admin/panels/MemberDirectDownlinePanel.jsx\" \"src/admin/panels/MemberHierarchyPanel.jsx\" \"src/admin/panels/MemberStatsPanel.jsx\" \"src/admin/panels/MemberAssignChildPanel.jsx\" \"src/admin/panels/MemberActionRowPanel.jsx\" \"src/admin/panels/MemberEmptyDownlinePanel.jsx\" \"src/admin/panels/MemberEmptySelectionPanel.jsx\" \"src/admin/panels/MemberSelfNoticePanel.jsx\" \"src/admin/panels/MemberStageConfirmPanel.jsx\" \"src/admin/panels/MemberPendingStagePanel.jsx\" \"src/admin/panels/MemberHiddenFieldsPanel.jsx\" \"src/admin/panels/OpsOverviewPanel.jsx\" \"src/admin/panels/OpsMaintenancePanel.jsx\" \"src/admin/panels/OpsMarketAuditPanel.jsx\" \"src/admin/panels/OpsRiskCenterPanel.jsx\" \"src/admin/panels/OpsExtendedMarketCatalogPanel.jsx\" \"src/admin/panels/OpsSnapshotRollbackPanel.jsx\" \"src/admin/panels/OpsReportHashPanel.jsx\" \"src/admin/panels/OpsWebhookStatusPanel.jsx\" \"src/admin/panels/OpsPermissionAuditPanel.jsx\" \"src/admin/panels/AuditOverviewPanel.jsx\" \"src/admin/panels/AuditP2pOrderMonitorPanel.jsx\" \"src/admin/adminSelfTestModel.js\" \"src/admin/adminSelfTestEngine.js\" \"src/admin/adminTestIds.js\" \"src/admin/adminMemberModel.js\" \"src/admin/panels/AdminSelfTestCenterPanel.jsx\" \"src/membership/**/*.js\" \"src/membership/ui/*.jsx\"",
     "verify:admin-stage": "node server/scripts/verify-admin-stage-consistency.mjs",
     "verify:admin-downline": "node server/scripts/verify-admin-downline-consistency.mjs",
     "verify:referral-engine": "node server/scripts/verify-referral-tree-engine.mjs",
     "verify:admin-smoke": "node server/scripts/verify-admin-stage-consistency.mjs && node server/scripts/verify-admin-downline-consistency.mjs && node server/scripts/verify-referral-tree-engine.mjs",
     "syntax:server": "node --check server/index.js",
     "rebuild:sqlite": "npm rebuild better-sqlite3",
-    "release:check": "npm run syntax:server && npm run build && npm run verify:admin-smoke",
+    "release:check": "npm run syntax:server && npm run build && npm run verify:admin-smoke && npm test",
     "backup:db": "node server/scripts/backup-db.js",
     "restore:db": "node server/scripts/restore-db.js",
-    "smoke:admin": "node scripts/smoke-admin-entry.mjs"
+    "smoke:admin": "node scripts/smoke-admin-entry.mjs",
+    "test": "node --test src/p2p/__tests__/*.test.js src/admin/__tests__/*.test.js src/membership/__tests__/*.test.js",
+    "smoke:p2p": "node scripts/smoke-p2p-ui.mjs",
+    "smoke:p2p:unit": "node --test src/p2p/__tests__/*.test.js"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",

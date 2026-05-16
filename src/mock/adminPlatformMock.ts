@@ -2,6 +2,8 @@
  * 관리자·UTE(7번) 연동용 mock/집계 surface. 실제 송금·온체인 release 없음.
  * `refreshAdminPlatformSurface` 로 `/api/admin/p2p/ute-surface` 캐시 후 getter 사용.
  */
+import { syncP2pAdminAuditCache, clearP2pAdminAuditCache } from "../p2p/p2pAdminAuditSurface.js";
+import { runP2pAdminRefreshSelfTest, clearP2pAdminRefreshValidation } from "../p2p/p2pDevDiagnostics.js";
 import type {
   AdminRiskStatus,
   DisputeCase,
@@ -14,6 +16,11 @@ import type {
 
 export type AdminApiClient = {
   request: (path: string, options?: { method?: string; auth?: boolean; body?: string }) => Promise<unknown>;
+};
+
+export type AdminPlatformRefreshResult = {
+  validation: ReturnType<typeof runP2pAdminRefreshSelfTest>;
+  mockOnly: true;
 };
 
 let surfaceCache: UteSurfacePayload | null = null;
@@ -86,18 +93,24 @@ function asSurface(data: unknown): UteSurfacePayload | null {
 }
 
 /** 관리자 토큰으로 서버 스냅샷 갱신. 실패 시 데모 스냅샷으로 폴백(숫자 0 오류 방지). */
-export async function refreshAdminPlatformSurface(api: AdminApiClient): Promise<void> {
+export async function refreshAdminPlatformSurface(api: AdminApiClient): Promise<AdminPlatformRefreshResult> {
   try {
     const data = await api.request("/api/admin/p2p/ute-surface", { auth: true });
     const parsed = asSurface(data);
     surfaceCache = parsed ?? DEMO_SURFACE;
+    syncP2pAdminAuditCache(surfaceCache);
   } catch {
     surfaceCache = DEMO_SURFACE;
+    syncP2pAdminAuditCache(surfaceCache);
   }
+  const validation = runP2pAdminRefreshSelfTest(surfaceCache);
+  return { validation, mockOnly: true };
 }
 
 export function clearAdminPlatformSurfaceCache(): void {
   surfaceCache = null;
+  clearP2pAdminAuditCache();
+  clearP2pAdminRefreshValidation();
 }
 
 function cache(): UteSurfacePayload {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { isAddress } from "viem";
 import { escrowContractAbi } from "../contracts/escrowAbi.js";
+import { P2P_ESCROW_COPY } from "./p2pEscrowCopy.js";
 
 const STATUS_LABELS = ["None", "Funded", "Released", "Disputed", "RefundedToBuyer", "EmergencyWithdrawn"];
 
@@ -118,14 +119,14 @@ export function P2pOnchainEscrowBlock({ row, theme, notify, apiClient, onReload 
   if (!escrowAddress) {
     return (
       <div className={`mt-2 rounded-lg border border-white/10 px-2 py-2 text-[10px] ${theme.muted}`}>
-        온체인 연동: 배포 주소 없음 — .env 의 VITE_ESCROW_CONTRACT_ADDRESS 를 설정하세요.
+        {P2P_ESCROW_COPY.onchainNoContract}
       </div>
     );
   }
 
   return (
     <div className={`mt-3 rounded-xl border border-cyan-500/30 bg-cyan-950/20 px-3 py-2 text-[10px]`}>
-      <div className="font-black text-cyan-200">온체인 에스크로</div>
+      <div className="font-black text-cyan-200">{P2P_ESCROW_COPY.onchainBlockTitle}</div>
       {meta.onchain_escrow_id ? (
         <div className={`mt-1 ${theme.muted}`}>
           연결 ID: <span className="font-mono text-cyan-300">{String(meta.onchain_escrow_id)}</span>
@@ -199,6 +200,7 @@ export function P2pOnchainEscrowBlock({ row, theme, notify, apiClient, onReload 
           )}
         </div>
       ) : null}
+      <p className={`mt-2 text-[9px] ${theme.muted}`}>{P2P_ESCROW_COPY.onchainBlockFootnote}</p>
     </div>
   );
 }

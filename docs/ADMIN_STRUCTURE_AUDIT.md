@@ -12,11 +12,11 @@
 |-------|------|--------|
 | **Gate** | Who may open admin | `src/admin/canAccessAdminSafe.js`, `App.jsx` (`adminGateAllowed`, `sessionProfile.canAccessAdmin`) |
 | **Shell** | Left nav + header + single `children` slot | `src/admin/AdminShell.jsx` (menu ids: `dashboard`, `member`, `referral`, `stage`, `trade`, `settlement`, `settings`, `ute`) |
-| **Panel** | All functional admin UI in one large component | `App.jsx` → `function AdminReferralPanel` (~5k+ lines); shared **관리자 액션 로그** strip → `AdminActionLogStrip.jsx`; **`memberOps`** 세 경계 블록 → `MemberOpsGridPanel.jsx` / `MemberOpsMemoPanel.jsx` / `MemberOpsMediaPanel.jsx`; **`member`** → `MemberGridPanel.jsx` + `MemberHierarchyPanel.jsx` + `MemberDetailPanel.jsx` + `MemberAssignChildPanel.jsx` + `MemberActionRowPanel.jsx` + `MemberStatsPanel.jsx` + `MemberDirectDownlinePanel.jsx` + 나머지는 `App.jsx` |
+| **Panel** | All functional admin UI in one large component | `App.jsx` → `function AdminReferralPanel` (~5k+ lines); shared **관리자 액션 로그** strip → `AdminActionLogStrip.jsx`; **`memberOps`** 세 경계 블록 → `MemberOpsGridPanel.jsx` / `MemberOpsMemoPanel.jsx` / `MemberOpsMediaPanel.jsx`; **`member`** → `MemberGridPanel.jsx` + `MemberHierarchyPanel.jsx` + `MemberDetailPanel.jsx` + `MemberSelfNoticePanel.jsx` + `MemberStageConfirmPanel.jsx` + `MemberPendingStagePanel.jsx` + `MemberAssignChildPanel.jsx` + `MemberActionRowPanel.jsx` + `MemberEmptyDownlinePanel.jsx` + `MemberStatsPanel.jsx` + `MemberDirectDownlinePanel.jsx` + `MemberHiddenFieldsPanel.jsx` + `MemberEmptySelectionPanel.jsx` + **잔여 인라인**(2열 `ref`·레이아웃·선택 제목·취소 클로저 등 — [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) **Phase 44**·**Phase 45**) + 나머지는 `App.jsx`; **`ops`** → `OpsOverviewPanel.jsx` + `OpsMaintenancePanel.jsx` + `OpsMarketAuditPanel.jsx` + `OpsRiskCenterPanel.jsx` + `OpsExtendedMarketCatalogPanel.jsx` + `OpsSnapshotRollbackPanel.jsx` + `OpsReportHashPanel.jsx` + `OpsWebhookStatusPanel.jsx` + `OpsPermissionAuditPanel.jsx` (인라인 카드 없음; 경계·state는 `App.jsx`); **`audit`** → `AuditOverviewPanel.jsx` + `AuditP2pOrderMonitorPanel.jsx` + 공유 카드 루트는 `App.jsx` |
 | **Tabs** | Inner horizontal tabs (`adminViewTab`) | Same panel: `dashboard`, `member`, `memberOps`, `security`, `kyc`, `dispute`, `ops`, `audit`, `uteSurface` |
 | **Shell → tab map** | Sidebar selection sets inner tab | `App.jsx` `adminShellLegacyTab` useMemo — constants in `src/admin/adminMenuIds.js` (`ADMIN_SHELL_TO_PANEL_TAB`) |
 | **Top error boundary** | Catches uncaught errors in entire panel | `AdminShell` wraps `<main>` with `AdminErrorBoundary` |
-| **Section boundaries** | Isolates heavy tabs so one throw does not blank the whole panel | `src/admin/AdminSectionBoundary.jsx` — **`audit`**, **`ops`**, **`kyc`**, **`dispute`**, **`member`** (2열 루트 + 인라인 액션; **`MemberGridPanel`** / **`MemberHierarchyPanel`** / **`MemberDetailPanel`** / **`MemberAssignChildPanel`** / **`MemberActionRowPanel`** / **`MemberStatsPanel`** / **`MemberDirectDownlinePanel`**), **`memberOps`**, **`security`** |
+| **Section boundaries** | Isolates heavy tabs so one throw does not blank the whole panel | `src/admin/AdminSectionBoundary.jsx` — **`audit`** (내부 **`AuditOverviewPanel`** + **`AuditP2pOrderMonitorPanel`** + 공유 카드 루트), **`ops`** (내부 **`OpsOverviewPanel`** + **`OpsMaintenancePanel`** + **`OpsMarketAuditPanel`** + **`OpsRiskCenterPanel`** + **`OpsExtendedMarketCatalogPanel`** + **`OpsSnapshotRollbackPanel`** + **`OpsReportHashPanel`** + **`OpsWebhookStatusPanel`** + **`OpsPermissionAuditPanel`**; 인라인 카드 없음), **`kyc`**, **`dispute`**, **`member`** (2열 루트 + 인라인 액션; **`MemberGridPanel`** / **`MemberHierarchyPanel`** / **`MemberDetailPanel`** / **`MemberSelfNoticePanel`** / **`MemberStageConfirmPanel`** / **`MemberPendingStagePanel`** / **`MemberAssignChildPanel`** / **`MemberActionRowPanel`** / **`MemberEmptyDownlinePanel`** / **`MemberStatsPanel`** / **`MemberDirectDownlinePanel`** / **`MemberHiddenFieldsPanel`** / **`MemberEmptySelectionPanel`**), **`memberOps`**, **`security`** |
 | **Placeholder** | Reserved for empty shell routes | `src/admin/AdminPlaceholder.jsx` (not wired to every menu item) |
 
 **UTE read-only strip**: `uteSurface` tab + `/api/admin/p2p/ute-surface` (see `MASTER_MANUAL.md`). Not mixed with CEX/UTE product repos.
@@ -27,20 +27,20 @@
 
 | Id / area | Why risk | Mitigation (this pass) |
 |-----------|----------|-------------------------|
-| **`audit` tab** | Large tables, `platformAuditLogs` + `adminP2pOrders` + timeline JSON, many optional fields | Wrapped in **`AdminSectionBoundary`** (`admin-tab-audit`) |
-| **`ops` tab** | Platform settings, market catalog, webhooks, snapshots, emergency mode, audit CSV/PDF — many API calls and state | Wrapped in **`AdminSectionBoundary`** (`admin-tab-ops`) |
+| **`audit` tab** | Large tables, `platformAuditLogs` + `adminP2pOrders` + timeline JSON, many optional fields | Wrapped in **`AdminSectionBoundary`** (`admin-tab-audit`); **`AuditOverviewPanel`**, **`AuditP2pOrderMonitorPanel`**, 공유 카드 루트는 `App.jsx` |
+| **`ops` tab** | Platform settings, market catalog, webhooks, snapshots, emergency mode, audit CSV/PDF — many API calls and state | Wrapped in **`AdminSectionBoundary`** (`admin-tab-ops`); **`OpsOverviewPanel`**, **`OpsMaintenancePanel`**, **`OpsMarketAuditPanel`**, **`OpsRiskCenterPanel`**, **`OpsExtendedMarketCatalogPanel`**, **`OpsSnapshotRollbackPanel`**, **`OpsReportHashPanel`**, **`OpsWebhookStatusPanel`**, **`OpsPermissionAuditPanel`** (phase 27–35; 추가 인라인 카드 없음) |
 | **`kyc` tab** | Document preview, view requests, multipart flows | Wrapped in **`AdminSectionBoundary`** (`admin-tab-kyc`, label **KYC 관리**) |
 | **`dispute` tab** | PIN/OTP, policy rows, timeline chain | Wrapped in **`AdminSectionBoundary`** (`admin-tab-dispute`, label **분쟁 관리**) |
-| **`member` tab** | Large tree, pagination, inline rates | **`AdminSectionBoundary`** (`admin-tab-member`); **`MemberGridPanel`**, **`MemberHierarchyPanel`**, **`MemberDetailPanel`**, **`MemberAssignChildPanel`**, **`MemberActionRowPanel`**, **`MemberStatsPanel`**, **`MemberDirectDownlinePanel`**; 본인 안내·단계 확인·등록된 하부 없음·hidden Field 등은 `App.jsx` |
+| **`member` tab** | Large tree, pagination, inline rates | **`AdminSectionBoundary`** (`admin-tab-member`); **`MemberGridPanel`**, **`MemberHierarchyPanel`**, **`MemberDetailPanel`**, **`MemberSelfNoticePanel`**, **`MemberStageConfirmPanel`**, **`MemberPendingStagePanel`**, **`MemberAssignChildPanel`**, **`MemberActionRowPanel`**, **`MemberEmptyDownlinePanel`**, **`MemberStatsPanel`**, **`MemberDirectDownlinePanel`**, **`MemberHiddenFieldsPanel`**, **`MemberEmptySelectionPanel`**; 2열 래퍼·선택 영역 제목·삼항 분기 등은 `App.jsx` |
 | **`memberOps` tab** | Ops grid, memo, media monitor — JSX split by `security` and dispute blocks | Three **`AdminSectionBoundary`** wraps (`admin-tab-memberOps`, label **회원 운영**): **운영 그리드** (`MemberOpsGridPanel.jsx`), **관리 메모** (`MemberOpsMemoPanel.jsx`), **첨부/음성 모니터링** (`MemberOpsMediaPanel.jsx`) |
 | **`security` tab** | Risk list + detail panel | Wrapped in **`AdminSectionBoundary`** (`admin-tab-security`, label **보안 관리**) |
-| **`false && isAdminTab(...)` blocks** | Dead UI paths still mounted | Still **outside** tab section boundaries; low crash risk but confusing |
+| **`false && isAdminTab(...)` blocks** | Dead UI paths still mounted | Still **outside** tab section boundaries; low crash risk — **Phase 39** 인덱스 후 **3**개 루트 잔존(**L3·40**, **L5·41**, **L2·42**, **L7·43** 제거); [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 39–43 |
 | **`uteSurface` tab** | Fetches `ute-surface`; falls back to demo payload in client mock | Isolated fetch in `useEffect`; errors unlikely to break whole panel |
 
 **Known code smells (not “fixed” in this pass per no large refactor)**:
 
 - `AdminReferralPanel` monolith in `App.jsx` — hard to test and easy to regress.
-- Some blocks use `false && isAdminTab(...)` — dead UI paths still mounted.
+- Some blocks use `false && isAdminTab(...)` — dead UI paths still mounted (**`App.jsx` 잔여 ~3개 루트**, Phase 40–43에서 L3/L5/L2/L7 제거; Phase 39 인덱스 — [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 39–43).
 
 ---
 
@@ -176,11 +176,111 @@ Map from your product list to current UI (approximate):
 
 - **`src/admin/panels/MemberActionRowPanel.jsx`**: 두 버튼 행; `directDownlineListRef` 스크롤·`notify`는 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 20.
 
+### Phase 21 (`member` — empty direct-downline notice)
+
+- **`src/admin/panels/MemberEmptyDownlinePanel.jsx`**: **등록된 하부가 없습니다** 빈 안내 박스; `selectedChildren.length === 0`는 `App.jsx`에서 유지. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 21.
+
+### Phase 22 (`member` — self-account notice)
+
+- **`src/admin/panels/MemberSelfNoticePanel.jsx`**: 본인 계정 선택 시 안내 박스; `isSelfTargetMember`는 `App.jsx`에서 유지. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 22.
+
+### Phase 23 (`member` — stage-change confirm card)
+
+- **`src/admin/panels/MemberStageConfirmPanel.jsx`**: **단계 변경 확인** 모달형 카드(취소/확인); `stageConfirmOpen && monitorCurrentUser`는 `App.jsx`에서 유지. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 23.
+
+### Phase 24 (`member` — pending stage line)
+
+- **`src/admin/panels/MemberPendingStagePanel.jsx`**: **변경 대기:** 한 줄; `!!pendingStageValue`는 `App.jsx`에서 유지. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 24.
+
+### Phase 25 (`member` — hidden Field bundle)
+
+- **`src/admin/panels/MemberHiddenFieldsPanel.jsx`**: `hidden` 래퍼 안 네 **`Field`** + 배분/회원 입력; **`Field`**는 `App.jsx`에서 props로 전달. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 25.
+
+### Phase 26 (`member` — smoke checklist)
+
+- **문서만**: [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 26 — `App.jsx` 9192–9370 정적 연결 점검(그리드 선택 → 상세·계층·단계 확인/대기·하부·숨김 필드·경계). 런타임 E2E는 미실행; 이슈 없음.
+
+### Phase 27 (`ops` — first card: HQ settings)
+
+- **`src/admin/panels/OpsOverviewPanel.jsx`**: **`admin-tab-ops`** 안 첫 **`mb-5 …`** 카드(**본사 운영 설정**); 경계는 `App.jsx`에 유지. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 27.
+
+### Phase 28 (`ops` — emergency maintenance card)
+
+- **`src/admin/panels/OpsMaintenancePanel.jsx`**: **비상 점검 모드** 카드; `emergencyState`·`updateEmergencyMode` 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 28.
+
+### Phase 29 (`ops` — market catalog audit card)
+
+- **`src/admin/panels/OpsMarketAuditPanel.jsx`**: **마켓 카탈로그 변경 이력** 카드(필터·로그·감사 알림); `loadMarketCatalogAudit` 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 29.
+
+### Phase 30 (`ops` — operations risk center card)
+
+- **`src/admin/panels/OpsRiskCenterPanel.jsx`**: **운영 리스크 센터** 카드; `loadOpsRiskSummary`·`opsRiskSummary`·`runOpsAction` 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 30.
+
+### Phase 31 (`ops` — extended market catalog card)
+
+- **`src/admin/panels/OpsExtendedMarketCatalogPanel.jsx`**: **확장형 마켓 카탈로그 (코인/NFT)** 카드; `loadMarketCatalog`·`filteredMarketAssets`·`marketCatalogDiff`·`saveMarketCatalog` 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 31.
+
+### Phase 32 (`ops` — snapshot rollback center card)
+
+- **`src/admin/panels/OpsSnapshotRollbackPanel.jsx`**: **복구 스냅샷 · 롤백 센터** 카드; `loadOpsSnapshots`·`createOpsSnapshot`·`executeRollback`·`formatNumber` 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 32.
+
+### Phase 33 (`ops` — report hash server log card)
+
+- **`src/admin/panels/OpsReportHashPanel.jsx`**: **리포트 해시 서버 기록** 카드; `loadRecentReportHashes`·`recentReportHashes`·`verifyReportHash`·해시 대조 state 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 33.
+
+### Phase 34 (`ops` — webhook delivery status card)
+
+- **`src/admin/panels/OpsWebhookStatusPanel.jsx`**: **Webhook 전송 상태** 카드; `loadWebhookEvents`·`filteredWebhookEvents`·CHAIN ALERT UI 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 34.
+
+### Phase 35 (`ops` — permission audit report card)
+
+- **`src/admin/panels/OpsPermissionAuditPanel.jsx`**: **권한 감사 리포트** 카드; `loadApprovalAuditReport`·`approvalAuditEvents`·CSV/PDF 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 35.
+
+### Phase 36 (`audit` — platform audit log first block)
+
+- **`src/admin/panels/AuditOverviewPanel.jsx`**: **플랫폼 감사 로그** 첫 블록; `loadPlatformAuditLogs`·`platformAuditLogs` 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 36.
+
+### Phase 37 (`audit` — P2P order monitor block)
+
+- **`src/admin/panels/AuditP2pOrderMonitorPanel.jsx`**: **P2P 주문 모니터**(`mt-8 border-t` 블록); `adminP2pOrders`·타임라인·취소 등 props. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 37.
+
+### Phase 38 (admin panels split — full smoke checklist)
+
+- **문서·정적 점검만**: `src/admin/panels` **32**개 파일 ↔ `App.jsx` import·호출·`package.json` lint 목록 **일치**; `AdminSectionBoundary`·`audit` 카드 `hidden`·`ops` `visible`·`forwardRef` 3종(`MemberHierarchyPanel`, `MemberDirectDownlinePanel`, `AdminActionLogStrip`)·`false &&` 미제거 확인. `npm run build` / `npm run lint` 통과. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 38.
+
+### Phase 39 (`false && isAdminTab` — pre-delete audit)
+
+- **문서만**: `App.jsx` 내 **`false && isAdminTab`** 기반 **7**개 루트 래퍼 목록·패널 중복 여부·`rateValidationSectionRef`/데드 `moveToSection` 경로·**삭제 가능 후보** vs **보류** 표. **코드 삭제 없음**. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 39.
+
+### Phase 40 (L3 dead `security` duplicate removed)
+
+- **`App.jsx`**: Phase 39 **L3** — `false && isAdminTab("security")` 구 보안 센터 JSX **삭제**(항상 hidden이었음). 라이브 **`SecurityPanel`** + `admin-tab-security` 유지. `npm run smoke:admin` OK. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 40.
+
+### Phase 41 (L5 dead seller deposit notice duplicate removed)
+
+- **`App.jsx`**: Phase 39 **L5** — `false && isAdminTab("memberOps")` **판매자 입금자명 확인 공지** 데드 카드 제거. 라이브 **`MemberOpsGridPanel`** 유지. `npm run smoke:admin` OK. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 41.
+
+### Phase 42 (L2 dead tree example demo removed)
+
+- **`App.jsx`**: Phase 39 **L2** — **하부트리 예시** 데모 `false &&` 블록 제거. 라이브 경로·`ref` 무연결. `npm run smoke:admin` OK. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 42.
+
+### Phase 43 (L7 dead permission line removed)
+
+- **`App.jsx`**: Phase 39 **L7** — **권한 레벨** 한 줄 `false &&` 블록 제거. 라이브 경로·`ref` 무연결. `npm run smoke:admin` OK. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 43.
+
+### Phase 44 (`member` — remaining inline JSX inventory, docs only)
+
+- **문서만**: `admin-tab-member` 구간 잔여 인라인 JSX **5**개 구조 단위(**M0**–**M4**) + **1**곳 경미 handler(**H1**) 인벤토리·분류. **`App.jsx` JSX 이동·삭제·신규 패널·UI 변경 없음**. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 44.
+
+### Phase 45 (`member` — M4 empty selection notice extracted)
+
+- **`src/admin/panels/MemberEmptySelectionPanel.jsx`**: 미선택 시 안내 문구 한 블록(Phase 44 **M4**). `App.jsx` 삼항 `else`만 치환; M0/M1/M3·`ref`·handler 비변경. See [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) Phase 45.
+
 ---
 
 ## 8. Recommended next steps (not done here)
 
-1. Continue **`ADMIN_PANEL_SPLIT_PLAN.md`** — **`member`** tab remaining inline (본인 안내, **단계 변경 확인** / 대기, **등록된 하부 없음** 문구, hidden **`Field`** 묶음 등) one PR at a time; keep boundaries; no mass helper moves.  
+1. **`audit`** 탭: 공유 카드 루트·`space-y-4` 등 **얇은 래퍼만** 남음; 필요 시 **`AdminPanelAudit.jsx`** 통합은 선택. Phase 38 스모크·Phase 39 인덱스·**Phase 40–43** 데드 제거 완료. **`member`**: **Phase 44** 인벤토리·**Phase 45** **M4**(`MemberEmptySelectionPanel`) 분리 완료; 잔여 인라인은 **M0/M1/M2/M3**·**H1** 등(계획서 Phase 44). 다음으로 **`false &&` 보류(L1/L4/L6)** 전용 PR, 또는 **M2+M3** 래퍼·**H1** 등 별도 소규모 PR. boundaries 유지.  
 2. Optional **section boundary** for **`uteSurface`** or the action log strip if crashes appear (strip is now isolated as a component file but still **without** `AdminSectionBoundary`).  
 3. Replace `false && isAdminTab` blocks with real removal behind a feature flag (separate PR).  
 4. Extend `npm run lint` to more of `App.jsx` after extraction reduces file size.
