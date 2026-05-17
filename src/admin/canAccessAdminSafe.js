@@ -1,3 +1,5 @@
+import { MOCK_ADMIN_ALLOW_EMAILS } from "../auth/mockAdminAccount.js";
+
 /**
  * 관리자 UI 진입용 안전 권한 판별 (로그아웃·세션 삭제와 무관하게 호출 가능).
  * @param {object} [user]
@@ -6,7 +8,7 @@
  * @param {string|null} [user.session_role]
  * @param {boolean} [user.isSuperAdmin]
  */
-const ALLOW_EMAILS = new Set(["hq2@tetherget.test", "admin@tetherget.test", "admin@tetherget.com"]);
+const ALLOW_EMAILS = new Set(MOCK_ADMIN_ALLOW_EMAILS);
 
 const ALLOW_ROLE_TOKENS = new Set(["super_admin", "admin", "hq_ops", "hq", "operator", "sales", "hqops", "superadmin"]);
 

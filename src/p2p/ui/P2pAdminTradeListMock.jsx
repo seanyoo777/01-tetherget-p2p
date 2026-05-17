@@ -1,18 +1,22 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { getMockAdminTradeAudit } from "../../mock/p2pTradeFlowMock.js";
 import { getP2pAdminAuditRows, computeAdminAuditKpi } from "../p2pAdminAuditSurface.js";
 import { pickAdminRowDisplayStatus, pickAdminRowEscrowLifecycle } from "../p2pUteFieldAlign.js";
 import { P2P_TEST_IDS } from "../p2pTestIds.js";
-import { P2pAdminAuditKpiCards } from "./P2pAdminAuditKpiCards.jsx";
-import { P2pDevDiagnosticsPanel } from "./P2pDevDiagnosticsPanel.jsx";
+import { AdminAuditSummaryCard } from "./AdminAuditSummaryCard.jsx";
+import { MockDiagnosticsPanel } from "./MockDiagnosticsPanel.jsx";
 import { P2pEscrowLifecycleLegend } from "./P2pEscrowLifecycleLegend.jsx";
 import { isP2pTradeDark } from "./p2pTradeShell.js";
 
 export function P2pAdminTradeListMock({ theme, surfaceRevision = 0, showDevDiagnostics, diagnosticsRevision = 0 }) {
   void surfaceRevision;
   const isDark = isP2pTradeDark(theme);
-  const rows = getP2pAdminAuditRows();
-  const kpi = computeAdminAuditKpi(rows);
+  const rows = useMemo(() => {
+    void surfaceRevision;
+    void diagnosticsRevision;
+    return getP2pAdminAuditRows();
+  }, [surfaceRevision, diagnosticsRevision]);
+  const kpi = useMemo(() => computeAdminAuditKpi(rows), [rows]);
 
   return (
     <div
@@ -28,13 +32,13 @@ export function P2pAdminTradeListMock({ theme, surfaceRevision = 0, showDevDiagn
         </div>
         <span className={`rounded-full px-2 py-1 text-[10px] font-black ${theme.cardSoft}`}>{kpi.tradeCount}건</span>
       </div>
-      <P2pDevDiagnosticsPanel
+      <MockDiagnosticsPanel
         theme={theme}
         showDevDiagnostics={showDevDiagnostics}
         diagnosticsRevision={diagnosticsRevision}
       />
       <P2pEscrowLifecycleLegend theme={theme} />
-      <P2pAdminAuditKpiCards theme={theme} kpi={kpi} />
+      <AdminAuditSummaryCard theme={theme} kpi={kpi} />
       <div className="overflow-x-auto rounded-xl border border-white/10">
         <table data-testid={P2P_TEST_IDS.adminAuditTable} className="min-w-full text-left text-[11px]">
           <thead className={theme.card}>

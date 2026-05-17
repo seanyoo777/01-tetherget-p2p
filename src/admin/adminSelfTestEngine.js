@@ -25,6 +25,11 @@ import {
 import { resolveApiBase, viteApiBaseIsInvalidForBuild } from "../lib/resolveApiBase.js";
 import { mockAppendAuditEntry } from "./adminSelfTestModel.js";
 import { runMembershipSelfTestSuite } from "../membership/membershipSelfTest.js";
+import { runDisputeSelfTestSuite } from "../dispute/disputeSelfTest.js";
+import { runRiskGuardSelfTestSuite } from "../risk/riskGuardSelfTest.js";
+import { runEscrowHealthSelfTestSuite } from "../escrowHealth/escrowHealthSelfTest.js";
+import { runEmergencyPlaybookSelfTestSuite } from "../emergencyPlaybook/emergencyPlaybookSelfTest.js";
+import { runP2pSelfTestDualBundle } from "../p2p/p2pSelfTestCoreAdapter.js";
 
 function readPlatformCode(env = {}) {
   return String(env.VITE_PLATFORM_CODE || "tetherget").trim() || "tetherget";
@@ -354,6 +359,106 @@ export function validateMembershipMvpSelfTest() {
   });
 }
 
+export function validateDisputeCenterSelfTest() {
+  const suite = runDisputeSelfTestSuite();
+  const checks = (suite.groups || []).map((g) =>
+    makeCheck(
+      !g.checks.some((c) => c.status === "fail") ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `${g.id}: ${g.checks.filter((c) => c.status !== "pass").length} issues`,
+    ),
+  );
+  checks.push(
+    makeCheck(
+      suite.status !== "fail" ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `dispute suite aggregate (${suite.issueCount} issues)`,
+    ),
+  );
+  return summarizeCard({
+    id: "dispute_center_mvp",
+    title: "P2P Dispute / Escrow Case Center",
+    checks,
+    disputeSuite: suite,
+    lastChecked: Date.now(),
+    _mock: true,
+  });
+}
+
+export function validateEscrowHealthOverviewSelfTest() {
+  const suite = runEscrowHealthSelfTestSuite();
+  const checks = (suite.groups || []).map((g) =>
+    makeCheck(
+      !g.checks.some((c) => c.status === "fail") ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `${g.id}: ${g.checks.filter((c) => c.status !== "pass").length} issues`,
+    ),
+  );
+  checks.push(
+    makeCheck(
+      suite.status !== "fail" ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `escrow health aggregate (${suite.issueCount} issues)`,
+    ),
+  );
+  return summarizeCard({
+    id: "escrow_health_overview_mvp",
+    title: "Escrow Health Overview (mock)",
+    checks,
+    escrowHealthSuite: suite,
+    lastChecked: Date.now(),
+    _mock: true,
+  });
+}
+
+export function validateEmergencyPlaybookSelfTest() {
+  const suite = runEmergencyPlaybookSelfTestSuite();
+  const checks = (suite.groups || []).map((g) =>
+    makeCheck(
+      !g.checks.some((c) => c.status === "fail") ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `${g.id}: ${g.checks.filter((c) => c.status !== "pass").length} issues`,
+    ),
+  );
+  checks.push(
+    makeCheck(
+      suite.status !== "fail" ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `emergency playbook aggregate (${suite.issueCount} issues)`,
+    ),
+  );
+  return summarizeCard({
+    id: "emergency_playbook_mvp",
+    title: "Emergency Response Playbook (mock)",
+    checks,
+    emergencyPlaybookSuite: suite,
+    lastChecked: Date.now(),
+    _mock: true,
+  });
+}
+
+export function validateRiskGuardSelfTest() {
+  const suite = runRiskGuardSelfTestSuite();
+  const checks = (suite.groups || []).map((g) =>
+    makeCheck(
+      !g.checks.some((c) => c.status === "fail") ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `${g.id}: ${g.checks.filter((c) => c.status !== "pass").length} issues`,
+    ),
+  );
+  checks.push(
+    makeCheck(
+      suite.status !== "fail" ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.FAIL,
+      `risk guard aggregate (${suite.issueCount} issues)`,
+    ),
+  );
+  checks.push(
+    makeCheck(suite.diagnostics?.mockOnly === true ? ADMIN_SELF_TEST_STATUS.PASS : ADMIN_SELF_TEST_STATUS.WARN, "risk diagnostics mockOnly"),
+  );
+  return summarizeCard({
+    id: "risk_guard_mvp",
+    title: "Admin Risk Guard / Escrow Release",
+    checks,
+    riskGuardSuite: suite,
+    diagnostics: suite.diagnostics,
+    lastChecked: Date.now(),
+    _mock: true,
+  });
+}
+
 export function validateP2pDiagnosticsSelfTest() {
   const diag = getP2pDevDiagnostics();
   const checks = [
@@ -388,6 +493,10 @@ export function runAdminSelfTestSuite(ctx = {}) {
     validateFeatureFlagFallbackSelfTest(),
     validateAuditTrailMockSelfTest(),
     validateMembershipMvpSelfTest(),
+    validateDisputeCenterSelfTest(),
+    validateEscrowHealthOverviewSelfTest(),
+    validateEmergencyPlaybookSelfTest(),
+    validateRiskGuardSelfTest(),
     validateP2pDiagnosticsSelfTest(),
   ];
   const issueCount = cards.reduce((n, c) => n + c.issueCount, 0);
@@ -401,5 +510,19 @@ export function runAdminSelfTestSuite(ctx = {}) {
     levelTransition: cards.find((c) => c.id === "member_level")?.transition,
     feeBreakdown: cards.find((c) => c.id === "fee_structure")?.breakdown,
     _mock: true,
+  };
+}
+
+/**
+ * Admin self-test + {@link @tetherget/self-test-core} bundle (additive).
+ * @param {object} [ctx]
+ */
+export function runAdminSelfTestSuiteWithCore(ctx = {}) {
+  const dual = runP2pSelfTestDualBundle(ctx);
+  return {
+    ...dual.legacy,
+    coreBundle: dual.core,
+    core: dual.core,
+    mockOnly: true,
   };
 }

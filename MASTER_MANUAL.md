@@ -74,8 +74,63 @@ Single entry manual for **TetherGet P2P (repo 01)**. Keep in sync with `AGENTS.m
 | P2P 거래 UI · Status Matrix · 타임라인 · mock 감사 | `docs/P2P_TRADE_FLOW.md` |
 | Admin Self-Test Center (회원·수수료·레퍼럴·메뉴 mock) | `docs/P2P_ADMIN_SELF_TEST.md` |
 | Global self-test / validation rule (all platforms) | `docs/GLOBAL_SELF_TEST_VALIDATION.md` |
+| P2P self-test-core thin adapter (PHASE35) | `docs/P2P_SELF_TEST_CORE_ADAPTER.md` |
 | P2P Membership · Points discount (mock) | `docs/TETHERGET_MEMBERSHIP.md` |
 | OneAI bridge scope (mock, 03 연동 예정) | `docs/TETHERGET_ONEAI_BRIDGE.md` |
+| P2P Dispute / Escrow Case Center (mock, localStorage) | `docs/P2P_DISPUTE_CENTER.md` |
+| P2P notification center (mock, localStorage) | `docs/P2P_NOTIFICATION_CENTER.md` |
+| P2P activity feed (mock) | `docs/P2P_ACTIVITY_FEED.md` |
+| P2P escrow ↔ dispute mapping (mock) | `docs/P2P_ESCROW_FLOW.md` |
+| Audit streams index (dispute + membership + admin) | `docs/TETHERGET_AUDIT.md` |
+
+### P2P Dispute / Escrow Case Center (`src/dispute/`)
+
+- **`src/dispute/disputeTypes.ts`** — `P2PDisputeCase`, evidence, escrow case statuses, notifications.
+- **`src/dispute/disputeStore.js`** — localStorage keys + in-memory fallback for Node tests.
+- **`src/dispute/disputeHelpers.js`** — create case, mock evidence, operator review, resolve/reject, `isReleaseBlocked`, filters, demo seed.
+- **`src/dispute/disputeAudit.js`** — append-only mock audit events.
+- **`src/dispute/disputeSelfTest.js`** — `runDisputeSelfTestSuite()`; wired in `validateDisputeCenterSelfTest()`.
+- **`src/dispute/ui/*`**, **`pages/DisputeCenterPage`**, **`DisputeCaseDetailPage`** — user UI; nav **분쟁센터**.
+- **`DisputeAdminCaseCenter`** — admin **분쟁/정산** tab (additive; legacy **`DisputePanel`** unchanged).
+- **`npm test`** — `src/dispute/__tests__/dispute.test.js`.
+- Notification bridge: `bridgeDisputeCaseCreated` etc. in `src/notifications/notificationHelpers.ts`.
+
+### Admin Risk Guard / Escrow Release Guard (`src/risk/`)
+
+- **`riskGuardHelpers.js`** — PASS/WARN/FAIL escrow guard, suspicious flags, mock release deny, activity/notification on block.
+- **`src/components/risk/AdminRiskGuardPanel.jsx`**, **`EscrowReleaseGuardPanel.jsx`** — admin 분쟁 탭 + per-case guard.
+- **`adminSelfTestEngine`** — card `risk_guard_mvp`; **`P2pDevDiagnosticsPanel`** — risk status / issue count / last checked.
+- **`docs/P2P_RISK_GUARD.md`**, **`src/p2p/__tests__/riskGuard.test.js`**.
+
+### Escrow Health Overview (`src/escrowHealth/`)
+
+- **`escrowHealthHelpers.js`** — `buildEscrowHealthSnapshot()` aggregates dispute, risk guard, notifications, P2P diagnostics, admin self-test core (mock only).
+- **`EscrowHealthBoard.jsx`** — admin **분쟁/정산** tab (feature flag `tetherget.enableEscrowHealthOverview`).
+- **Audit** — `escrow.health_overview_view` in `tg_escrow_health_audit_v1`.
+- **`adminSelfTestEngine`** — card `escrow_health_overview_mvp`; self-test groups `escrow-health-schema`, `escrow-health-mock-only`, `escrow-health-no-websocket`.
+- **`getP2pDevDiagnostics()`** — `escrowHealthEnabled` flag only (snapshot via `buildEscrowHealthSnapshot`, no circular import).
+- **`docs/P2P_ESCROW_HEALTH_OVERVIEW.md`**, **`src/escrowHealth/__tests__/escrowHealth.test.js`**.
+
+### Mock admin test account (`src/auth/mockAdminAccount.js`)
+
+- **Fixed QA login:** `admin@tetherget.local` / `admin1234` · `session_role: hq_ops` · mock only (not production).
+- **Registry:** `src/testAccountRegistry.js` · **gate:** `canAccessAdminSafe.js` + **`resolveAdminUiAccess.js`** (`canEnterAdminUi` — nav/본문/openPage/restore/LS 단일) · **home screen LS:** `tg_ui_home_screen_v1` (cold load: `admin-denied`→`trade`; gate 실패 `admin`→`trade`) · **session:** `tetherget_local_session_v1`.
+- **`docs/P2P_ADMIN_TEST_ACCOUNT.md`**, **`src/auth/__tests__/mockAdminAccount.test.js`**.
+
+### Emergency Response Playbook (`src/emergencyPlaybook/`)
+
+- **`emergencyPlaybookHelpers.js`** — `buildEmergencyPlaybookSnapshot()` links escrow health + risk guard; mock operator actions.
+- **`EmergencyPlaybookPanel.jsx`** — admin **분쟁/정산** tab (flag `tetherget.enableEmergencyResponsePlaybook`).
+- **Audit** — `emergency.playbook_view`, `emergency.mock_action_recorded`.
+- **`adminSelfTestEngine`** — card `emergency_playbook_mvp`; groups `emergency-playbook-schema`, `emergency-playbook-mock-only`, `emergency-playbook-no-websocket`, `emergency-no-real-release`.
+- **`docs/P2P_EMERGENCY_RESPONSE_PLAYBOOK.md`**, **`src/emergencyPlaybook/__tests__/emergencyPlaybook.test.js`**.
+
+### Notification / activity (`src/notifications/`)
+
+- **`notificationTypes.ts`**, **`notificationStore.ts`**, **`notificationHelpers.ts`**, **`notificationAudit.ts`**, **`notificationSelfTest.ts`** (`runNotificationSelfTestSuite()`).
+- **UI** — `src/components/notification/*`; pages `NotificationCenterPage`, `ActivityFeedPage`; header `NotificationBell` in `App.jsx`.
+- **Storage** — `tg_p2p_notifications_v1`, `tg_p2p_activity_feed_v1`, `tg_p2p_notification_audit_v1`.
+- **`npm test`** — `src/p2p/__tests__/notificationCenter.test.js`.
 
 ### P2P trade UI layer (`src/p2p/`)
 
@@ -101,7 +156,7 @@ Single entry manual for **TetherGet P2P (repo 01)**. Keep in sync with `AGENTS.m
 - **`src/p2p/p2pAdminSurfaceSelfTest.js`** — `validateP2pAdminSurface()` pure self-test (UTE alignment, cache row count).
 - **`src/p2p/p2pEscrowLifecycleLegend.js`** / **`P2pEscrowLifecycleLegend`** — compact escrow lifecycle legend on admin + escrow panel.
 - **`src/p2p/p2pTestIds.js`** — stable Playwright selectors for TradeList, timeline, escrow, admin audit, diagnostics.
-- **`src/admin/adminSelfTestModel.js`** / **`adminSelfTestEngine.js`** — `runAdminSelfTestSuite()` (member level, fees, referral spread, trade/escrow, menu smoke).
+- **`src/admin/adminSelfTestModel.js`** / **`adminSelfTestEngine.js`** — `runAdminSelfTestSuite()`; **`runAdminSelfTestSuiteWithCore()`** + **`src/p2p/p2pSelfTestCoreAdapter.js`** (`@tetherget/self-test-core` dual bundle).
 - **`src/admin/panels/AdminSelfTestCenterPanel.jsx`** — admin **자동검증** tab; PASS/WARN/FAIL + MOCK ONLY (manual run, no polling).
 - **`src/admin/adminTestIds.js`** — `admin-self-test-center`, `admin-self-test-run`, `admin-self-test-card`.
 - **`npm test`** — also `src/admin/__tests__/adminSelfTest.test.js`.

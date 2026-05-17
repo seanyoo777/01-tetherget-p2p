@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { deriveTradeFlowView } from "../tradeFlowModel.js";
 import { P2pReferralSummaryCard } from "./P2pReferralSummaryCard.jsx";
 import { P2pTradeDetailPanel } from "./P2pTradeDetailPanel.jsx";
 import { P2pTradeTimeline } from "./P2pTradeTimeline.jsx";
@@ -105,11 +106,20 @@ export function P2pMyTradesEnhanced({
                         {row.my_role === "seller" && row.status === "payment_sent" ? (
                           <button
                             type="button"
-                            disabled={orderFlowActionId === row.id}
+                            disabled={orderFlowActionId === row.id || deriveTradeFlowView(row).mockReleaseBlocked}
                             onClick={() => onCompleteSeller(row.id)}
-                            className={`rounded-xl border border-emerald-500/60 px-3 py-2 text-xs font-black text-emerald-300 ${theme.input}`}
+                            title={
+                              deriveTradeFlowView(row).mockReleaseBlocked
+                                ? "Escrow release blocked (mock) — 분쟁 해결 후 진행"
+                                : "Mock only — 실제 릴리스 없음"
+                            }
+                            className={`rounded-xl border border-emerald-500/60 px-3 py-2 text-xs font-black text-emerald-300 ${theme.input} disabled:cursor-not-allowed disabled:opacity-40`}
                           >
-                            {orderFlowActionId === row.id ? "처리 중…" : "거래 완료(모의 릴리즈)"}
+                            {orderFlowActionId === row.id
+                              ? "처리 중…"
+                              : deriveTradeFlowView(row).mockReleaseBlocked
+                                ? "릴리스 차단"
+                                : "거래 완료(모의 릴리즈)"}
                           </button>
                         ) : null}
                         <button

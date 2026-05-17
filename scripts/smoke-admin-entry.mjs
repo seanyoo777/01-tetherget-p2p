@@ -1,10 +1,10 @@
 /**
- * Requires: npm run dev (Vite on 5171 for 01-P2P). Local seed login (no API).
+ * Requires: npm run dev (Vite on 5173 for 01-P2P). Local seed login (no API).
  * Usage: npm run smoke:admin
  */
 import { chromium } from "playwright";
 
-const BASE = process.env.BASE_URL || "http://127.0.0.1:5171";
+const BASE = process.env.BASE_URL || "http://127.0.0.1:5173";
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
@@ -12,7 +12,8 @@ async function main() {
   await page.setViewportSize({ width: 1400, height: 900 });
 
   try {
-    await page.goto(BASE, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.goto(BASE, { waitUntil: "networkidle", timeout: 60_000 });
+    await page.waitForSelector('[data-app="tetherget-p2p"]', { timeout: 30_000 });
   } catch (e) {
     console.error(`FAIL: ${BASE} 에 연결할 수 없습니다. 먼저 \`npm run dev\` 를 실행하세요.\n`, e.message);
     await browser.close();
@@ -20,9 +21,17 @@ async function main() {
   }
 
   const title = await page.title();
-  if (!/tetherget-mvp/i.test(title)) {
+  const appAttr = await page.locator('[data-app="tetherget-p2p"]').count();
+  if (/oneai/i.test(title) || title.includes("Investment intelligence")) {
     console.error(
-      `FAIL: 이 주소는 01-TetherGet-P2P 앱이 아닙니다 (document.title="${title}"). 이 폴더에서 npm run dev(5171) 또는 BASE_URL을 지정하세요.`
+      `FAIL: 03-OneAI 앱이 열렸습니다 (title="${title}"). 01-TetherGet-P2P 폴더에서 npm run dev → http://localhost:5173 을 사용하세요.`
+    );
+    await browser.close();
+    process.exit(1);
+  }
+  if (appAttr < 1 && !/tetherget\s*p2p/i.test(title)) {
+    console.error(
+      `FAIL: 01-TetherGet-P2P 앱이 아닙니다 (title="${title}", data-app 마커 없음). npm run dev(5173) 또는 BASE_URL을 확인하세요.`
     );
     await browser.close();
     process.exit(1);
@@ -30,11 +39,11 @@ async function main() {
 
   await page.getByRole("button", { name: "로그인" }).first().click();
   await page.waitForSelector('input[autocomplete="username"]', { timeout: 15_000 });
-  await page.fill('input[autocomplete="username"]', "sales@tetherget.com");
-  await page.fill('input[autocomplete="current-password"]', "sales1234");
+  await page.fill('input[autocomplete="username"]', "admin@tetherget.local");
+  await page.fill('input[autocomplete="current-password"]', "admin1234");
   await page.locator("button.w-full").filter({ hasText: /^로그인$/ }).click();
 
-  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: "로그아웃" }).first().waitFor({ state: "visible", timeout: 15_000 });
   await page.getByRole("navigation").getByRole("button", { name: "관리자" }).click();
 
   const ok = await page

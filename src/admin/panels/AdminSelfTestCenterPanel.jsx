@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { runAdminSelfTestSuite } from "../adminSelfTestEngine.js";
+import { runAdminSelfTestSuiteWithCore } from "../adminSelfTestEngine.js";
 import { ADMIN_TEST_IDS } from "../adminTestIds.js";
 import { SALES_LEVEL_STAGES } from "../adminMemberModel.js";
 
@@ -15,7 +15,7 @@ export function AdminSelfTestCenterPanel({ theme, visible, sampleUser }) {
 
   const runTests = useCallback(() => {
     setRunning(true);
-    const result = runAdminSelfTestSuite({
+    const result = runAdminSelfTestSuiteWithCore({
       sampleUser: sampleUser ?? { id: "ADM-SELF-1", nickname: "SelfTest User" },
       fromLevel: SALES_LEVEL_STAGES[2],
       toLevel: SALES_LEVEL_STAGES[3],
@@ -65,6 +65,13 @@ export function AdminSelfTestCenterPanel({ theme, visible, sampleUser }) {
           label="last checked"
           value={suite?.lastChecked ? new Date(suite.lastChecked).toLocaleString() : "—"}
         />
+        {suite?.coreBundle ? (
+          <SummaryChip
+            label="core"
+            value={`${suite.coreBundle.overall} · fail ${suite.coreBundle.issueCount}`}
+            status={suite.coreBundle.overall === "FAIL" ? "fail" : suite.coreBundle.overall === "WARN" ? "warn" : "pass"}
+          />
+        ) : null}
       </div>
 
       {!suite ? (

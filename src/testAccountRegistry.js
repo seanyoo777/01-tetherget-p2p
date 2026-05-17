@@ -3,13 +3,15 @@
  * 비밀번호는 화면 목록(state)에는 넣지 않고, 로컬 로그인 검증에만 사용합니다.
  */
 
-import { SESSION_ROLE, normalizeSessionRoleHint } from "./sessionRoles";
+import { SESSION_ROLE, normalizeSessionRoleHint } from "./sessionRoles.js";
+import { MOCK_ADMIN_SEED_ROW } from "./auth/mockAdminAccount.js";
 
 export const REGISTRY_STORAGE_KEY = "tetherget_test_registry_v1";
 export const REGISTRY_CHANGED_EVENT = "tetherget-test-registry-changed";
 
-/** 로컬 로그인용 시드 계정 10개 (API 없을 때 동일 이메일·비번으로 로그인) */
+/** 로컬 로그인용 시드 계정 (API 없을 때 동일 이메일·비번으로 로그인) */
 export const SEED_TEST_ACCOUNTS = [
+  { ...MOCK_ADMIN_SEED_ROW },
   {
     id: "AUTH-ADMIN-001",
     email: "admin@tetherget.com",

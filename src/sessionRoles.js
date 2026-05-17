@@ -86,7 +86,11 @@ export function deriveSessionProfile({
     sessionRole,
     salesLevel: isSales ? salesLevel : null,
     email: String(email || "").trim().toLowerCase(),
-    /** 본사·영업 모두 관리자 메뉴 진입 (일반 유저만 제외) */
+    /**
+     * 본사·영업 세션 힌트 (표시·hideTradingUi용).
+     * UI admin gate는 `resolveAdminUiAccess` / `canEnterAdminUi` 단일 — Phase 2에서 alias 통합 후보.
+     * @see src/admin/resolveAdminUiAccess.js
+     */
     canAccessAdmin: isHqOps || isSales,
     /** 저장·정책 등 파괴적 관리 작업 — 본사 운영층만 (영업진은 조회·제한 UI) */
     allowDestructiveAdminWrite: isHqOps,

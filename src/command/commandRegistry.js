@@ -1,0 +1,136 @@
+/** @returns {import('@tetherget/global-command-palette-core').CommandItem[]} */
+export function buildTethergetCommandRegistry() {
+  const oneAiHub =
+    typeof import.meta !== "undefined" && import.meta.env?.VITE_ONEAI_PROFILE_HUB_URL
+      ? String(import.meta.env.VITE_ONEAI_PROFILE_HUB_URL)
+      : "http://127.0.0.1:5180/#profile";
+
+  return [
+    {
+      id: "tg-my-info",
+      title: "My Info",
+      subtitle: "TetherGet · 내정보",
+      category: "profile",
+      platformId: "tetherget",
+      keywords: ["my", "info", "profile", "내정보", "nickname"],
+      actionType: "route",
+      target: "p2p:myinfo",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-membership",
+      title: "Membership",
+      subtitle: "TetherGet · 멤버십 탭",
+      category: "profile",
+      platformId: "tetherget",
+      keywords: ["membership", "tier", "멤버십", "level"],
+      actionType: "route",
+      target: "p2p:myinfo:멤버십",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-p2p-trade",
+      title: "P2P Trade",
+      subtitle: "TetherGet · 거래 화면",
+      category: "p2p",
+      platformId: "tetherget",
+      keywords: ["trade", "p2p", "buy", "sell", "거래"],
+      actionType: "route",
+      target: "p2p:trade",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-fee-preview",
+      title: "Fee Preview",
+      subtitle: "TetherGet · 멤버십 수수료 미리보기 (mock)",
+      category: "p2p",
+      platformId: "tetherget",
+      keywords: ["fee", "preview", "discount", "수수료"],
+      actionType: "route",
+      target: "p2p:trade",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-notifications",
+      title: "Notification Center",
+      subtitle: "TetherGet · 알림 센터 (mock)",
+      category: "p2p",
+      platformId: "tetherget",
+      keywords: ["notification", "alert", "알림", "bell"],
+      actionType: "route",
+      target: "p2p:notifications",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-activity-feed",
+      title: "Activity Feed",
+      subtitle: "TetherGet · 최근 활동 (mock)",
+      category: "p2p",
+      platformId: "tetherget",
+      keywords: ["activity", "feed", "timeline", "활동"],
+      actionType: "route",
+      target: "p2p:activity",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-help-center",
+      title: "Help Center",
+      subtitle: "TetherGet · 고객센터 / 멤버십 도움말",
+      category: "help",
+      platformId: "tetherget",
+      keywords: ["help", "support", "faq", "고객센터"],
+      actionType: "route",
+      target: "p2p:support",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-oneai-profile",
+      title: "OneAI Profile",
+      subtitle: "OneAI Profile Hub (mock link)",
+      category: "profile",
+      platformId: "oneai",
+      keywords: ["oneai", "profile", "hub", "global"],
+      actionType: "external_mock",
+      target: oneAiHub,
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-notification-mock",
+      title: "Notifications",
+      subtitle: "TetherGet · 거래푸시 패널 (mock)",
+      category: "notification",
+      platformId: "tetherget",
+      keywords: ["notification", "alert", "push"],
+      actionType: "open_drawer",
+      target: "trade-push-panel",
+      enabled: true,
+      mockOnly: true,
+    },
+    {
+      id: "tg-admin-mock",
+      title: "Admin",
+      subtitle: "TetherGet · 관리자 (mock gate)",
+      category: "admin",
+      platformId: "tetherget",
+      keywords: ["admin", "operator"],
+      actionType: "route",
+      target: "p2p:admin",
+      enabled: true,
+      mockOnly: true,
+    },
+  ];
+}
+
+/** @param {import('@tetherget/global-command-palette-core').CommandItem[]} registry */
+export function listTethergetCommandCategories(registry) {
+  const set = new Set(registry.filter((c) => c.enabled).map((c) => c.category));
+  return [...set].sort();
+}

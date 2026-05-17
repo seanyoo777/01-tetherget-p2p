@@ -9,7 +9,17 @@ import {
   mergeApiUsersWithLocal,
   REGISTRY_CHANGED_EVENT,
 } from "./testAccountRegistry";
-import { canAccessAdminSafe } from "./admin/canAccessAdminSafe.js";
+import {
+  buildAdminGateUser,
+  readInitialMainScreen,
+  resolveAdminUiAccess,
+} from "./admin/resolveAdminUiAccess.js";
+import {
+  MOCK_ADMIN_EMAIL,
+  MOCK_ADMIN_PASSWORD,
+  getMockAdminLoginHint,
+  shouldApplyAuthUserRoleSync,
+} from "./auth/mockAdminAccount.js";
 import { AdminShell } from "./admin/AdminShell.jsx";
 import { AdminSectionBoundary } from "./admin/AdminSectionBoundary.jsx";
 import { UteSurfacePanel } from "./admin/panels/UteSurfacePanel.jsx";
@@ -46,6 +56,13 @@ import { OpsPermissionAuditPanel } from "./admin/panels/OpsPermissionAuditPanel.
 import { AuditOverviewPanel } from "./admin/panels/AuditOverviewPanel.jsx";
 import { AuditP2pOrderMonitorPanel } from "./admin/panels/AuditP2pOrderMonitorPanel.jsx";
 import { AdminSelfTestCenterPanel } from "./admin/panels/AdminSelfTestCenterPanel.jsx";
+import { ProfileChip, PROFILE_DROPDOWN_LINK_IDS } from "./components/profile/ProfileChip.jsx";
+import { GlobalCommandButton } from "./components/command/GlobalCommandButton.jsx";
+import { NotificationBell } from "./components/notification/NotificationBell.jsx";
+import { GlobalCommandPalette } from "./components/command/GlobalCommandPalette.jsx";
+import { NotificationCenterPage } from "./notifications/pages/NotificationCenterPage.jsx";
+import { ActivityFeedPage } from "./notifications/pages/ActivityFeedPage.jsx";
+import { useGlobalCommandShortcut } from "./components/command/useGlobalCommandShortcut.js";
 import { ADMIN_SHELL_TO_PANEL_TAB, ADMIN_PANEL_TAB_IDS } from "./admin/adminMenuIds.js";
 import {
   updateUserLevel,
@@ -71,6 +88,7 @@ import { P2pAdminTradeListMock } from "./p2p/ui/P2pAdminTradeListMock.jsx";
 import { P2pTradeFlowStepper } from "./p2p/ui/P2pTradeFlowStepper.jsx";
 import { P2pTradeTimeline } from "./p2p/ui/P2pTradeTimeline.jsx";
 import { deriveTradeFlowView } from "./p2p/tradeFlowModel.js";
+import { checkMockEscrowReleaseForOrder } from "./risk/riskGuardHelpers.js";
 import { P2P_TEST_IDS } from "./p2p/p2pTestIds.js";
 import { MembershipMyInfoSection } from "./membership/ui/MembershipMyInfoSection.jsx";
 import { MembershipHelpCenter } from "./membership/ui/MembershipHelpCenter.jsx";
@@ -78,6 +96,12 @@ import { MembershipFeePreview } from "./membership/ui/MembershipFeePreview.jsx";
 import { loadMembershipMockState } from "./membership/membershipModel.js";
 import { isMembershipDiscountEnabled } from "./membership/membershipFeatureFlags.js";
 import { isP2pDiagnosticsEnabled, notifyP2pRefreshValidation } from "./p2p/p2pDevDiagnostics.js";
+import { DisputeCenterPage } from "./dispute/pages/DisputeCenterPage.jsx";
+import { DisputeCaseDetailPage } from "./dispute/pages/DisputeCaseDetailPage.jsx";
+import { DisputeAdminCaseCenter } from "./dispute/ui/DisputeAdminCaseCenter.jsx";
+import { AdminRiskGuardPanel } from "./components/risk/AdminRiskGuardPanel.jsx";
+import { seedDemoDisputeCasesIfEmpty } from "./dispute/disputeHelpers.js";
+import { P2pAppShell } from "./layout/P2pAppShell.jsx";
 
 const ADMIN_STAGE_LABEL = Object.freeze({
   SUPER_PAGE: "슈퍼페이지",
@@ -1022,6 +1046,21 @@ function mapAuthUserToMember(user, index) {
   };
 }
 
+/** AdminReferralPanel — memberUsers 갱신 시 selectedAdminUser 불필요한 setState 방지 */
+function adminMemberRowSyncEqual(prev, fresh) {
+  if (!prev || !fresh) return prev === fresh;
+  return (
+    String(prev.id) === String(fresh.id)
+    && String(prev.role || "") === String(fresh.role || "")
+    && String(prev.nickname || "") === String(fresh.nickname || "")
+    && String(prev.stageLabel || prev.stage_label || "") === String(fresh.stageLabel || fresh.stage_label || "")
+    && Number(prev.childRate ?? 0) === Number(fresh.childRate ?? 0)
+    && Number(prev.receivedRate ?? 0) === Number(fresh.receivedRate ?? 0)
+    && String(prev.parent || "") === String(fresh.parent || "")
+    && Number(prev.children || 0) === Number(fresh.children || 0)
+  );
+}
+
 /**
  * 가상 하부는 항상 `VIRTUAL_DOWNLINE_MEMBER_COUNT`(300)명.
  * 회원 **ID는 항상 `VD-001` ~ `VD-300` 고정** — 초기화·상위(owner)만 바뀌고 번호 체계는 유지.
@@ -1498,6 +1537,7 @@ function computeSessionProfileSnapshot(loggedIn, currentRole, linkedGoogle, meAu
 }
 
 export default function App() {
+  useGlobalCommandShortcut();
   const [theme, setTheme] = useState(() => {
     try {
       const v = localStorage.getItem("tg_ui_theme_v1");
@@ -1521,17 +1561,14 @@ export default function App() {
     }
   });
   const [loggedIn, setLoggedIn] = useState(false);
+  /** JWT/로컬 세션 복구 완료 전 — guest 가드가 LS admin 을 trade 로 덮지 않도록 */
+  const [sessionBootstrapped, setSessionBootstrapped] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
+  const [selectedMockDisputeCaseId, setSelectedMockDisputeCaseId] = useState("");
   const [activePage, setActivePage] = useState(() => {
-    try {
-      const v = localStorage.getItem(TG_MAIN_SCREEN_KEY);
-      const ok = ["trade", "myinfo", "mytrades", "friends", "messenger", "p2p", "admin", "admin-denied", "support"];
-      if (v && ok.includes(v)) return v;
-    } catch {
-      /* ignore */
-    }
-    return "trade";
+    const ok = ["trade", "myinfo", "mytrades", "friends", "messenger", "p2p", "admin", "admin-denied", "support", "disputeCenter", "disputeDetail", "notifications", "activity"];
+    return readInitialMainScreen(TG_MAIN_SCREEN_KEY, ok, "trade");
   });
   const [toast, setToast] = useState("");
   const [coin, setCoin] = useState("USDT");
@@ -1600,7 +1637,7 @@ export default function App() {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_TOKEN_KEY) || "");
   const [authRefreshToken, setAuthRefreshToken] = useState(() => localStorage.getItem(AUTH_REFRESH_TOKEN_KEY) || "");
   const [authTab, setAuthTab] = useState("login");
-  const [authEmail, setAuthEmail] = useState("");
+  const [authEmail, setAuthEmail] = useState(() => (import.meta.env.DEV ? MOCK_ADMIN_EMAIL : ""));
   const [authPassword, setAuthPassword] = useState("");
   const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [authNickname, setAuthNickname] = useState("");
@@ -1734,39 +1771,29 @@ export default function App() {
     [loggedIn, currentRole, linkedGoogle, meAuthUser, authToken]
   );
 
-  /** 영업(sales)·본사(hq_ops) 등 sessionRoles.canAccessAdmin 과 동일 — 등급에 맞으면 관리자 탭 표시 */
-  const canAccessAdmin = Boolean(sessionProfile.canAccessAdmin);
   const isSuperAdmin = sessionProfile.allowDestructiveAdminWrite || sessionProfile.sessionRole === SESSION_ROLE.HQ_OPS;
-  const adminGateUser = useMemo(() => {
-    let jwtRole = "";
-    let jwtSessionRole = "";
-    try {
-      if (authToken && linkedGoogle) {
-        const p = decodeJwtPayload(authToken);
-        const pe = String(p?.email || "").trim().toLowerCase();
-        const em = String(linkedGoogle || "").trim().toLowerCase();
-        if (pe && em && pe === em) {
-          jwtRole = String(p.role || "");
-          jwtSessionRole = String(p.session_role || "");
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    return {
-      email: String(linkedGoogle || "").trim().toLowerCase(),
-      role: String(meAuthUser?.role || currentRole || jwtRole || "").trim(),
-      session_role: meAuthUser?.session_role != null && meAuthUser.session_role !== "" ? meAuthUser.session_role : jwtSessionRole || null,
-      isSuperAdmin,
-    };
-  }, [linkedGoogle, currentRole, meAuthUser, isSuperAdmin, authToken]);
-  const adminGateAllowed = useMemo(() => canAccessAdminSafe(adminGateUser), [adminGateUser]);
+  const adminGateUser = useMemo(
+    () =>
+      buildAdminGateUser({
+        linkedGoogle,
+        meAuthUser,
+        currentRole,
+        authToken,
+        isSuperAdmin,
+        sessionRoleHint: sessionProfile.sessionRole,
+        decodeJwtPayload,
+      }),
+    [linkedGoogle, currentRole, meAuthUser, isSuperAdmin, authToken, sessionProfile.sessionRole]
+  );
+  /** nav · 본문 · openPage · restore · LS — 단일 gate (canAccessAdminSafe + debug 동기) */
+  const canEnterAdminUi = useMemo(() => resolveAdminUiAccess(adminGateUser), [adminGateUser]);
+  const canEnterAdminUiRef = useRef(canEnterAdminUi);
+  canEnterAdminUiRef.current = canEnterAdminUi;
   const [adminShellMenu, setAdminShellMenu] = useState("dashboard");
   const adminShellLegacyTab = useMemo(() => {
     const mapped = ADMIN_SHELL_TO_PANEL_TAB[adminShellMenu];
     return mapped || ADMIN_PANEL_TAB_IDS.DASHBOARD;
   }, [adminShellMenu]);
-  const showAdminNav = Boolean(adminGateAllowed || sessionProfile.canAccessAdmin);
   /** 이메일 일치 행만 사용 — 첫 번째 유저 폴백 시 타인 role 로 세션·관리자 판정이 깨짐 */
   const currentAdminActorId = useMemo(() => {
     const lg = String(linkedGoogle || "").trim().toLowerCase();
@@ -1778,23 +1805,12 @@ export default function App() {
     if (!loggedIn || currentAdminActorId == null) return;
     const me = authUsers.find((user) => String(user.id) === String(currentAdminActorId));
     if (!me) return;
-    const nextRole = String(me.role || "");
-    if (!nextRole || nextRole === currentRole) return;
-    const looksElevated = (r) => {
-      const s = String(r || "");
-      return (
-        s.includes("관리자")
-        || s.includes("영업")
-        || s.includes("본사")
-        || s.includes("슈퍼")
-        || s.includes("운영")
-      );
-    };
-    /** API가 회원만 주고 시드·JWT가 관리자인 경우 덮어쓰지 않음 */
-    if (nextRole === "회원" && looksElevated(currentRole)) return;
-    if (looksElevated(currentRole) && !looksElevated(nextRole)) return;
-    setCurrentRole(nextRole);
-  }, [loggedIn, authUsers, currentAdminActorId, currentRole]);
+    const nextRole = String(me.role || "").trim();
+    setCurrentRole((current) => {
+      if (!shouldApplyAuthUserRoleSync(current, nextRole)) return current;
+      return nextRole;
+    });
+  }, [loggedIn, authUsers, currentAdminActorId]);
 
   /** 관리자 패널 액터 ID — authUsers 매칭 없을 때 시드 행으로 보강 */
   const adminPanelActorId = useMemo(() => {
@@ -1821,11 +1837,12 @@ export default function App() {
       { key: "mytrades", label: lang.myTrades },
       { key: "friends", label: "친구" },
       { key: "messenger", label: "메신저" },
+      { key: "disputeCenter", label: "분쟁센터" },
     ];
-    if (showAdminNav) items.push({ key: "admin", label: lang.admin });
+    if (canEnterAdminUi) items.push({ key: "admin", label: lang.admin });
     items.push({ key: "support", label: lang.support });
     return items;
-  }, [lang, loggedIn, showAdminNav]);
+  }, [lang, loggedIn, canEnterAdminUi]);
 
   const pageForMain = useMemo(() => {
     if (loggedIn) return activePage;
@@ -1835,15 +1852,26 @@ export default function App() {
   const navActiveKey = useMemo(() => {
     if (!loggedIn) return pageForMain === "support" ? "support" : "trade";
     if (activePage === "admin-denied") return "admin";
+    if (activePage === "disputeDetail") return "disputeCenter";
     return activePage;
   }, [loggedIn, activePage, pageForMain]);
 
   useEffect(() => {
+    if (!loggedIn) return;
+    try {
+      seedDemoDisputeCasesIfEmpty();
+    } catch {
+      /* ignore */
+    }
+  }, [loggedIn]);
+
+  useEffect(() => {
+    if (!sessionBootstrapped) return;
     if (loggedIn) return;
     if (activePage !== "trade" && activePage !== "support") {
       setActivePage("trade");
     }
-  }, [loggedIn, activePage]);
+  }, [loggedIn, activePage, sessionBootstrapped]);
 
   const mockTradeUnread = useMemo(
     () => MOCK_TRADE_PUSH_NOTIFICATIONS.filter((n) => !mockNotifReadIds.includes(n.id)).length,
@@ -1905,6 +1933,7 @@ export default function App() {
     } catch {
       /* ignore */
     }
+    setSessionBootstrapped(true);
   }, []);
 
   useEffect(() => {
@@ -1947,13 +1976,30 @@ export default function App() {
   }, [myReferralCode]);
 
   useEffect(() => {
-    if (!loggedIn) return;
+    if (!loggedIn || !String(linkedGoogle || "").trim()) return;
+    if (activePage === "admin-denied") return;
+    if (activePage === "admin" && !canEnterAdminUi) return;
     try {
       localStorage.setItem(TG_MAIN_SCREEN_KEY, activePage);
     } catch {
       /* ignore */
     }
-  }, [activePage, loggedIn]);
+  }, [activePage, loggedIn, linkedGoogle, canEnterAdminUi]);
+
+  /** LS·초기 admin 복원 — loggedIn + linkedGoogle + gateUser.email 확정 후 gate 실패 시 trade (admin-denied 클릭 화면은 유지) */
+  useEffect(() => {
+    if (!sessionBootstrapped) return;
+    const em = String(linkedGoogle || "").trim();
+    if (!loggedIn || !em || activePage !== "admin") return;
+    if (!String(adminGateUser.email || "").trim()) return;
+    if (canEnterAdminUiRef.current) return;
+    setActivePage("trade");
+    try {
+      localStorage.setItem(TG_MAIN_SCREEN_KEY, "trade");
+    } catch {
+      /* ignore */
+    }
+  }, [sessionBootstrapped, loggedIn, linkedGoogle, activePage, adminGateUser.email, canEnterAdminUi]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search || "");
@@ -1990,7 +2036,7 @@ export default function App() {
   }, [authToken, apiClient]);
 
   useEffect(() => {
-    if (!authToken || !(canAccessAdmin || adminGateAllowed)) return;
+    if (!authToken || !canEnterAdminUi) return;
     apiClient.request("/api/admin/escrow-policy", { auth: true })
       .then((data) => {
         if (data?.policy) setEscrowPolicy(data.policy);
@@ -1999,7 +2045,7 @@ export default function App() {
     apiClient.request("/api/admin/disputes", { auth: true })
       .then((data) => setDisputeCases(Array.isArray(data.disputes) ? data.disputes : []))
       .catch(() => {});
-  }, [authToken, canAccessAdmin, adminGateAllowed, apiClient]);
+  }, [authToken, canEnterAdminUi, apiClient]);
 
   useEffect(() => {
     if (!authToken) return;
@@ -2672,22 +2718,21 @@ export default function App() {
         notify("로그인이 필요합니다.");
         return;
       }
-      const allowed = canAccessAdminSafe(adminGateUser);
       if (import.meta.env.DEV) {
         console.log("[tg-admin-open]", {
-          allowed,
+          allowed: canEnterAdminUi,
           email: adminGateUser?.email,
           role: adminGateUser?.role,
           session_role: adminGateUser?.session_role,
           isSuperAdmin: adminGateUser?.isSuperAdmin,
-          nextPage: allowed ? "admin" : "admin-denied",
+          nextPage: canEnterAdminUi ? "admin" : "admin-denied",
         });
       }
       flushSync(() => {
         setMenuOpen(false);
         setTradePushOpen(false);
         setGeneralNotifOpen(false);
-        setActivePage(allowed ? "admin" : "admin-denied");
+        setActivePage(canEnterAdminUi ? "admin" : "admin-denied");
       });
       return;
     }
@@ -2718,12 +2763,44 @@ export default function App() {
       setActivePage("myinfo");
       return;
     }
+    if (dest === "disputeCenter" || dest === "dispute") {
+      setActivePage("disputeCenter");
+      return;
+    }
     if (dest === "admin") {
-      const allowed = canAccessAdminSafe(adminGateUser);
-      setActivePage(allowed ? "admin" : "admin-denied");
+      setActivePage(canEnterAdminUi ? "admin" : "admin-denied");
+      return;
+    }
+    if (dest === "notifications") {
+      setActivePage("notifications");
+      return;
+    }
+    if (dest === "activity") {
+      setActivePage("activity");
       return;
     }
     setActivePage("trade");
+  }
+
+  function onProfileChipQuickLink(linkId) {
+    if (linkId === PROFILE_DROPDOWN_LINK_IDS.oneAiHub) {
+      const hub = import.meta.env?.VITE_ONEAI_PROFILE_HUB_URL ?? "#profile";
+      if (typeof hub === "string" && hub.startsWith("http")) {
+        window.open(hub, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+    if (linkId === PROFILE_DROPDOWN_LINK_IDS.myPage) {
+      openPage("myinfo");
+      return;
+    }
+    if (linkId === PROFILE_DROPDOWN_LINK_IDS.help) {
+      openPage("support");
+      return;
+    }
+    if (linkId === PROFILE_DROPDOWN_LINK_IDS.admin) {
+      openPage("admin");
+    }
   }
 
   function appendAdminAction(action) {
@@ -2916,7 +2993,7 @@ export default function App() {
   return (
     <LanguageCodeContext.Provider value={language}>
     <LangContext.Provider value={lang}>
-    <div className={`min-h-screen ${t.page}`}>
+    <P2pAppShell pageClassName={`min-h-screen ${t.page}`}>
       {toast && <div className="fixed left-1/2 top-5 z-[520] -translate-x-1/2 rounded-2xl bg-black px-5 py-3 text-sm font-black text-white shadow-xl">{toast}</div>}
       {runtimeEmergencyState.emergencyMode && (
         <div className="sticky top-0 z-[95] border-b border-red-400/40 bg-red-600/95 px-4 py-2 text-center text-xs font-black text-white">
@@ -2948,6 +3025,24 @@ export default function App() {
               className={`rounded-2xl border px-4 py-3 font-black ${authTab === "signup" ? t.main : t.input}`}
             >
               실제 지메일 회원가입
+            </button>
+          </div>
+          <div className={`rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs ${t.cardSoft}`}>
+            <div className="font-black text-amber-200">Mock 관리자 테스트 계정 (localStorage 전용)</div>
+            <p className={`mt-1 ${t.muted}`}>
+              ID <b>{getMockAdminLoginHint().email}</b> · PW <b>{getMockAdminLoginHint().password}</b> · role{" "}
+              <b>{getMockAdminLoginHint().role}</b> / session <b>{getMockAdminLoginHint().session_role}</b>
+            </p>
+            <p className={`mt-1 text-[10px] ${t.muted}`}>실제 서비스 계정이 아닙니다. 상세: docs/P2P_ADMIN_TEST_ACCOUNT.md</p>
+            <button
+              type="button"
+              className={`mt-2 rounded-xl border px-3 py-1.5 text-[10px] font-black ${t.main}`}
+              onClick={() => {
+                setAuthEmail(MOCK_ADMIN_EMAIL);
+                setAuthPassword(MOCK_ADMIN_PASSWORD);
+              }}
+            >
+              관리자 테스트 계정 자동 입력
             </button>
           </div>
           <Field label="이메일" theme={t}>
@@ -3035,7 +3130,8 @@ export default function App() {
             {authTab === "signup" ? "실제 서비스 회원가입 (API)" : "로그인"}
           </button>
           <div className={`rounded-2xl border p-3 text-xs ${t.cardSoft}`}>
-            시드 테스트 계정 10개: 본사 <b>admin@tetherget.com</b>/<b>hq2@tetherget.test</b>, 영업{" "}
+            고정 관리자(mock): <b>{MOCK_ADMIN_EMAIL}</b> / <b>{MOCK_ADMIN_PASSWORD}</b>. 기타 시드: 본사{" "}
+            <b>admin@tetherget.com</b>/<b>hq2@tetherget.test</b>, 영업{" "}
             <b>sales@… · sales2~4@tetherget.test</b>, 일반 <b>member1~4@tetherget.test</b>. 신규 공통 비번{" "}
             <b>Test1234</b>(기존 admin/sales 예외). 목록은 코드 <code className="text-[11px]">testAccountRegistry.js</code> 시드 참고. 발급은{" "}
             <a href="/owner" className="font-black underline">/owner</a>.
@@ -3459,6 +3555,16 @@ export default function App() {
           </nav>
 
           <div className={`relative z-[280] hidden shrink-0 items-center justify-end md:flex ${loggedIn ? "min-w-0 gap-1" : "flex-wrap gap-2"}`}>
+            <GlobalCommandButton />
+            <ProfileChip theme={t} onQuickLink={onProfileChipQuickLink} showAdmin={canEnterAdminUi} />
+            {loggedIn ? (
+              <NotificationBell
+                theme={t}
+                onNavigate={navigateFromNotification}
+                onOpenCenter={() => openPage("notifications")}
+                onOpenActivity={() => openPage("activity")}
+              />
+            ) : null}
             {loggedIn ? (
               <div ref={notifClusterDesktopRef} className="flex min-w-0 shrink items-center gap-0.5">
                 <div className="relative">
@@ -3565,6 +3671,11 @@ export default function App() {
                 setAuthRefreshToken("");
                 localStorage.removeItem(LOCAL_SESSION_KEY);
                 setActivePage("trade");
+                try {
+                  localStorage.setItem(TG_MAIN_SCREEN_KEY, "trade");
+                } catch {
+                  /* ignore */
+                }
                 setCurrentRole("회원");
                 setMergeStatus("로그아웃됨");
                 notify("Logout complete");
@@ -3594,6 +3705,17 @@ export default function App() {
           </div>
 
           <div className={`relative z-[280] ml-auto flex shrink-0 flex-wrap items-center justify-end md:hidden ${loggedIn ? "max-w-[min(100%,calc(100vw-5rem))] gap-1" : "gap-2"}`}>
+            <GlobalCommandButton />
+            <ProfileChip compact theme={t} onQuickLink={onProfileChipQuickLink} showAdmin={canEnterAdminUi} />
+            {loggedIn ? (
+              <NotificationBell
+                compact
+                theme={t}
+                onNavigate={navigateFromNotification}
+                onOpenCenter={() => openPage("notifications")}
+                onOpenActivity={() => openPage("activity")}
+              />
+            ) : null}
             {loggedIn ? (
               <div ref={notifClusterMobileRef} className="flex min-w-0 max-w-full shrink items-center gap-0.5">
                 <div className="relative">
@@ -3801,7 +3923,7 @@ export default function App() {
           />
         ) : null}
         {loggedIn && pageForMain === "p2p" ? <P2PInfo theme={t} /> : null}
-        {loggedIn && pageForMain === "admin" && adminGateAllowed ? (
+        {loggedIn && pageForMain === "admin" && canEnterAdminUi ? (
           <AdminShell
             theme={t}
             title="관리자"
@@ -3879,7 +4001,7 @@ export default function App() {
             />
           </AdminShell>
         ) : null}
-        {loggedIn && pageForMain === "admin" && !adminGateAllowed ? (
+        {loggedIn && pageForMain === "admin" && !canEnterAdminUi ? (
           <div className={`mx-auto max-w-lg px-4 py-16 text-center ${t.cardSoft ?? ""}`}>
             <div className={`text-lg font-black ${t.page ?? ""}`}>관리자 권한이 없습니다</div>
             <p className={`mt-2 text-sm ${t.subtext ?? ""}`}>이 계정으로는 관리자 화면을 열 수 없습니다.</p>
@@ -3905,10 +4027,41 @@ export default function App() {
             </button>
           </div>
         ) : null}
-        {pageForMain === "support" ? <Support theme={t} notify={notify} /> : null}
+        {pageForMain === "support" ? <Support theme={t} notify={notify} onOpenDisputeCenter={() => setActivePage("disputeCenter")} /> : null}
+        {loggedIn && pageForMain === "disputeCenter" ? (
+          <DisputeCenterPage
+            theme={t}
+            notify={notify}
+            userId={meAuthUser?.id ? String(meAuthUser.id) : "BUY-SELF"}
+            onOpenCase={(id) => {
+              setSelectedMockDisputeCaseId(id);
+              setActivePage("disputeDetail");
+            }}
+          />
+        ) : null}
+        {loggedIn && pageForMain === "disputeDetail" ? (
+          <DisputeCaseDetailPage
+            caseId={selectedMockDisputeCaseId}
+            theme={t}
+            notify={notify}
+            onBack={() => setActivePage("disputeCenter")}
+          />
+        ) : null}
+        {loggedIn && pageForMain === "notifications" ? (
+          <NotificationCenterPage theme={t} onNavigate={navigateFromNotification} />
+        ) : null}
+        {loggedIn && pageForMain === "activity" ? <ActivityFeedPage theme={t} /> : null}
 
       </main>
-    </div>
+      <GlobalCommandPalette
+        openPage={openPage}
+        setMyInfoTab={setMyInfoTab}
+        openTradePush={() => {
+          setGeneralNotifOpen(false);
+          setTradePushOpen(true);
+        }}
+      />
+    </P2pAppShell>
     </LangContext.Provider>
     </LanguageCodeContext.Provider>
   );
@@ -4263,6 +4416,11 @@ function TradeList({ theme, requireLogin, notify, apiClient, authToken, myUserId
   }
 
   async function tradeCompleteSeller(orderId) {
+    const releaseCheck = checkMockEscrowReleaseForOrder(orderId);
+    if (!releaseCheck.allowed) {
+      notify(releaseCheck.message || "[MOCK] Escrow release blocked — 분쟁 센터를 확인하세요.");
+      return;
+    }
     try {
       setTradeFlowActionId(orderId);
       await apiClient.request(`/api/p2p/orders/${encodeURIComponent(orderId)}/complete`, {
@@ -5763,25 +5921,33 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   }
 
   useEffect(() => {
-    const stripVirtualKeys = (prev) => {
+    setStageByUserId((prev) => {
+      let changed = false;
       const next = { ...prev };
       for (const k of Object.keys(next)) {
-        if (String(k).startsWith("VD-")) delete next[k];
+        if (String(k).startsWith("VD-")) {
+          delete next[k];
+          changed = true;
+        }
       }
-      return next;
-    };
-    setStageByUserId(stripVirtualKeys);
+      return changed ? next : prev;
+    });
   }, [currentAdminActorId]);
 
   useEffect(() => {
     setUserAdminAssignments((prev) => {
+      let changed = false;
       const next = { ...prev };
       for (const u of authUsers || []) {
         if (u?.admin_assigned !== undefined && u?.admin_assigned !== null) {
-          next[u.id] = Boolean(u.admin_assigned);
+          const v = Boolean(u.admin_assigned);
+          if (next[u.id] !== v) {
+            next[u.id] = v;
+            changed = true;
+          }
         }
       }
-      return next;
+      return changed ? next : prev;
     });
   }, [authUsers]);
 
@@ -5992,7 +6158,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   function applyUserContext(user) {
     const canonicalUser = memberUsers.find((u) => String(u.id) === String(user?.id)) || user || null;
     if (!canonicalUser) return;
-    setSelectedAdminUser(canonicalUser);
+    setSelectedAdminUser((prev) => (adminMemberRowSyncEqual(prev, canonicalUser) ? prev : canonicalUser));
     setSelectedChildUser(null);
     setSelectedChildRateInput("");
     setSelectedChildIds([]);
@@ -6111,31 +6277,21 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
   }, [stageConfirmOpen, stageConfirmFromStage, stageConfirmTarget]);
 
   useEffect(() => {
-    const id = selectedAdminUser?.id;
-    if (id == null || id === "") return;
-    const fresh = memberUsers.find((u) => String(u.id) === String(id));
-    if (!fresh) return;
-    if (fresh !== selectedAdminUser) {
-      setSelectedAdminUser(fresh);
-    }
-  }, [memberUsers, selectedAdminUser, stageByUserId]);
+    setSelectedAdminUser((prev) => {
+      const id = prev?.id;
+      if (id == null || id === "") return prev;
+      const fresh = memberUsers.find((u) => String(u.id) === String(id));
+      if (!fresh) return prev;
+      return adminMemberRowSyncEqual(prev, fresh) ? prev : fresh;
+    });
+  }, [memberUsers]);
 
   useEffect(() => {
     setSelectedChildUser((prev) => {
       if (!prev?.id) return prev;
       const fresh = memberUsers.find((u) => String(u.id) === String(prev.id));
       if (!fresh) return null;
-      if (
-        prev.stageLabel === fresh.stageLabel &&
-        prev.stage_label === fresh.stage_label &&
-        String(prev.parent) === String(fresh.parent) &&
-        prev.childRate === fresh.childRate &&
-        prev.nickname === fresh.nickname &&
-        Number(prev.children || 0) === Number(fresh.children || 0)
-      ) {
-        return prev;
-      }
-      return fresh;
+      return adminMemberRowSyncEqual(prev, fresh) ? prev : fresh;
     });
   }, [memberUsers]);
 
@@ -7827,6 +7983,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     { key: "security", title: "보안", desc: "위험 모니터링, 신고/블랙 정책", color: "bg-red-600" },
     { key: "kyc", title: "KYC", desc: "회사 승인, 문서 열람, 2인 승인 워크플로우", color: "bg-violet-600" },
     { key: "dispute", title: "분쟁/정산", desc: "다중승인, OTP 최종승인, 보관계좌 정책", color: "bg-amber-500" },
+    { key: "riskGuard", title: "Risk Guard", desc: "Escrow release guard · releaseBlocked · suspicious (mock)", color: "bg-rose-700" },
     { key: "ops", title: "감사/복구", desc: "감사리포트, 해시검증, 스냅샷/롤백/비상모드", color: "bg-emerald-600" },
     { key: "audit", title: "플랫폼 감사로그", desc: "로그인·가입 등 서버 공통 감사 기록", color: "bg-slate-600" },
     { key: "uteSurface", title: "UTE·P2P", desc: "canonical 주문/에스크로/분쟁/리스크 스냅샷 (mock 집계)", color: "bg-teal-600" },
@@ -7839,6 +7996,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
     security: "보안",
     kyc: "KYC",
     dispute: "분쟁/정산",
+    riskGuard: "Risk Guard",
     ops: "감사/복구",
     audit: "플랫폼 감사로그",
     uteSurface: "UTE·P2P",
@@ -7856,7 +8014,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             ? `KYC 상태: ${buyerKyc?.companyApprovalStatus || "-"}`
             : adminViewTab === "dispute"
               ? `분쟁 ${Array.isArray(disputeCases) ? disputeCases.length : 0}건`
-              : adminViewTab === "ops"
+              : adminViewTab === "riskGuard"
+                ? "Escrow Release Guard (mock)"
+                : adminViewTab === "ops"
                 ? `리스크 점수: ${opsRiskSummary?.score ?? 0}`
                 : adminViewTab === "audit"
                   ? `로그 ${platformAuditLogs.length}건 표시`
@@ -7876,7 +8036,9 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             ? "KYC 승인"
             : adminViewTab === "dispute"
               ? "분쟁 새로고침"
-              : adminViewTab === "ops"
+              : adminViewTab === "riskGuard"
+                ? "Guard 새로고침"
+                : adminViewTab === "ops"
                 ? "리스크 점검"
                 : adminViewTab === "audit"
                   ? "로그 새로고침"
@@ -8052,6 +8214,7 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
             <button onClick={() => setAdminViewTab("security")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("security") ? theme.main : theme.input}`}>보안</button>
             <button onClick={() => setAdminViewTab("kyc")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("kyc") ? theme.main : theme.input}`}>KYC</button>
             <button onClick={() => setAdminViewTab("dispute")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("dispute") ? theme.main : theme.input}`}>분쟁/정산</button>
+            <button onClick={() => setAdminViewTab("riskGuard")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("riskGuard") ? theme.main : theme.input}`}>Risk Guard</button>
             <button onClick={() => setAdminViewTab("ops")} className={`rounded-xl border px-3 py-2 text-xs font-black ${isAdminTab("ops") ? theme.main : theme.input}`}>감사/복구</button>
             <button
               type="button"
@@ -8671,6 +8834,21 @@ function AdminReferralPanel({ theme, notify, isSuperAdmin, apiClient, authToken,
           exportTimelineCsv={exportTimelineCsv}
           verifyTimelineIntegrity={verifyTimelineIntegrity}
         />
+        <DisputeAdminCaseCenter
+          theme={theme}
+          notify={notify}
+          operatorId={currentAdminActorId != null ? String(currentAdminActorId) : "ADMIN-MOCK"}
+          visible={isAdminTab("dispute")}
+        />
+        </AdminSectionBoundary>
+
+        <AdminSectionBoundary theme={theme} sectionId="admin-tab-risk-guard" sectionLabel="Risk Guard">
+        <AdminRiskGuardPanel
+          theme={theme}
+          notify={notify}
+          visible={isAdminTab("riskGuard")}
+          onSelectCase={() => setAdminViewTab("dispute")}
+        />
         </AdminSectionBoundary>
 
         <AdminSectionBoundary theme={theme} sectionId="admin-tab-memberOps" sectionLabel="회원 운영">
@@ -9265,9 +9443,15 @@ function FriendMessenger({
   );
 }
 
-function Support({ theme, notify }) {
+function Support({ theme, notify, onOpenDisputeCenter }) {
   const language = useLanguageCode();
-  return <section className="mx-auto max-w-7xl px-4 py-8"><div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}><h2 className="text-2xl font-black">{localizeLoose("고객센터 / 사고신고", language)}</h2><p className={`mt-2 ${theme.subtext}`}>{localizeLoose("피싱, 사기, 송금오류, 증빙문제 발생 시 신고 접수 후 필요한 범위의 정보를 제공합니다.", language)}</p><textarea className={`mt-5 h-32 w-full rounded-2xl border p-4 outline-none ${theme.input}`} placeholder={localizeLoose("신고 내용 입력", language)} /><button onClick={() => notify(localizeLoose("사고신고가 접수되었습니다.", language))} className={`mt-3 rounded-2xl px-5 py-3 font-black ${theme.main}`}>{localizeLoose("사고신고 접수", language)}</button></div><MembershipHelpCenter theme={theme} /></section>;
+  return <section className="mx-auto max-w-7xl px-4 py-8"><div className={`rounded-3xl border p-6 shadow-sm ${theme.card}`}><h2 className="text-2xl font-black">{localizeLoose("고객센터 / 사고신고", language)}</h2><p className={`mt-2 ${theme.subtext}`}>{localizeLoose("피싱, 사기, 송금오류, 증빙문제 발생 시 신고 접수 후 필요한 범위의 정보를 제공합니다.", language)}</p><textarea className={`mt-5 h-32 w-full rounded-2xl border p-4 outline-none ${theme.input}`} placeholder={localizeLoose("신고 내용 입력", language)} /><button type="button" onClick={() => notify(localizeLoose("사고신고가 접수되었습니다.", language))} className={`mt-3 rounded-2xl px-5 py-3 font-black ${theme.main}`}>{localizeLoose("사고신고 접수", language)}</button>
+        {onOpenDisputeCenter ? (
+          <button type="button" onClick={onOpenDisputeCenter} className={`mt-2 w-full rounded-2xl border px-5 py-3 text-sm font-black ${theme.input}`}>
+            P2P 분쟁 · Escrow 케이스 센터 (mock)
+          </button>
+        ) : null}
+      </div><MembershipHelpCenter theme={theme} /></section>;
 }
 
 function Stat({ title, text, theme }) {

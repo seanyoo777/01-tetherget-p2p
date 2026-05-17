@@ -2,7 +2,7 @@
 
  * P2P UI smoke — API는 route mock, 실제 결제/릴리즈/온체인 없음.
 
- * Usage: npm run dev (5171) 후 npm run smoke:p2p
+ * Usage: npm run dev (5173) 후 npm run smoke:p2p
 
  * Skip browser: SMOKE_P2P_UNIT_ONLY=1 npm run smoke:p2p
 
@@ -16,7 +16,7 @@ import { getMockAdminSmokeAuthResponse } from "../src/p2p/p2pSmokeJwtFixture.js"
 
 
 
-const BASE = process.env.BASE_URL || "http://127.0.0.1:5171";
+const BASE = process.env.BASE_URL || "http://127.0.0.1:5173";
 
 const UNIT_ONLY = process.env.SMOKE_P2P_UNIT_ONLY === "1";
 

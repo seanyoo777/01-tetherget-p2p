@@ -1,13 +1,26 @@
 /**
- * Dev / self-test diagnostics snapshot (pure, no polling).
+ * Dev / self-test diagnostics snapshot (pure read via memoized store).
  */
 import {
-  computeAdminAuditKpi,
-  getP2pAdminAuditSurface,
-  getP2pAdminCacheMeta,
-  isP2pAdminAuditCacheSynced,
-} from "./p2pAdminAuditSurface.js";
+  getP2pDiagnosticsSnapshot,
+  refreshP2pDiagnosticsSnapshot,
+  runMockDiagnostics,
+  clearP2pDiagnosticsSnapshotCache,
+  subscribeP2pDiagnosticsSnapshot,
+  getP2pDiagnosticsSnapshotRevision,
+  P2P_DIAGNOSTICS_STORAGE_KEY,
+} from "./p2pDiagnosticsSnapshot.js";
+import { getP2pAdminAuditSurface } from "./p2pAdminAuditSurface.js";
 import { validateP2pAdminSurface } from "./p2pAdminSurfaceSelfTest.js";
+
+export {
+  subscribeP2pDiagnosticsSnapshot,
+  getP2pDiagnosticsSnapshotRevision,
+  refreshP2pDiagnosticsSnapshot,
+  runMockDiagnostics,
+  clearP2pDiagnosticsSnapshotCache,
+  P2P_DIAGNOSTICS_STORAGE_KEY,
+};
 
 /** @type {object|null} */
 let lastRefreshValidation = null;
@@ -26,6 +39,7 @@ export function runP2pAdminRefreshSelfTest(surface = getP2pAdminAuditSurface()) 
     trigger: "refreshAdminPlatformSurface",
     _mock: true,
   };
+  refreshP2pDiagnosticsSnapshot({ lastRefreshValidation, persist: true });
   return lastRefreshValidation;
 }
 
@@ -35,6 +49,7 @@ export function getLastP2pAdminRefreshValidation() {
 
 export function clearP2pAdminRefreshValidation() {
   lastRefreshValidation = null;
+  clearP2pDiagnosticsSnapshotCache();
 }
 
 /** Default duplicate-notify window (mock/local only). */
@@ -154,34 +169,7 @@ export function resolveP2pDiagnosticsMode(mode) {
   return "full";
 }
 
-/** @returns {object} */
+/** Read-only memoized diagnostics (no recompute side effects). */
 export function getP2pDevDiagnostics() {
-  const surface = getP2pAdminAuditSurface();
-  const kpi = computeAdminAuditKpi();
-  const cacheMeta = getP2pAdminCacheMeta();
-  const validation = lastRefreshValidation ?? validateP2pAdminSurface(surface);
-  const issueCount = validation.issueCount ?? validation.issues?.length ?? 0;
-  const alignedCount = validation.alignedCount ?? 0;
-  const orderCount = validation.orderCount ?? kpi.tradeCount;
-
-  return {
-    cacheSynced: isP2pAdminAuditCacheSynced(),
-    cacheSource: kpi.cacheSource,
-    orderCount: kpi.tradeCount,
-    disputeRatio: kpi.disputeRatio,
-    delayedRatio: kpi.delayedRatio,
-    mockOnly: true,
-    cacheAgeMs: cacheMeta.ageMs,
-    cacheAgeLabel: formatP2pCacheAgeLabel(cacheMeta.ageMs),
-    cacheSyncedAt: cacheMeta.syncedAt,
-    validation,
-    validationOk: Boolean(validation.ok),
-    issueCount,
-    alignedCount,
-    orderCountValidated: orderCount,
-    refreshSelfTestRan: lastRefreshValidation != null,
-    refreshRanAt: lastRefreshValidation?.ranAt ?? null,
-    kpi,
-    _mock: true,
-  };
+  return getP2pDiagnosticsSnapshot();
 }

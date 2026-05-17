@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useSyncExternalStore } from "react";
 import {
-  getP2pDevDiagnostics,
   formatP2pCacheAgeLabel,
   resolveShowP2pDevDiagnostics,
   resolveP2pDiagnosticsMode,
+  subscribeP2pDiagnosticsSnapshot,
+  getP2pDiagnosticsSnapshotRevision,
 } from "../p2pDevDiagnostics.js";
+import { getP2pDiagnosticsSnapshot } from "../p2pDiagnosticsSnapshot.js";
 import { P2P_TEST_IDS } from "../p2pTestIds.js";
 import { isP2pTradeDark } from "./p2pTradeShell.js";
 
@@ -16,13 +18,20 @@ export function P2pDevDiagnosticsPanel({
   mode = "full",
   compact,
 }) {
+  const snapshotRevision = useSyncExternalStore(
+    subscribeP2pDiagnosticsSnapshot,
+    getP2pDiagnosticsSnapshotRevision,
+    () => 0,
+  );
   void diagnosticsRevision;
+  void snapshotRevision;
+
   const visible = resolveShowP2pDevDiagnostics(showDevDiagnostics ?? show);
   if (!visible) return null;
 
   const resolvedMode = resolveP2pDiagnosticsMode(compact ? "strip" : mode);
   const isDark = isP2pTradeDark(theme);
-  const diag = getP2pDevDiagnostics();
+  const diag = getP2pDiagnosticsSnapshot();
   const validationOk = diag.validationOk;
 
   const badges = (
@@ -75,6 +84,21 @@ export function P2pDevDiagnosticsPanel({
         <div className="flex flex-wrap gap-2 text-[9px] font-mono font-bold tabular-nums">
           <StripChip label="orders" value={String(diag.orderCount)} />
           <StripChip label="issues" value={String(diag.issueCount)} highlight={diag.issueCount > 0} />
+          <StripChip
+            label="risk"
+            value={String(diag.riskGuardStatus || "—")}
+            highlight={diag.riskGuardStatus === "fail"}
+          />
+          <StripChip label="rg-issues" value={String(diag.riskGuardIssueCount ?? 0)} highlight={(diag.riskGuardIssueCount ?? 0) > 0} />
+          {diag.selfTestCoreOverall ? (
+            <StripChip
+              label="core"
+              value={`${diag.selfTestCoreOverall}`}
+              highlight={diag.selfTestCoreOverall === "FAIL"}
+            />
+          ) : (
+            <StripChip label="core" value="—" />
+          )}
           <StripChip label="aligned" value={`${diag.alignedCount}/${diag.orderCountValidated}`} />
           <StripChip label="dispute" value={`${diag.disputeRatio}%`} />
           <StripChip label="age" value={formatP2pCacheAgeLabel(diag.cacheAgeMs)} />
@@ -119,6 +143,23 @@ export function P2pDevDiagnosticsPanel({
         <DiagCell label="delayed ratio" value={`${diag.delayedRatio}%`} />
         <DiagCell label="aligned" value={`${diag.alignedCount}/${diag.orderCountValidated}`} />
         <DiagCell label="issues" value={String(diag.issueCount)} accent={diag.issueCount > 0 ? "rose" : "emerald"} />
+        <DiagCell
+          label="risk guard"
+          value={String(diag.riskGuardStatus || "pass")}
+          accent={diag.riskGuardStatus === "fail" ? "rose" : diag.riskGuardStatus === "warn" ? "rose" : "emerald"}
+        />
+        <DiagCell label="rg issues" value={String(diag.riskGuardIssueCount ?? 0)} accent={(diag.riskGuardIssueCount ?? 0) > 0 ? "rose" : "emerald"} />
+        <DiagCell
+          label="rg checked"
+          value={diag.riskGuardLastChecked ? new Date(diag.riskGuardLastChecked).toLocaleTimeString() : "—"}
+          mono
+        />
+        <DiagCell
+          label="core ST"
+          value={diag.selfTestCoreOverall || "—"}
+          accent={diag.selfTestCoreOverall === "FAIL" ? "rose" : diag.selfTestCoreOverall === "WARN" ? "rose" : "emerald"}
+        />
+        <DiagCell label="core fail#" value={String(diag.selfTestCoreIssueCount ?? "—")} mono />
       </div>
       {!validationOk && diag.validation?.issues?.length ? (
         <p className={`mt-2 font-mono text-[9px] max-sm:mt-1 ${theme.muted}`}>

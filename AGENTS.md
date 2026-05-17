@@ -38,9 +38,15 @@ Follow `docs/GLOBAL_SELF_TEST_VALIDATION.md` on every change:
 - No uncontrolled realtime loops; additive-only extensions
 - Keep `npm run release:check` (build, lint, test, admin verify)
 
-01-TetherGet-P2P mapping: `runAdminSelfTestSuite()`, `P2pDevDiagnosticsPanel`, `validateP2pAdminSurface()`, `runMembershipSelfTestSuite()`, `npm run smoke:p2p`.
+01-TetherGet-P2P mapping: `runAdminSelfTestSuite()`, `runAdminSelfTestSuiteWithCore()` / `runP2pSelfTestDualBundle()` (`@tetherget/self-test-core`), `P2pDevDiagnosticsPanel`, `validateP2pAdminSurface()`, `runMembershipSelfTestSuite()`, `runDisputeSelfTestSuite()`, `runNotificationSelfTestSuite()`, `npm run smoke:p2p`. See `docs/P2P_SELF_TEST_CORE_ADAPTER.md`.
 
 Membership / Points discount (mock): `src/membership/` — see `docs/TETHERGET_MEMBERSHIP.md`, `docs/TETHERGET_ONEAI_BRIDGE.md`.
+
+P2P Dispute / Escrow Case Center (mock): `src/dispute/` — see `docs/P2P_DISPUTE_CENTER.md`, `docs/P2P_ESCROW_FLOW.md`, `docs/TETHERGET_AUDIT.md`. Additive to server `DisputePanel`; no real release/bank API.
+
+Admin Risk Guard / Escrow Release Guard (mock): `src/risk/` + `src/components/risk/` — see `docs/P2P_RISK_GUARD.md`. `runRiskGuardSelfTestSuite()` in admin **자동검증**; mock release disabled when `dispute_opened`.
+
+Notification / Activity feed (mock): `src/notifications/` — see `docs/P2P_NOTIFICATION_CENTER.md`, `docs/P2P_ACTIVITY_FEED.md`. localStorage only; no push; bridges from `dispute/disputeHelpers.js` and membership sync.
 
 ---
 

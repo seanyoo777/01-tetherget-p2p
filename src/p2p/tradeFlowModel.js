@@ -9,6 +9,8 @@ import {
   P2P_LIFECYCLE,
 } from "../../shared/p2pLifecycleMap.js";
 import { getMockDisputeForOrder } from "../mock/p2pTradeFlowMock.js";
+import { getDisputeCaseByOrderId } from "../dispute/disputeHelpers.js";
+import { evaluateEscrowReleaseGuard, evaluateSuspiciousPartyRisk } from "../risk/riskGuardHelpers.js";
 import { deriveMatrixStatus, getMatrixMeta, matrixStatusStepIndex } from "./p2pStatusMatrix.js";
 import { mapCanonicalEscrowToDisplay, getEscrowDisplayMeta } from "./p2pEscrowDisplay.js";
 import { getStepperMatrixHint, getEscrowPhaseCopy } from "./p2pEscrowCopy.js";
@@ -77,6 +79,12 @@ export function deriveTradeFlowView(row, options = {}) {
   const matrixReleasing =
     matrixStatus === P2P_MATRIX_STATUS.PAYMENT_CONFIRMED && escrowDisplay === "waiting_release";
 
+  const disputeCase = getDisputeCaseByOrderId(row?.id);
+  const escrowGuard = disputeCase ? evaluateEscrowReleaseGuard(disputeCase) : null;
+  const partyRisk = disputeCase ? evaluateSuspiciousPartyRisk(disputeCase) : null;
+  const mockReleaseBlocked =
+    Boolean(escrowGuard?.releaseBlocked) || disputeCase?.escrowStatus === "dispute_opened";
+
   return {
     lifecycle,
     escrow: escrowCanonical,
@@ -100,6 +108,10 @@ export function deriveTradeFlowView(row, options = {}) {
     escrowPhaseCopy,
     buyerHint: role === "buyer" ? buyerHintFor(row) : null,
     sellerHint: role === "seller" ? sellerHintFor(row) : null,
+    disputeCase,
+    escrowGuard,
+    partyRisk,
+    mockReleaseBlocked,
   };
 }
 

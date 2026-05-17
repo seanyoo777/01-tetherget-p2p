@@ -94,7 +94,7 @@ describe("adminSelfTestEngine", () => {
 
   it("runAdminSelfTestSuite returns cards and aggregate status", () => {
     const suite = runAdminSelfTestSuite();
-    assert.ok(suite.cards.length >= 9);
+    assert.ok(suite.cards.length >= 11);
     assert.ok(["pass", "warn", "fail"].includes(suite.status));
     assert.equal(typeof suite.issueCount, "number");
     assert.ok(suite.lastChecked > 0);

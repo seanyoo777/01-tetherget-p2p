@@ -4,6 +4,8 @@ import { P2P_ESCROW_COPY } from "../p2pEscrowCopy.js";
 import { P2P_TEST_IDS } from "../p2pTestIds.js";
 import { P2pEscrowLifecycleLegend } from "./P2pEscrowLifecycleLegend.jsx";
 import { isP2pTradeDark } from "./p2pTradeShell.js";
+import { RiskStatusBadge } from "../../components/risk/RiskStatusBadge.jsx";
+import { RISK_GUARD_TEST_IDS } from "../../risk/riskGuardTestIds.js";
 
 const TONE = {
   amber: { dark: "border-amber-500/30 bg-amber-950/40 text-amber-100", light: "border-amber-200 bg-amber-50 text-amber-900" },
@@ -17,8 +19,13 @@ export function P2pEscrowStatusPanel({ theme, flow }) {
   const isDark = isP2pTradeDark(theme);
   const displayKey = flow?.escrowDisplay || flow?.escrow;
   const meta = flow?.escrowDisplayMeta || ESCROW_LABELS[displayKey] || ESCROW_LABELS.locked;
-  const tone = TONE[meta.tone]?.[isDark ? "dark" : "light"] || TONE.slate.dark;
+  const tone =
+    flow?.mockReleaseBlocked
+      ? TONE.rose[isDark ? "dark" : "light"]
+      : TONE[meta.tone]?.[isDark ? "dark" : "light"] || TONE.slate.dark;
   const phase = flow?.escrowPhaseCopy;
+  const guard = flow?.escrowGuard;
+  const party = flow?.partyRisk;
 
   return (
     <div data-testid={P2P_TEST_IDS.escrowPanel} className={`rounded-xl border p-3 ${tone}`}>
@@ -37,6 +44,24 @@ export function P2pEscrowStatusPanel({ theme, flow }) {
           {flow?.matrixReleasing ? "releasing" : flow?.escrowCanonical || flow?.matrixStatus}
         </span>
       </div>
+
+      {guard ? (
+        <div
+          data-testid={RISK_GUARD_TEST_IDS.escrowGuardPanel}
+          className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-2 py-1.5"
+        >
+          <span className="text-[9px] font-bold opacity-80">Release Guard</span>
+          <RiskStatusBadge status={guard.status} label={guard.status.toUpperCase()} compact />
+          <RiskStatusBadge
+            status={guard.releaseBlocked ? "fail" : "pass"}
+            label={guard.releaseBlocked ? "BLOCKED" : "OPEN"}
+            compact
+          />
+          {party?.buyer !== "pass" ? <RiskStatusBadge status={party.buyer} label="BUYER" compact /> : null}
+          {party?.seller !== "pass" ? <RiskStatusBadge status={party.seller} label="SELLER" compact /> : null}
+        </div>
+      ) : null}
+
       {phase?.detail ? <p className="mt-2 text-[10px] leading-snug opacity-90">{phase.detail}</p> : null}
       {phase?.dualNote ? (
         <p className={`mt-2 rounded border border-white/10 px-2 py-1 text-[9px] leading-snug ${isDark ? "text-sky-200" : "text-sky-900"}`}>
@@ -50,6 +75,11 @@ export function P2pEscrowStatusPanel({ theme, flow }) {
       ) : null}
       {flow?.hasActiveDispute ? (
         <p className="mt-2 text-[10px] font-bold text-rose-300">분쟁 활성 — escrow는 disputed</p>
+      ) : null}
+      {flow?.mockReleaseBlocked ? (
+        <p className="mt-2 text-[10px] font-bold text-rose-200">
+          Mock escrow release 비활성 — dispute_opened / releaseBlocked (실제 릴리스 없음)
+        </p>
       ) : null}
       <p className={`mt-2 text-[9px] ${isDark ? "text-slate-400" : "text-slate-600"}`}>{P2P_ESCROW_COPY.platformPanelFootnote}</p>
       <div className="mt-2">

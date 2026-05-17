@@ -6,6 +6,7 @@ import {
 } from "./membershipTiers.js";
 import { isMembershipDiscountEnabled } from "./membershipFeatureFlags.js";
 import { appendMembershipAuditEvent, MEMBERSHIP_AUDIT_EVENT } from "./membershipAudit.js";
+import { bridgeMembershipLevelUpdated } from "../notifications/notificationHelpers.js";
 
 export const TG_MEMBERSHIP_MOCK_STORAGE_KEY = "tg_membership_mock_v1";
 
@@ -95,21 +96,24 @@ export function mockSyncOneAiMembership(state) {
     MEMBERSHIP_AUDIT_EVENT.SYNC_MOCK,
     { action: "start" },
   );
-  return normalizeMembershipMockState({
+  const synced = normalizeMembershipMockState({
     ...next,
     oneAiSyncStatus: "mock_synced",
     lastSyncAt: Date.now(),
   });
+  bridgeMembershipLevelUpdated(synced.tierLabel || synced.tierId || "updated");
+  return synced;
 }
 
 /**
  * @param {object} state
  */
 export function recordMembershipLevelMock(state) {
-  return withMembershipAudit(state, MEMBERSHIP_AUDIT_EVENT.LEVEL_MOCK, {
+  const next = withMembershipAudit(state, MEMBERSHIP_AUDIT_EVENT.LEVEL_MOCK, {
     tierId: state.tierId,
     points: state.oneAiPoints,
   });
+  return next;
 }
 
 /**

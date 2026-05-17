@@ -4,9 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  /** 01번 P2P 전용: http://localhost:5171/ — 02-TGX-CEX 등이 5173을 쓰면 충돌 없이 병행 가능. */
+  /** 01번 P2P 전용: http://localhost:5173/ — 03-OneAI는 5180 (vite) 사용. */
   server: {
-    port: 5171,
+    port: 5173,
     strictPort: true,
+    host: true,
+    open: true,
   },
 })

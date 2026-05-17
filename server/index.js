@@ -619,18 +619,24 @@ function rollbackFromSnapshot(snapshotPath) {
   }
 }
 
-const adminEmail = "admin@tetherget.com";
-if (!userRepo.findByEmail(adminEmail)) {
-  const hash = bcrypt.hashSync("admin1234", 10);
-  userRepo.create({
-    email: adminEmail,
-    passwordHash: hash,
-    nickname: "슈퍼페이지 관리자",
-    role: "슈퍼페이지 관리자",
-    session_role: "hq_ops",
-    sales_level: null,
-  });
+const adminSeedAccounts = [
+  { email: "admin@tetherget.local", nickname: "본사 관리자 (mock)", role: "슈퍼페이지 관리자" },
+  { email: "admin@tetherget.com", nickname: "슈퍼페이지 관리자", role: "슈퍼페이지 관리자" },
+];
+for (const seed of adminSeedAccounts) {
+  if (!userRepo.findByEmail(seed.email)) {
+    const hash = bcrypt.hashSync("admin1234", 10);
+    userRepo.create({
+      email: seed.email,
+      passwordHash: hash,
+      nickname: seed.nickname,
+      role: seed.role,
+      session_role: "hq_ops",
+      sales_level: null,
+    });
+  }
 }
+const adminEmail = "admin@tetherget.com";
 const ensuredAdmin = userRepo.findByEmail(adminEmail);
 if (!ensuredAdmin) {
   console.error("[tetherget-api] 시드 관리자(admin@tetherget.com)를 찾을 수 없습니다.");

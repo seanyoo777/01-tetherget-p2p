@@ -10,7 +10,7 @@
 
 | Layer | Role | Files |
 |-------|------|--------|
-| **Gate** | Who may open admin | `src/admin/canAccessAdminSafe.js`, `App.jsx` (`adminGateAllowed`, `sessionProfile.canAccessAdmin`) |
+| **Gate** | Who may open admin | `src/admin/canAccessAdminSafe.js`, **`src/admin/resolveAdminUiAccess.js`** (`buildAdminGateUser`, `resolveAdminUiAccess` → `canEnterAdminUi` in `App.jsx`; nav/본문/openPage/restore/LS 동일; `admin-denied` 유지·LS 미저장) |
 | **Shell** | Left nav + header + single `children` slot | `src/admin/AdminShell.jsx` (menu ids: `dashboard`, `member`, `referral`, `stage`, `trade`, `settlement`, `settings`, `ute`) |
 | **Panel** | All functional admin UI in one large component | `App.jsx` → `function AdminReferralPanel` (~5k+ lines); shared **관리자 액션 로그** strip → `AdminActionLogStrip.jsx`; **`memberOps`** 세 경계 블록 → `MemberOpsGridPanel.jsx` / `MemberOpsMemoPanel.jsx` / `MemberOpsMediaPanel.jsx`; **`member`** → `MemberGridPanel.jsx` + `MemberHierarchyPanel.jsx` + `MemberDetailPanel.jsx` + `MemberSelfNoticePanel.jsx` + `MemberStageConfirmPanel.jsx` + `MemberPendingStagePanel.jsx` + `MemberAssignChildPanel.jsx` + `MemberActionRowPanel.jsx` + `MemberEmptyDownlinePanel.jsx` + `MemberStatsPanel.jsx` + `MemberDirectDownlinePanel.jsx` + `MemberHiddenFieldsPanel.jsx` + `MemberEmptySelectionPanel.jsx` + **잔여 인라인**(2열 `ref`·레이아웃·선택 제목·취소 클로저 등 — [ADMIN_PANEL_SPLIT_PLAN.md](./ADMIN_PANEL_SPLIT_PLAN.md) **Phase 44**·**Phase 45**) + 나머지는 `App.jsx`; **`ops`** → `OpsOverviewPanel.jsx` + `OpsMaintenancePanel.jsx` + `OpsMarketAuditPanel.jsx` + `OpsRiskCenterPanel.jsx` + `OpsExtendedMarketCatalogPanel.jsx` + `OpsSnapshotRollbackPanel.jsx` + `OpsReportHashPanel.jsx` + `OpsWebhookStatusPanel.jsx` + `OpsPermissionAuditPanel.jsx` (인라인 카드 없음; 경계·state는 `App.jsx`); **`audit`** → `AuditOverviewPanel.jsx` + `AuditP2pOrderMonitorPanel.jsx` + 공유 카드 루트는 `App.jsx` |
 | **Tabs** | Inner horizontal tabs (`adminViewTab`) | Same panel: `dashboard`, `member`, `memberOps`, `security`, `kyc`, `dispute`, `ops`, `audit`, `uteSurface` |
@@ -97,6 +97,17 @@ Map from your product list to current UI (approximate):
 ---
 
 ## 7. Stabilization changelog
+
+### Phase P0 (admin gate single source — 2026-05)
+
+- **`src/admin/resolveAdminUiAccess.js`**: `buildAdminGateUser`, `resolveAdminUiAccess`, `normalizeStoredMainScreen`, `readInitialMainScreen`, `readDebugAdminFlag`.
+- **`App.jsx`**: `canEnterAdminUi` replaces `showAdminNav` / `adminGateAllowed` split; restore effect runs only when `loggedIn` + `linkedGoogle` and `activePage === "admin"` without gate (→ `trade`); `admin-denied` not persisted to LS; cold load never restores `admin-denied`.
+- **Tests:** `src/admin/__tests__/resolveAdminUiAccess.test.js`.
+
+### Phase P0b (admin render-loop stabilization — 2026-05)
+
+- **`AdminReferralPanel` in `App.jsx`**: `setStageByUserId` / `setUserAdminAssignments` — 변경 없으면 `prev` 반환; `setSelectedAdminUser` — `adminMemberRowSyncEqual` + functional update; role sync — `setCurrentRole` functional, `currentRole` deps 제거.
+- **QA:** `scripts/qa-admin-render-loop.mjs` (admin 탭·shell 탭·F5, Maximum update depth 감시).
 
 ### Phase 1 (audit / ops)
 

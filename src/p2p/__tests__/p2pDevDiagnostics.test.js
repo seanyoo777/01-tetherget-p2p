@@ -1,11 +1,17 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { getP2pDevDiagnostics, formatP2pCacheAgeLabel } from "../p2pDevDiagnostics.js";
+import {
+  getP2pDevDiagnostics,
+  formatP2pCacheAgeLabel,
+  runP2pAdminRefreshSelfTest,
+  clearP2pAdminRefreshValidation,
+  runMockDiagnostics,
+} from "../p2pDevDiagnostics.js";
+import { clearP2pDiagnosticsSnapshotCache } from "../p2pDiagnosticsSnapshot.js";
 import {
   clearP2pAdminAuditCache,
   syncP2pAdminAuditCache,
 } from "../p2pAdminAuditSurface.js";
-import { runP2pAdminRefreshSelfTest, clearP2pAdminRefreshValidation } from "../p2pDevDiagnostics.js";
 import { P2P_TEST_IDS } from "../p2pTestIds.js";
 import { P2P_ESCROW_LEGEND_ENTRIES } from "../p2pEscrowLifecycleLegend.js";
 
@@ -13,6 +19,7 @@ describe("getP2pDevDiagnostics", () => {
   beforeEach(() => {
     clearP2pAdminAuditCache();
     clearP2pAdminRefreshValidation();
+    clearP2pDiagnosticsSnapshotCache();
   });
 
   it("returns mock-only diagnostics snapshot", () => {
@@ -71,6 +78,20 @@ describe("P2P escrow legend entries", () => {
     assert.ok(keys.includes("released"));
     assert.ok(keys.includes("refunded"));
     assert.ok(keys.includes("disputed"));
+  });
+});
+
+describe("runMockDiagnostics snapshot", () => {
+  beforeEach(() => {
+    clearP2pAdminAuditCache();
+    clearP2pDiagnosticsSnapshotCache();
+  });
+
+  it("refreshes memoized snapshot without render-phase writes", () => {
+    const a = runMockDiagnostics();
+    const b = getP2pDevDiagnostics();
+    assert.equal(a.revision, b.revision);
+    assert.equal(a.mockOnly, true);
   });
 });
 
